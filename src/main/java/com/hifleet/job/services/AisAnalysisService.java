@@ -259,8 +259,12 @@ public class AisAnalysisService {
 
 
             String mmsi = ships.get(i).getMmsi();
+//            if(!mmsi.equals("253242499")){
+//                continue;
+//            }
 
             if(readMmsiMap.containsKey(Integer.parseInt(mmsi))){
+
                 continue;
             }
 
@@ -272,13 +276,15 @@ public class AisAnalysisService {
 
                 String starttime ="2025-06-10 00:00:00";//days.get(j).toString() +" 00:00:00";//"2026-05-25 00:00:00";//
                 String endtime = "2026-06-10 00:00:00";//days.get(j+1).toString()+" 00:00:00";;//"2026-05-29 00:00:00";//
-                NewOffersForm offersForm = getTrajectoryFromHbase.getVoffersFromHbase(mmsi,starttime,endtime,14);
+                NewOffersForm offersForm = getTrajectoryFromHbase.getVoffersFromHbase(mmsi,starttime,endtime,16);
 
                 if(offersForm.getOffers().size()>10){
                     Map<LocalDate, AisDailySailingResult> dailyStats =
                             AnalysisAisDistanceAndTime(offersForm.getOffers());
                     saveAisAnalysisResult(Integer.parseInt(mmsi), dailyStats);
                 }
+
+            getAbnormalShip(Integer.parseInt(mmsi),starttime,endtime);
 
           //  }
         }
@@ -332,6 +338,7 @@ public class AisAnalysisService {
             //logger.info(prev.getTi()+""+distanceNm+"");
             //logger.info(gapMs/(1000*60)+"");
             if (gapMs > MAX_SEGMENT_GAP_MS) {
+
                 aisAnalysisRepositiory.insertAisGap(Integer.parseInt(prev.getM()),prev.getTi(),next.getTi());
                 continue;
             }
