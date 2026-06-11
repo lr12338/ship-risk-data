@@ -35,8 +35,8 @@ public class ZoneLoaderService {
             "41141,41142,199651,2508564,2508567";
 
     @Autowired
-    @Qualifier("dataanalysisJdbcTemplate")
-    private JdbcTemplate dataanalysisJdbcTemplate;
+    @Qualifier("newDataanalysisJdbcTemplate")
+    private JdbcTemplate newDataanalysisJdbcTemplate;
 
     @Autowired
     @Qualifier("aid41JdbcTemplate")
@@ -49,7 +49,7 @@ public class ZoneLoaderService {
         if (zoneIds != null && !zoneIds.isEmpty()) {
             sql += " AND id IN (" + buildPlaceholders(zoneIds.size()) + ")";
         }
-        return queryZones(dataanalysisJdbcTemplate, sql, zoneIds, "zones_with_port_id");
+        return queryZones(newDataanalysisJdbcTemplate, sql, zoneIds, "zones_with_port_id");
     }
 
     public List<ZoneDefinition> loadAlertZones(List<Integer> zoneIds) {

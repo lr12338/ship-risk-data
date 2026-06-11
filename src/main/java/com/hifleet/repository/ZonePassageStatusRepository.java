@@ -22,8 +22,8 @@ public class ZonePassageStatusRepository {
     private static final String STATUS_FAILED = "FAILED";
 
     @Autowired
-    @Qualifier("dataanalysisJdbcTemplate")
-    private JdbcTemplate dataanalysisJdbcTemplate;
+    @Qualifier("newDataanalysisJdbcTemplate")
+    private JdbcTemplate newDataanalysisJdbcTemplate;
 
     /**
      * 查询本批次已完成的船舶 MMSI 集合。
@@ -31,7 +31,7 @@ public class ZonePassageStatusRepository {
     public Set<String> findCompletedMmsi(String batchMonth, String startTime, String endTime) {
         String sql = "SELECT mmsi FROM dataanalysis.ship_zone_passage_status " +
                 "WHERE batch_month = ? AND start_time = ? AND end_time = ? AND status = ?";
-        List<String> list = dataanalysisJdbcTemplate.query(sql,
+        List<String> list = newDataanalysisJdbcTemplate.query(sql,
                 new Object[]{batchMonth, startTime, endTime, STATUS_DONE},
                 (rs, rowNum) -> rs.getString("mmsi"));
         return new HashSet<String>(list);
@@ -58,6 +58,6 @@ public class ZonePassageStatusRepository {
                 "VALUES (?, ?, ?, ?, ?, ?) " +
                 "ON DUPLICATE KEY UPDATE status = VALUES(status), event_count = VALUES(event_count), " +
                 "processed_at = CURRENT_TIMESTAMP";
-        dataanalysisJdbcTemplate.update(sql, batchMonth, mmsi, startTime, endTime, status, eventCount);
+        newDataanalysisJdbcTemplate.update(sql, batchMonth, mmsi, startTime, endTime, status, eventCount);
     }
 }

@@ -23,8 +23,8 @@ public class ZoneCrossingStoreService {
     private boolean storeEnabled;
 
     @Autowired
-    @Qualifier("dataanalysisJdbcTemplate")
-    private JdbcTemplate dataanalysisJdbcTemplate;
+    @Qualifier("newDataanalysisJdbcTemplate")
+    private JdbcTemplate newDataanalysisJdbcTemplate;
 
     public void saveEvents(List<ZoneCrossingEvent> events) {
         if (!storeEnabled || events == null || events.isEmpty()) {
@@ -35,7 +35,7 @@ public class ZoneCrossingStoreService {
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         for (ZoneCrossingEvent event : events) {
             try {
-                dataanalysisJdbcTemplate.update(sql,
+                newDataanalysisJdbcTemplate.update(sql,
                         event.getMmsi(),
                         event.getZoneId(),
                         event.getZoneName(),

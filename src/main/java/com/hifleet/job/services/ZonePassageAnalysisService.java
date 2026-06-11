@@ -111,34 +111,22 @@ public class ZonePassageAnalysisService {
 
     private final ZoneCrossingDetector zoneCrossingDetector = new ZoneCrossingDetector();
 
-
-
     @Autowired
-
     private AIS41GeneralQueryRepository ais41GeneralQueryRepository;
 
-
-
     @Autowired
-
     private ZoneLoaderService zoneLoaderService;
 
 
-
     @Autowired
-
     private StormWavePassageService stormWavePassageService;
 
 
 
     @Autowired
-
     private ZoneCrossingStoreService zoneCrossingStoreService;
 
-
-
     @Autowired
-
     private ZonePassageStatusRepository zonePassageStatusRepository;
 
 
