@@ -268,7 +268,7 @@ public class AisAnalysisService {
                 continue;
             }
 
-            aisAnalysisRepositiory.insertPortofCall(Integer.parseInt(ships.get(i).getMmsi()));
+
 
            ArrayList<LocalDate> days =generateDateList();
 
@@ -285,7 +285,7 @@ public class AisAnalysisService {
                 }
 
             getAbnormalShip(Integer.parseInt(mmsi),starttime,endtime);
-
+            aisAnalysisRepositiory.insertPortofCall(Integer.parseInt(ships.get(i).getMmsi()));
           //  }
         }
         //全部生成完 清空状态

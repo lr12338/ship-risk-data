@@ -80,7 +80,7 @@ public class AisAnalysisRepositiory {
     }
 
     public void insertAisGap(int  mmsi,String startday,String endday){
-        String sql="insert into dataanalysis.ais_analysis_gap (mmsi,startday,endday ) values (?,?,?)";
+        String sql="replace into dataanalysis.ais_analysis_gap (mmsi,startday,endday ) values (?,?,?)";
 
         newDataanalysisJdbcTemplate.update(sql, new PreparedStatementSetter() {
 
@@ -111,7 +111,7 @@ public class AisAnalysisRepositiory {
         if (dailyStats == null || dailyStats.isEmpty()) {
             return;
         }
-        String sql = "insert into dataanalysis.ais_analysis_result (mmsi, day, distance, hours) values (?, ?, ?, ?)";
+        String sql = "replcae into dataanalysis.ais_analysis_result (mmsi, day, distance, hours) values (?, ?, ?, ?)";
         List<Map.Entry<String, double[]>> entries = new ArrayList<>(dailyStats.entrySet());
         newDataanalysisJdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
             @Override
@@ -140,7 +140,7 @@ public class AisAnalysisRepositiory {
         if (rows == null || rows.isEmpty()) {
             return;
         }
-        String sql = "insert into dataanalysis.ais_analysis_abnormal (mmsi, alerttype, updatetime, lon, lat) values (?, ?, ?, ?, ?)";
+        String sql = "replace into dataanalysis.ais_analysis_abnormal (mmsi, alerttype, updatetime, lon, lat) values (?, ?, ?, ?, ?)";
         newDataanalysisJdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
             @Override
             public void setValues(PreparedStatement stmt, int i) throws SQLException {
