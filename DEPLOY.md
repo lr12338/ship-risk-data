@@ -1,8 +1,11 @@
 # ship-risk-data 部署文档
 
 部署目录：**`/data/zhengyi`**  
-无需解压，jar 与脚本放同一目录，直接 `./start.sh` 启动。  
-生产环境使用 `prod` Profile（加载 `application-prod.properties`）。
+无需解压，jar 与脚本放同一目录，直接 `./start.sh` 启动。
+
+**配置策略：** 线上以 `/data/zhengyi/application.properties` 为准（外置配置）。  
+jar 内 `application-prod.properties` 为空占位，不承载数据源等生产配置。  
+`start.sh` 启动时必须存在同目录 `application.properties`，否则拒绝启动。
 
 ---
 
@@ -39,6 +42,7 @@ chmod +x deploy/package.sh
 ```
 dist/
 ├── ship-risk-data-0.0.1-SNAPSHOT.jar
+├── application.properties   # 首次部署模板，仓库内 deploy/application.properties
 ├── start.sh
 ├── stop.sh
 ├── restart.sh
@@ -62,8 +66,11 @@ mvn clean package -DskipTests
 # 创建目录
 ssh user@39.96.38.242 "mkdir -p /data/zhengyi/logs/job/jobhandler /data/zhengyi/logs/archive"
 
-# 上传 jar 和脚本（dist 目录下所有文件）
+# 首次部署：上传 jar、脚本、application.properties 模板
 scp dist/ship-risk-data-0.0.1-SNAPSHOT.jar dist/*.sh dist/application.properties user@39.96.38.242:/data/zhengyi/
+
+# 日常更新：只上传 jar 和脚本，不要覆盖服务器上已维护的 application.properties
+# scp dist/ship-risk-data-0.0.1-SNAPSHOT.jar dist/*.sh user@39.96.38.242:/data/zhengyi/
 ```
 
 ---
@@ -88,16 +95,9 @@ chmod +x *.sh
 ./status.sh
 ```
 
-启动成功示例：
+启动成功：`./start.sh` 无输出；用 `ps -ef | grep ship-risk-data` 或 `./status.sh` 确认进程。
 
-```
-[INFO] starting ship-risk-data ...
-[INFO] dir=/data/zhengyi
-[INFO] profile=prod
-[OK] ship-risk-data started, pid=12345
-[OK] startup log : /data/zhengyi/logs/startup.log
-[OK] app log      : /data/zhengyi/logs/log.log
-```
+修改配置：只改服务器 `/data/zhengyi/application.properties`，然后 `./stop.sh && ./start.sh`，无需重新打包。
 
 ---
 

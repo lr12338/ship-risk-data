@@ -27,9 +27,16 @@ fi
 
 mkdir -p "${LOG_DIR}" "${LOG_DIR}/archive" "${LOG_DIR}/job/jobhandler"
 
+if [ ! -f "${BASE_DIR}/application.properties" ]; then
+  echo "application.properties not found in ${BASE_DIR}" >&2
+  exit 1
+fi
+CONFIG_ARG="--spring.config.additional-location=file:${BASE_DIR}/application.properties"
+
 nohup java ${JAVA_OPTS} \
   -jar "${JAR_PATH}" \
   --spring.profiles.active="${SPRING_PROFILE}" \
+  ${CONFIG_ARG} \
   >> "${STARTUP_LOG}" 2>&1 &
 
 echo $! > "${PID_FILE}"
