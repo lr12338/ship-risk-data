@@ -1,0 +1,40 @@
+#!/bin/bash
+
+set -e
+
+APP_NAME="ship-risk-data"
+VERSION="0.0.1-SNAPSHOT"
+JAR_NAME="${APP_NAME}-${VERSION}.jar"
+BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DEPLOY_DIR="${BASE_DIR}/deploy"
+DIST_DIR="${BASE_DIR}/dist"
+
+echo "[INFO] building project ..."
+cd "${BASE_DIR}"
+mvn clean package -DskipTests -q
+
+if [ ! -f "${BASE_DIR}/target/${JAR_NAME}" ]; then
+  echo "[ERROR] build failed, jar not found"
+  exit 1
+fi
+
+rm -rf "${DIST_DIR}"
+mkdir -p "${DIST_DIR}/logs/archive" "${DIST_DIR}/logs/job/jobhandler"
+
+cp "${BASE_DIR}/target/${JAR_NAME}" "${DIST_DIR}/"
+cp "${DEPLOY_DIR}/start.sh" "${DIST_DIR}/"
+cp "${DEPLOY_DIR}/stop.sh" "${DIST_DIR}/"
+cp "${DEPLOY_DIR}/status.sh" "${DIST_DIR}/"
+cp "${DEPLOY_DIR}/restart.sh" "${DIST_DIR}/"
+chmod +x "${DIST_DIR}/"*.sh
+
+echo ""
+echo "[OK] deploy files ready: ${DIST_DIR}/"
+echo ""
+ls -lh "${DIST_DIR}"
+echo ""
+echo "[NEXT] upload to server /data/zhengyi (no extract needed):"
+echo "  scp dist/${JAR_NAME} dist/*.sh user@39.96.38.242:/data/zhengyi/"
+echo ""
+echo "[NEXT] on server:"
+echo "  cd /data/zhengyi && chmod +x *.sh && ./start.sh"
