@@ -4,53 +4,37 @@ APP_NAME="ship-risk-data"
 JAR_NAME="ship-risk-data-0.0.1-SNAPSHOT.jar"
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 PID_FILE="${BASE_DIR}/${APP_NAME}.pid"
-TIMEOUT=30
+JAR_PATH="${BASE_DIR}/${JAR_NAME}"
 
-stop_pid() {
-  local pid="$1"
-  if ! kill -0 "${pid}" 2>/dev/null; then
-    return 0
-  fi
-
-  echo "[INFO] stopping ${APP_NAME}, pid=${pid} ..."
-  kill "${pid}"
-
-  local waited=0
-  while kill -0 "${pid}" 2>/dev/null; do
-    if [ "${waited}" -ge "${TIMEOUT}" ]; then
-      echo "[WARN] graceful stop timeout, force kill pid=${pid}"
-      kill -9 "${pid}"
-      break
+find_pids() {
+  local pids=""
+  if [ -f "${PID_FILE}" ]; then
+    local file_pid
+    file_pid="$(cat "${PID_FILE}" 2>/dev/null)"
+    if [ -n "${file_pid}" ] && kill -0 "${file_pid}" 2>/dev/null; then
+      pids="${file_pid}"
     fi
-    sleep 1
-    waited=$((waited + 1))
-  done
+  fi
+  if [ -z "${pids}" ]; then
+    pids="$(pgrep -f "${JAR_PATH}" 2>/dev/null || true)"
+  fi
+  if [ -z "${pids}" ]; then
+    pids="$(pgrep -f "${JAR_NAME}" 2>/dev/null || true)"
+  fi
+  echo "${pids}" | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' '
 }
 
-if [ -f "${PID_FILE}" ]; then
-  PID="$(cat "${PID_FILE}")"
-else
-  PID="$(pgrep -f "${BASE_DIR}/${JAR_NAME}" | head -n 1)"
-  if [ -z "${PID}" ]; then
-    PID="$(pgrep -f "${JAR_NAME}" | head -n 1)"
-  fi
-  if [ -n "${PID}" ]; then
-    echo "[WARN] pid file not found, use process pid=${PID}"
-  fi
-fi
-
-if [ -z "${PID}" ]; then
-  echo "[WARN] ${APP_NAME} is not running"
+PIDS="$(find_pids)"
+if [ -z "${PIDS// }" ]; then
   rm -f "${PID_FILE}"
   exit 0
 fi
 
-if ! kill -0 "${PID}" 2>/dev/null; then
-  echo "[WARN] process not found, pid=${PID}"
-  rm -f "${PID_FILE}"
-  exit 0
-fi
+for PID in ${PIDS}; do
+  kill -9 "${PID}" 2>/dev/null || true
+  pkill -9 -P "${PID}" 2>/dev/null || true
+done
 
-stop_pid "${PID}"
+pkill -9 -f "${JAR_PATH}" 2>/dev/null || true
+pkill -9 -f "${JAR_NAME}" 2>/dev/null || true
 rm -f "${PID_FILE}"
-echo "[OK] ${APP_NAME} stopped"
