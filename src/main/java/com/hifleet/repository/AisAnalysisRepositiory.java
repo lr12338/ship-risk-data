@@ -45,6 +45,22 @@ public class AisAnalysisRepositiory {
     }
 
 
+    public List<Integer> getAbnormalReadyMmsi(){
+
+
+        String sql="select DISTINCT(mmsi) from dataanalysis.ais_analysis_abnormal;";
+        return newDataanalysisJdbcTemplate.query(sql,new RowMapper<Integer>() {
+            @Override
+            public Integer mapRow(ResultSet rs, int rowNum) throws SQLException {
+
+                int mmsi =rs.getInt("mmsi");
+
+                return mmsi;
+            }
+        });
+    }
+
+
 
 
 

@@ -102,7 +102,16 @@ public class AisAnalysisService {
         ArrayList<ShipForm> ships = (ArrayList<ShipForm>) ais41GeneralQueryRepository.selectRecentShips();
         String starttime = "2025-06-10 00:00:00";
         String endtime = "2026-06-10 00:00:00";
+        ArrayList<Integer> readyMmsi = (ArrayList<Integer>) aisAnalysisRepositiory.getAbnormalReadyMmsi();
+        HashMap<Integer, Integer> readMmsiMap = new HashMap<>();
+        for(int i=0;i<readyMmsi.size();i++){
+            int mmsi = readyMmsi.get(i);
+            readMmsiMap.put(mmsi,mmsi);
+        }
         for (int i = 0; i < ships.size(); i++) {
+            if(readMmsiMap.containsKey(Integer.parseInt(ships.get(i).getMmsi()))){
+                continue;
+            }
             getAbnormalShip(Integer.parseInt(ships.get(i).getMmsi()), starttime, endtime);
         }
         return true;
