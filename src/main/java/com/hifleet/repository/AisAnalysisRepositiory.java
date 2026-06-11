@@ -111,7 +111,7 @@ public class AisAnalysisRepositiory {
         if (dailyStats == null || dailyStats.isEmpty()) {
             return;
         }
-        String sql = "replcae into dataanalysis.ais_analysis_result (mmsi, day, distance, hours) values (?, ?, ?, ?)";
+        String sql = "replace into dataanalysis.ais_analysis_result (mmsi, day, distance, hours) values (?, ?, ?, ?)";
         List<Map.Entry<String, double[]>> entries = new ArrayList<>(dailyStats.entrySet());
         newDataanalysisJdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
             @Override
