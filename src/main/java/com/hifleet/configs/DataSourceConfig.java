@@ -1,6 +1,5 @@
 package com.hifleet.configs;
 
-import com.alibaba.druid.spring.boot.autoconfigure.DruidDataSourceBuilder;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionFactoryBean;
 import org.mybatis.spring.SqlSessionTemplate;
@@ -69,13 +68,6 @@ public class DataSourceConfig {
         return DataSourceBuilder.create().build();
     }
 
-    @Bean(name = "pgDataSource")
-    @Qualifier("pgDataSource")
-    @ConfigurationProperties(prefix = "spring.datasource.pgReadonly")
-    public DataSource pgDataSource() {
-        return DruidDataSourceBuilder.create().build();
-    }
-
     @Bean(name = "dataanalysisDataSource")
     @Qualifier("dataanalysisDataSource")
     @ConfigurationProperties(prefix = "spring.datasource.dataanalysis")
@@ -138,11 +130,6 @@ public class DataSourceConfig {
 
     @Bean(name = "DB3AlertRsJdbcTemplate")
     public JdbcTemplate db3AlertRsJdbcTemplate(@Qualifier("DB3AlertRsDataSource") DataSource dataSource) {
-        return new JdbcTemplate(dataSource);
-    }
-
-    @Bean(name = "pgJdbcTemplate")
-    public JdbcTemplate pgJdbcTemplate(@Qualifier("pgDataSource") DataSource dataSource) {
         return new JdbcTemplate(dataSource);
     }
 

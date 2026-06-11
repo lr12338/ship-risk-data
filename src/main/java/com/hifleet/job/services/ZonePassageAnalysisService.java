@@ -235,6 +235,12 @@ public class ZonePassageAnalysisService {
 
         }
 
+        if (!stormWavePassageService.initPgAvailability()) {
+
+            XxlJobLogger.log("PostgreSQL 不可达，本次跳过风浪/大风，仅计算海峡/海区");
+
+        }
+
 
 
         int processed = 0;

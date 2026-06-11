@@ -43,8 +43,24 @@ public class StormWavePassageService {
     private static final int SEGMENT_THRESHOLD_HOURS = 8;
 
     @Autowired
-    @Qualifier("pgJdbcTemplate")
-    private JdbcTemplate pgJdbcTemplate;
+    @Qualifier("wgq111PGJdbcTemplate")
+    private JdbcTemplate wgq111PGJdbcTemplate;
+
+    private volatile boolean pgAvailable = true;
+
+    /**
+     * 任务开始时探测 PostgreSQL 是否可用，不可用时本次任务跳过风浪/大风计算。
+     */
+    public boolean initPgAvailability() {
+        try {
+            wgq111PGJdbcTemplate.queryForObject("SELECT 1", Integer.class);
+            pgAvailable = true;
+        } catch (Exception ex) {
+            pgAvailable = false;
+            log.warn("PostgreSQL unavailable, skip storm wave/wind for this job: {}", ex.getMessage());
+        }
+        return pgAvailable;
+    }
 
     /**
      * 计算单船在大风浪/大风区域内的进出事件。
@@ -53,7 +69,7 @@ public class StormWavePassageService {
      * @param points 轨迹点（由调用方在 for 循环中统一从 HBase 查询后传入，避免重复查库）
      */
     public List<ZoneCrossingEvent> calculateStormPassage(String mmsi, Vector<NewShipForm> points) {
-        if (points == null || points.size() < 2) {
+        if (!pgAvailable || points == null || points.size() < 2) {
             return Collections.emptyList();
         }
 
@@ -113,7 +129,7 @@ public class StormWavePassageService {
                 "    (to_timestamp(?, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'Asia/Shanghai' AT TIME ZONE 'UTC')";
 
         try {
-            pgJdbcTemplate.query(sql, params.toArray(), (ResultSet rs) -> {
+            wgq111PGJdbcTemplate.query(sql, params.toArray(), (ResultSet rs) -> {
                 while (rs.next()) {
                     int areaId = rs.getInt("area_id");
                     String areaName = rs.getString("area_name");
@@ -149,7 +165,7 @@ public class StormWavePassageService {
                 "(to_timestamp(?, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'Asia/Shanghai' AT TIME ZONE 'UTC') AND " +
                 "ST_Intersects(ST_SetSRID(ST_GeometryFromText(?, 4326), 4326), geom)";
         try {
-            return pgJdbcTemplate.query(sql, new Object[]{endBj, startBj, lineWkt}, (rs, rowNum) -> {
+            return wgq111PGJdbcTemplate.query(sql, new Object[]{endBj, startBj, lineWkt}, (rs, rowNum) -> {
                 StormAreaRef ref = new StormAreaRef();
                 ref.id = rs.getInt("id");
                 ref.name = rs.getString("name");

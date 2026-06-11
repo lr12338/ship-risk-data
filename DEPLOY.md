@@ -11,6 +11,7 @@
 ```
 /data/zhengyi/
 ├── ship-risk-data-0.0.1-SNAPSHOT.jar   # 应用包
+├── application.properties              # 线上外置配置（覆盖 jar 内默认值）
 ├── start.sh                            # 启动
 ├── stop.sh                             # 停止
 ├── restart.sh                          # 重启
@@ -62,7 +63,7 @@ mvn clean package -DskipTests
 ssh user@39.96.38.242 "mkdir -p /data/zhengyi/logs/job/jobhandler /data/zhengyi/logs/archive"
 
 # 上传 jar 和脚本（dist 目录下所有文件）
-scp dist/ship-risk-data-0.0.1-SNAPSHOT.jar dist/*.sh user@39.96.38.242:/data/zhengyi/
+scp dist/ship-risk-data-0.0.1-SNAPSHOT.jar dist/*.sh dist/application.properties user@39.96.38.242:/data/zhengyi/
 ```
 
 ---
@@ -158,7 +159,7 @@ cd /data/zhengyi
 ```bash
 # 本地
 ./deploy/package.sh
-scp dist/ship-risk-data-0.0.1-SNAPSHOT.jar dist/*.sh user@39.96.38.242:/data/zhengyi/
+scp dist/ship-risk-data-0.0.1-SNAPSHOT.jar dist/*.sh dist/application.properties user@39.96.38.242:/data/zhengyi/
 
 # 服务器
 cd /data/zhengyi && chmod +x *.sh
