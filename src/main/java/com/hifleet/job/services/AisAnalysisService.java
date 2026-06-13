@@ -272,10 +272,10 @@ public class AisAnalysisService {
 
            ArrayList<LocalDate> days =generateDateList();
 
-           // for(int j=0;j<days.size()-1;j++){
+            for(int j=0;j<days.size()-1;j++){
 
-                String starttime ="2025-06-10 00:00:00";//days.get(j).toString() +" 00:00:00";//"2026-05-25 00:00:00";//
-                String endtime = "2026-06-10 00:00:00";//days.get(j+1).toString()+" 00:00:00";;//"2026-05-29 00:00:00";//
+                String starttime =days.get(j).toString() +" 00:00:00";//"2026-05-25 00:00:00";//"2025-06-10 00:00:00";//
+                String endtime = days.get(j+1).toString()+" 00:00:00";;//"2026-05-29 00:00:00";//"2026-06-10 00:00:00";//
                 NewOffersForm offersForm = getTrajectoryFromHbase.getVoffersFromHbase(mmsi,starttime,endtime,16);
 
                 if(offersForm.getOffers().size()>10){
@@ -285,8 +285,9 @@ public class AisAnalysisService {
                 }
 
             getAbnormalShip(Integer.parseInt(mmsi),starttime,endtime);
+
+            }
             aisAnalysisRepositiory.insertPortofCall(Integer.parseInt(ships.get(i).getMmsi()));
-          //  }
         }
         //全部生成完 清空状态
         aisAnalysisRepositiory.removeAisAnalysisStatus();
@@ -526,7 +527,7 @@ public class AisAnalysisService {
         LocalDate current = startDate;
         while (!current.isAfter(endDate)) {
             result.add(current);
-            current = current.plusDays(7);
+            current = current.plusDays(30);
         }
 
         return result;
