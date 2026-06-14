@@ -527,7 +527,7 @@ public class AisAnalysisService {
         LocalDate current = startDate;
         while (!current.isAfter(endDate)) {
             result.add(current);
-            current = current.plusDays(15);
+            current = current.plusDays(7);
         }
 
         return result;
