@@ -51,6 +51,8 @@ public class AIS41GeneralQueryRepository {
 				"                    AND TYPE!='拖轮' AND TYPE!='专用船' AND TYPE!='其他' AND TYPE!='未知类型船舶'\n" +
 				"                   AND TYPE!='近海作业船' and dwt>1000 and updatetime>DATE_SUB(CURDATE(), INTERVAL 1 YEAR); ";
 
+
+
 		Object[] params = new Object[]{};
 		return ais41JdbcTemplate.query(sql, params, new RowMapper<ShipForm>() {
 			@Override
@@ -63,5 +65,31 @@ public class AIS41GeneralQueryRepository {
 		});
 	}
 
+	public List<ShipForm> selectRecentShips2() {
 
+//		String sql="SELECT mmsi,imonumber,dwt,type FROM ais41.recentships\n" +
+//				"                 WHERE TYPE!='渔船' AND TYPE!='-' AND TYPE!='游艇' \n" +
+//				"                   AND TYPE!='工程及服务船' AND TYPE!='客船' AND TYPE!='拖带船' \n" +
+//				"                    AND TYPE!='拖轮' AND TYPE!='专用船' AND TYPE!='其他' AND TYPE!='未知类型船舶'\n" +
+//				"                   AND TYPE!='近海作业船' and dwt>1000 and updatetime>DATE_SUB(CURDATE(), INTERVAL 1 YEAR); ";
+
+		String sql="select * from (\n" +
+				"SELECT mmsi,imonumber,dwt,type FROM ais41.recentships\n" +
+				"    \t\t\t\t                 WHERE TYPE!='渔船' AND TYPE!='-' AND TYPE!='游艇'\n" +
+				"    \t\t\t\t                  AND TYPE!='工程及服务船' AND TYPE!='客船' AND TYPE!='拖带船' \n" +
+				"    \t\t\t\t                    AND TYPE!='拖轮' AND TYPE!='专用船' AND TYPE!='其他' AND TYPE!='未知类型船舶'\n" +
+				"    \t\t\t\t                   AND TYPE!='近海作业船' and dwt>1000 and updatetime>DATE_SUB(CURDATE(), INTERVAL 1 YEAR) order by mmsi desc) as A WHERE mmsi<413827957\n" +
+				"\n";
+
+		Object[] params = new Object[]{};
+		return ais41JdbcTemplate.query(sql, params, new RowMapper<ShipForm>() {
+			@Override
+			public ShipForm mapRow(ResultSet arg0, int arg1) throws SQLException {
+				ShipForm shipForm = new ShipForm();
+				int mmsi= arg0.getInt("mmsi");
+				shipForm.setMmsi(mmsi+"");
+				return shipForm;
+			}
+		});
+	}
 }

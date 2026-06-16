@@ -247,7 +247,7 @@ public class AisAnalysisService {
 
 
     public boolean analysisShip(){
-        ArrayList<ShipForm> ships = (ArrayList<ShipForm>) ais41GeneralQueryRepository.selectRecentShips();
+        ArrayList<ShipForm> ships = (ArrayList<ShipForm>) ais41GeneralQueryRepository.selectRecentShips2();
         ArrayList<Integer> readyMmsi = (ArrayList<Integer>) aisAnalysisRepositiory.getReadyMmsi();
         HashMap<Integer, Integer> readMmsiMap = new HashMap<>();
         for(int i=0;i<readyMmsi.size();i++){
