@@ -276,12 +276,31 @@ public class AisAnalysisService {
 
                 String starttime =days.get(j).toString() +" 00:00:00";//"2026-05-25 00:00:00";//"2025-06-10 00:00:00";//
                 String endtime = days.get(j+1).toString()+" 00:00:00";;//"2026-05-29 00:00:00";//"2026-06-10 00:00:00";//
-                NewOffersForm offersForm = getTrajectoryFromHbase.getVoffersFromHbase(mmsi,starttime,endtime,16);
+                //NewOffersForm offersForm = getTrajectoryFromHbase.getVoffersFromHbase(mmsi,starttime,endtime,16);
+                String queryStarttime = days.get(j).minusDays(1).toString() +" 00:00:00";
+                String queryEndtime = days.get(j+1).plusDays(1).toString() +" 00:00:00";
+                NewOffersForm offersForm = getTrajectoryFromHbase.getVoffersFromHbase(mmsi,queryStarttime,queryEndtime,15);
 
+//                if(offersForm.getOffers().size()>10){
+//                    Map<LocalDate, AisDailySailingResult> dailyStats =
+//                            AnalysisAisDistanceAndTime(offersForm.getOffers());
+//                    saveAisAnalysisResult(Integer.parseInt(mmsi), dailyStats);
+//                }
                 if(offersForm.getOffers().size()>10){
                     Map<LocalDate, AisDailySailingResult> dailyStats =
                             AnalysisAisDistanceAndTime(offersForm.getOffers());
-                    saveAisAnalysisResult(Integer.parseInt(mmsi), dailyStats);
+                    LocalDate actualStart = days.get(j);
+                    LocalDate actualEnd = days.get(j+1);
+                    Map<LocalDate, AisDailySailingResult> filtered = new TreeMap<>();
+                    for (Map.Entry<LocalDate, AisDailySailingResult> entry : dailyStats.entrySet()) {
+                        LocalDate d = entry.getKey();
+                        if (!d.isBefore(actualStart) && d.isBefore(actualEnd)) {
+                            filtered.put(d, entry.getValue());
+                        }
+                    }
+                    saveAisAnalysisResult(Integer.parseInt(mmsi), filtered);
+                    dailyStats = null;
+                    filtered = null;
                 }
 
             getAbnormalShip(Integer.parseInt(mmsi),starttime,endtime);
