@@ -309,7 +309,7 @@ public class AisAnalysisService {
             aisAnalysisRepositiory.insertPortofCall(Integer.parseInt(ships.get(i).getMmsi()));
         }
         //全部生成完 清空状态
-        aisAnalysisRepositiory.removeAisAnalysisStatus();
+        //aisAnalysisRepositiory.removeAisAnalysisStatus();
 
         return true;
     }
