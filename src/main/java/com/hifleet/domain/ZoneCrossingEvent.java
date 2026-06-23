@@ -16,11 +16,29 @@ public class ZoneCrossingEvent {
     public static final String CATEGORY_STRAIT = "STRAIT";
     /** 海区（MySQL ais41.world_sea，参考 event 项目） */
     public static final String CATEGORY_SEA_AREA = "SEA_AREA";
+    /** 桥区（MySQL ais41.alertzones，parent=594504766@qq.com，name 非「风电」开头，如「围栏××大桥」） */
+    public static final String CATEGORY_BRIDGE = "BRIDGE";
+    /** 风电区（MySQL ais41.alertzones，parent=594504766@qq.com，name 以「风电」开头） */
+    public static final String CATEGORY_WIND_FARM = "WIND_FARM";
+    /** 高风险警示区（MySQL ais41.alertzones，parent=alertarea） */
+    public static final String CATEGORY_HIGH_RISK = "HIGH_RISK";
+    /** 冰区（MySQL ais41.alertzones，parent=alertarea） */
+    public static final String CATEGORY_ICE = "ICE";
+    /** 海洋保护区（MySQL ais41.alertzones，parent=alertarea） */
+    public static final String CATEGORY_MARINE_PROTECTED = "MARINE_PROTECTED";
+    /** 养殖区（MySQL ais41.alertzones，parent=alertarea） */
+    public static final String CATEGORY_AQUACULTURE = "AQUACULTURE";
+    /** 排放控制区（MySQL ais41.alertzones，parent=alertarea） */
+    public static final String CATEGORY_EMISSION_CONTROL = "EMISSION_CONTROL";
+    /** MARPOL 区域（MySQL ais41.alertzones，parent=alertarea） */
+    public static final String CATEGORY_MARPOL = "MARPOL";
+    /** JWC 区域（MySQL ais41.alertzones，parent=alertarea，name 含 (JWC)） */
+    public static final String CATEGORY_JWC = "JWC";
 
     private String mmsi;
     private int zoneId;
     private String zoneName;
-    /** 事件大类：STORM_WAVE / STORM_WIND / STRAIT / SEA_AREA */
+    /** 事件大类：STORM_WAVE / STORM_WIND / STRAIT / SEA_AREA / BRIDGE / WIND_FARM / HIGH_RISK / ICE 等 */
     private String eventCategory;
     /** ENTER 或 EXIT */
     private String eventType;
