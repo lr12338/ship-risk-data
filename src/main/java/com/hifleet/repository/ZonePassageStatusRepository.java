@@ -51,6 +51,17 @@ public class ZonePassageStatusRepository {
         upsertStatus(batchMonth, mmsi, startTime, endTime, STATUS_FAILED, 0);
     }
 
+    /**
+     * 统计本批次指定状态的船舶数量。
+     */
+    public int countByStatus(String batchMonth, String startTime, String endTime, String status) {
+        String sql = "SELECT COUNT(*) FROM dataanalysis.ship_zone_passage_status " +
+                "WHERE batch_month = ? AND start_time = ? AND end_time = ? AND status = ?";
+        Integer count = newDataanalysisJdbcTemplate.queryForObject(sql,
+                new Object[]{batchMonth, startTime, endTime, status}, Integer.class);
+        return count == null ? 0 : count;
+    }
+
     private void upsertStatus(String batchMonth, String mmsi, String startTime, String endTime,
                             String status, int eventCount) {
         String sql = "INSERT INTO dataanalysis.ship_zone_passage_status " +

@@ -34,6 +34,14 @@ public class ZoneLoaderService {
             "24087,24313,24471,24475,24480,24482,24483,24484,24485,33302," +
             "41141,41142,199651,2508564,2508567";
 
+    /**
+     * 桥区 / 风电区在 alertzones 表中的 parent 标识，同一 parent 下按 name 前缀区分类型。
+     */
+    private static final String BRIDGE_WIND_FARM_PARENT = "594504766@qq.com";
+
+    /** alertarea 账号警示/特殊区域 parent 标识。 */
+    private static final String ALERT_AREA_PARENT = "alertarea";
+
     @Autowired
     @Qualifier("newDataanalysisJdbcTemplate")
     private JdbcTemplate newDataanalysisJdbcTemplate;
@@ -76,7 +84,7 @@ public class ZoneLoaderService {
         String sql = "SELECT oid AS id, name, AsText(`bound`) AS geom_wkt " +
                 "FROM ais41.alertzones " +
                 "WHERE bound IS NOT NULL AND oid IN (" + STRAIT_OID_IN + ")";
-        return queryZones(ais41JdbcTemplate, sql, null, "ais41.alertzones");
+        return queryZones(ais41JdbcTemplate, sql, new Object[0], "ais41.alertzones");
     }
 
     /**
@@ -86,7 +94,33 @@ public class ZoneLoaderService {
     public List<ZoneDefinition> loadSeaAreas() {
         String sql = "SELECT ID AS id, NAME AS name, AsText(`the_geom`) AS geom_wkt " +
                 "FROM ais41.world_sea WHERE the_geom IS NOT NULL";
-        return queryZones(ais41JdbcTemplate, sql, null, "ais41.world_sea");
+        return queryZones(ais41JdbcTemplate, sql, new Object[0], "ais41.world_sea");
+    }
+
+    /**
+     * 步骤4：加载桥区 / 风电区范围。
+     * <p>
+     * 数据表：ais41.alertzones，筛选 parent = {@value #BRIDGE_WIND_FARM_PARENT} 的围栏数据。
+     * 桥区示例：围栏清水浦大桥、围栏金塘大桥；风电区示例：风电东村、风电威海。
+     * 具体类型由 {@link com.hifleet.job.services.ZonePassageAnalysisService} 按 name 前缀打标。
+     */
+    public List<ZoneDefinition> loadBridgeAndWindFarmZones() {
+        String sql = "SELECT oid AS id, name, AsText(`bound`) AS geom_wkt " +
+                "FROM ais41.alertzones " +
+                "WHERE bound IS NOT NULL AND parent = ?";
+        return queryZones(ais41JdbcTemplate, sql, new Object[]{BRIDGE_WIND_FARM_PARENT}, "ais41.alertzones");
+    }
+
+    /**
+     * 步骤5：加载 alertarea 账号区域（高风险警示区、冰区、海洋保护区、养殖区、排放控制区、MARPOL 等）。
+     * 数据表：ais41.alertzones，parent = alertarea。
+     * 海盗区、桥区等由 {@link com.hifleet.job.services.ZonePassageAnalysisService} 按 name 规则排除或分类。
+     */
+    public List<ZoneDefinition> loadAlertAreaZones() {
+        String sql = "SELECT oid AS id, name, AsText(`bound`) AS geom_wkt " +
+                "FROM ais41.alertzones " +
+                "WHERE bound IS NOT NULL AND parent = ?";
+        return queryZones(ais41JdbcTemplate, sql, new Object[]{ALERT_AREA_PARENT}, "ais41.alertzones");
     }
 
     private String buildPlaceholders(int size) {
@@ -101,9 +135,14 @@ public class ZoneLoaderService {
     }
 
     private List<ZoneDefinition> queryZones(JdbcTemplate jdbcTemplate, String sql, List<Integer> zoneIds, String source) {
+        Object[] args = zoneIds == null || zoneIds.isEmpty() ? new Object[0] : zoneIds.toArray();
+        return queryZones(jdbcTemplate, sql, args, source);
+    }
+
+    private List<ZoneDefinition> queryZones(JdbcTemplate jdbcTemplate, String sql, Object[] args, String source) {
         try {
-            Object[] args = zoneIds == null || zoneIds.isEmpty() ? new Object[0] : zoneIds.toArray();
-            List<ZoneDefinition> zones = jdbcTemplate.query(sql, args, (rs, rowNum) -> mapZone(rs, source));
+            Object[] queryArgs = args == null ? new Object[0] : args;
+            List<ZoneDefinition> zones = jdbcTemplate.query(sql, queryArgs, (rs, rowNum) -> mapZone(rs, source));
             List<ZoneDefinition> result = new ArrayList<ZoneDefinition>();
             for (ZoneDefinition zone : zones) {
                 if (zone != null) {
