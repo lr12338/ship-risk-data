@@ -2,7 +2,15 @@ package com.hifleet.service;
 
 import com.hifleet.domain.ZoneCrossingEvent;
 import com.hifleet.route.beans.NewShipForm;
+import com.hifleet.service.StormRegionIndex.StormRegion;
 import org.apache.commons.lang3.StringUtils;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.Envelope;
+import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.PrecisionModel;
+import org.locationtech.jts.io.WKTReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,7 +18,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import java.sql.ResultSet;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -25,13 +32,9 @@ import java.util.Vector;
 import java.util.stream.Collectors;
 
 /**
- * 步骤1：大风浪 / 大风区域进出计算。
+ * 大风浪 / 大风区域进出计算。
  * <p>
- * 算法参考 hifleet.maintainance.tools 项目 {@code StormAreaIntersectService}：
- * 1. HBase 读取轨迹
- * 2. 轨迹按 8 小时切段
- * 3. PostgreSQL regions_wave / regions_wind 做 ST_Intersection
- * 4. 交集首尾时间映射为进入/离开时间（区域有效时段 6 小时）
+ * 批次开始时从 PostgreSQL 预加载 regions_wave / regions_wind，单船计算在本地用 JTS 做线面相交。
  */
 @Service
 public class StormWavePassageService {
@@ -41,6 +44,16 @@ public class StormWavePassageService {
     private static final ZoneId BEIJING_ZONE = ZoneId.of("Asia/Shanghai");
     private static final ZoneId UTC_ZONE = ZoneId.of("UTC");
     private static final int SEGMENT_THRESHOLD_HOURS = 8;
+    private static final int AREA_VALID_HOURS = 6;
+    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(new PrecisionModel(), 4326);
+    private static final WKTReader WKT_READER = new WKTReader(GEOMETRY_FACTORY);
+
+    private static final String LOAD_REGIONS_SQL =
+            "SELECT id, name, time, ST_AsText(geom) AS geom_wkt FROM %s WHERE " +
+            "(to_timestamp(time, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'UTC') < " +
+            "(to_timestamp(?, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'Asia/Shanghai' AT TIME ZONE 'UTC') AND " +
+            "(to_timestamp(time, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'UTC' + INTERVAL '6 hours') > " +
+            "(to_timestamp(?, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'Asia/Shanghai' AT TIME ZONE 'UTC')";
 
     @Autowired
     @Qualifier("wgq111PGJdbcTemplate")
@@ -48,9 +61,6 @@ public class StormWavePassageService {
 
     private volatile boolean pgAvailable = true;
 
-    /**
-     * 任务开始时探测 PostgreSQL 是否可用，不可用时本次任务跳过风浪/大风计算。
-     */
     public boolean initPgAvailability() {
         try {
             wgq111PGJdbcTemplate.queryForObject("SELECT 1", Integer.class);
@@ -63,140 +73,131 @@ public class StormWavePassageService {
     }
 
     /**
-     * 计算单船在大风浪/大风区域内的进出事件。
-     *
-     * @param mmsi   船舶 MMSI
-     * @param points 轨迹点（由调用方在 for 循环中统一从 HBase 查询后传入，避免重复查库）
+     * 按批次时间范围预加载大风/大浪区域，整个批次内复用。
      */
-    public List<ZoneCrossingEvent> calculateStormPassage(String mmsi, Vector<NewShipForm> points) {
-        if (!pgAvailable || points == null || points.size() < 2) {
+    public StormRegionIndex loadStormRegions(String startTime, String endTime) {
+        if (!pgAvailable) {
+            return StormRegionIndex.empty();
+        }
+        try {
+            List<StormRegion> waveRegions = loadRegions("regions_wave",
+                    ZoneCrossingEvent.CATEGORY_STORM_WAVE, startTime, endTime);
+            List<StormRegion> windRegions = loadRegions("regions_wind",
+                    ZoneCrossingEvent.CATEGORY_STORM_WIND, startTime, endTime);
+            StormRegionIndex index = StormRegionIndex.of(waveRegions, windRegions);
+            log.info("preloaded storm regions, wave={}, wind={}, range={}~{}",
+                    index.getWaveCount(), index.getWindCount(), startTime, endTime);
+            return index;
+        } catch (Exception ex) {
+            log.error("preload storm regions failed, range={}~{}", startTime, endTime, ex);
+            return StormRegionIndex.empty();
+        }
+    }
+
+    public List<ZoneCrossingEvent> calculateStormPassage(String mmsi,
+                                                         Vector<NewShipForm> points,
+                                                         StormRegionIndex stormRegionIndex) {
+        if (points == null || points.size() < 2 || stormRegionIndex == null || stormRegionIndex.isEmpty()) {
             return Collections.emptyList();
         }
 
         List<TrajectoryPoint> trajectoryPoints = toTrajectoryPoints(points);
-        List<List<TrajectoryPoint>> segments = segmentTrajectory(trajectoryPoints, SEGMENT_THRESHOLD_HOURS);
+        if (trajectoryPoints.size() < 2) {
+            return Collections.emptyList();
+        }
 
+        List<List<TrajectoryPoint>> segments = segmentTrajectory(trajectoryPoints, SEGMENT_THRESHOLD_HOURS);
         List<ZoneCrossingEvent> allEvents = new ArrayList<ZoneCrossingEvent>();
         for (List<TrajectoryPoint> segment : segments) {
             if (segment.size() < 2) {
                 continue;
             }
-            String lineWkt = buildLineStringWkt(segment);
+            LineString line = buildLineString(segment);
+            if (line == null || line.isEmpty()) {
+                continue;
+            }
+            Envelope lineEnvelope = line.getEnvelopeInternal();
             String segStart = segment.get(0).getTime();
             String segEnd = segment.get(segment.size() - 1).getTime();
+            Map<String, String> coordTimeMap = buildCoordTimeMap(segment);
 
-            allEvents.addAll(calculateByTable(mmsi, segment, lineWkt, segStart, segEnd, "regions_wave",
-                    ZoneCrossingEvent.CATEGORY_STORM_WAVE));
-            allEvents.addAll(calculateByTable(mmsi, segment, lineWkt, segStart, segEnd, "regions_wind",
-                    ZoneCrossingEvent.CATEGORY_STORM_WIND));
+            if (stormRegionIndex.mayIntersectWave(lineEnvelope)) {
+                allEvents.addAll(calculateByRegions(mmsi, line, lineEnvelope, segStart, segEnd, coordTimeMap,
+                        stormRegionIndex.findWaveCandidates(lineEnvelope, segStart, segEnd)));
+            }
+            if (stormRegionIndex.mayIntersectWind(lineEnvelope)) {
+                allEvents.addAll(calculateByRegions(mmsi, line, lineEnvelope, segStart, segEnd, coordTimeMap,
+                        stormRegionIndex.findWindCandidates(lineEnvelope, segStart, segEnd)));
+            }
         }
         return allEvents;
     }
 
-    private List<ZoneCrossingEvent> calculateByTable(String mmsi,
-                                                     List<TrajectoryPoint> segment,
-                                                     String lineWkt,
-                                                     String segStart,
-                                                     String segEnd,
-                                                     String tableName,
-                                                     String category) {
-        List<StormAreaRef> candidates = loadCandidateAreas(segStart, segEnd, lineWkt, tableName);
+    private List<ZoneCrossingEvent> calculateByRegions(String mmsi,
+                                                       LineString line,
+                                                       Envelope lineEnvelope,
+                                                       String segStart,
+                                                       String segEnd,
+                                                       Map<String, String> coordTimeMap,
+                                                       List<StormRegion> candidates) {
         if (candidates.isEmpty()) {
             return Collections.emptyList();
         }
 
-        Map<String, String> coordTimeMap = buildCoordTimeMap(segment);
         List<ZoneCrossingEvent> events = new ArrayList<ZoneCrossingEvent>();
-
-        String placeholders = candidates.stream().map(a -> "?").collect(Collectors.joining(","));
-        List<Object> params = new ArrayList<Object>();
-        params.add(lineWkt);
-        for (StormAreaRef area : candidates) {
-            params.add(area.id);
-        }
-        params.add(segEnd);
-        params.add(segStart);
-
-        String sql = "SELECT sa.id AS area_id, sa.name AS area_name, sa.time AS area_time, " +
-                "ST_AsText(ST_Intersection(sa.geom, traj.geom)) AS intersection " +
-                "FROM " + tableName + " sa, " +
-                "(SELECT ST_SetSRID(ST_GeometryFromText(?, 4326), 4326) AS geom) AS traj " +
-                "WHERE sa.id IN (" + placeholders + ") " +
-                "AND ST_Intersects(sa.geom, traj.geom) " +
-                "AND (to_timestamp(sa.time, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'UTC') < " +
-                "    (to_timestamp(?, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'Asia/Shanghai' AT TIME ZONE 'UTC') " +
-                "AND (to_timestamp(sa.time, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'UTC' + INTERVAL '6 hours') > " +
-                "    (to_timestamp(?, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'Asia/Shanghai' AT TIME ZONE 'UTC')";
-
-        try {
-            wgq111PGJdbcTemplate.query(sql, params.toArray(), (ResultSet rs) -> {
-                while (rs.next()) {
-                    int areaId = rs.getInt("area_id");
-                    String areaName = rs.getString("area_name");
-                    String areaTimeUtc = rs.getString("area_time");
-                    String intersectionWkt = rs.getString("intersection");
-
-                    List<String> intersectionTimes = extractIntersectionTimes(intersectionWkt, coordTimeMap);
-                    if (intersectionTimes.isEmpty()) {
-                        continue;
-                    }
-                    String enterTime = intersectionTimes.get(0);
-                    String exitTime = intersectionTimes.get(intersectionTimes.size() - 1);
-                    TimeOverlap overlap = calculateTimeOverlap(enterTime, exitTime, areaTimeUtc);
-                    if (overlap == null) {
-                        continue;
-                    }
-                    events.addAll(toEnterExitPair(mmsi, areaId, areaName, category, tableName,
-                            overlap.enterTime, overlap.exitTime));
-                }
-                return null;
-            });
-        } catch (Exception ex) {
-            log.error("storm passage failed, mmsi={}, table={}", mmsi, tableName, ex);
+        for (StormRegion region : candidates) {
+            if (!region.getPreparedGeometry().intersects(line)) {
+                continue;
+            }
+            Geometry intersection = region.getGeometry().intersection(line);
+            List<String> intersectionTimes = extractIntersectionTimes(intersection, coordTimeMap);
+            if (intersectionTimes.isEmpty()) {
+                continue;
+            }
+            String enterTime = intersectionTimes.get(0);
+            String exitTime = intersectionTimes.get(intersectionTimes.size() - 1);
+            TimeOverlap overlap = calculateTimeOverlap(enterTime, exitTime, region.getTimeUtc());
+            if (overlap == null) {
+                continue;
+            }
+            events.addAll(toEnterExitPair(mmsi, region.getId(), region.getName(), region.getCategory(), region.getTableName(),
+                    overlap.enterTime, overlap.exitTime));
         }
         return events;
     }
 
-    private List<StormAreaRef> loadCandidateAreas(String startBj, String endBj, String lineWkt, String tableName) {
-        String sql = "SELECT id, name, time FROM " + tableName + " WHERE " +
-                "(to_timestamp(time, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'UTC') < " +
-                "(to_timestamp(?, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'Asia/Shanghai' AT TIME ZONE 'UTC') AND " +
-                "(to_timestamp(time, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'UTC' + INTERVAL '6 hours') > " +
-                "(to_timestamp(?, 'yyyy-MM-dd HH24:mi:ss') AT TIME ZONE 'Asia/Shanghai' AT TIME ZONE 'UTC') AND " +
-                "ST_Intersects(ST_SetSRID(ST_GeometryFromText(?, 4326), 4326), geom)";
-        try {
-            return wgq111PGJdbcTemplate.query(sql, new Object[]{endBj, startBj, lineWkt}, (rs, rowNum) -> {
-                StormAreaRef ref = new StormAreaRef();
-                ref.id = rs.getInt("id");
-                ref.name = rs.getString("name");
-                ref.time = rs.getString("time");
-                return ref;
-            });
-        } catch (Exception ex) {
-            log.error("load candidate storm areas failed, table={}", tableName, ex);
-            return Collections.emptyList();
-        }
+    private List<StormRegion> loadRegions(String tableName, String category, String startTime, String endTime) {
+        String sql = String.format(LOAD_REGIONS_SQL, tableName);
+        return wgq111PGJdbcTemplate.query(sql, new Object[]{endTime, startTime}, (rs, rowNum) -> {
+            String wkt = rs.getString("geom_wkt");
+            if (StringUtils.isBlank(wkt)) {
+                return null;
+            }
+            try {
+                Geometry geometry = WKT_READER.read(wkt);
+                if (geometry == null || geometry.isEmpty()) {
+                    return null;
+                }
+                geometry.setSRID(4326);
+                return new StormRegion(rs.getInt("id"), rs.getString("name"), rs.getString("time"),
+                        geometry, tableName, category);
+            } catch (Exception ex) {
+                log.warn("invalid storm region geometry, table={}, id={}", tableName, rs.getInt("id"));
+                return null;
+            }
+        }).stream().filter(r -> r != null).collect(Collectors.toList());
     }
 
-    private List<String> extractIntersectionTimes(String intersectionWkt, Map<String, String> coordTimeMap) {
+    private List<String> extractIntersectionTimes(Geometry intersection, Map<String, String> coordTimeMap) {
         List<String> times = new ArrayList<String>();
-        if (StringUtils.isBlank(intersectionWkt)) {
+        if (intersection == null || intersection.isEmpty()) {
             return times;
         }
-        if (intersectionWkt.startsWith("POINT")) {
-            String coord = normalizeCoordKey(intersectionWkt.replace("POINT(", "").replace(")", "").trim());
-            String time = coordTimeMap.get(coord);
+        for (Coordinate coordinate : intersection.getCoordinates()) {
+            String key = String.format("%.6f,%.6f", coordinate.x, coordinate.y);
+            String time = coordTimeMap.get(key);
             if (time != null) {
                 times.add(time);
-            }
-        } else if (intersectionWkt.startsWith("LINESTRING")) {
-            String coordsPart = intersectionWkt.replace("LINESTRING(", "").replace(")", "").trim();
-            for (String coordPair : coordsPart.split(",")) {
-                String key = normalizeCoordKey(coordPair.trim().replace(" ", ","));
-                String time = coordTimeMap.get(key);
-                if (time != null) {
-                    times.add(time);
-                }
             }
         }
         return times.stream().sorted().distinct().collect(Collectors.toList());
@@ -207,7 +208,7 @@ public class StormWavePassageService {
             ZonedDateTime enterBeijing = LocalDateTime.parse(enterTime, TIME_FORMATTER).atZone(BEIJING_ZONE);
             ZonedDateTime exitBeijing = LocalDateTime.parse(exitTime, TIME_FORMATTER).atZone(BEIJING_ZONE);
             ZonedDateTime areaStartUtc = LocalDateTime.parse(areaTimeUtc, TIME_FORMATTER).atZone(UTC_ZONE);
-            ZonedDateTime areaEndUtc = areaStartUtc.plus(6, ChronoUnit.HOURS);
+            ZonedDateTime areaEndUtc = areaStartUtc.plus(AREA_VALID_HOURS, ChronoUnit.HOURS);
             ZonedDateTime areaStartBeijing = areaStartUtc.withZoneSameInstant(BEIJING_ZONE);
             ZonedDateTime areaEndBeijing = areaEndUtc.withZoneSameInstant(BEIJING_ZONE);
 
@@ -256,16 +257,13 @@ public class StormWavePassageService {
         return map;
     }
 
-    private String buildLineStringWkt(List<TrajectoryPoint> points) {
-        StringBuilder builder = new StringBuilder("LINESTRING(");
+    private LineString buildLineString(List<TrajectoryPoint> points) {
+        Coordinate[] coordinates = new Coordinate[points.size()];
         for (int i = 0; i < points.size(); i++) {
-            if (i > 0) {
-                builder.append(',');
-            }
-            builder.append(points.get(i).getLon()).append(' ').append(points.get(i).getLat());
+            TrajectoryPoint point = points.get(i);
+            coordinates[i] = new Coordinate(point.getLon(), point.getLat());
         }
-        builder.append(')');
-        return builder.toString();
+        return GEOMETRY_FACTORY.createLineString(coordinates);
     }
 
     private List<TrajectoryPoint> toTrajectoryPoints(Vector<NewShipForm> points) {
@@ -306,15 +304,6 @@ public class StormWavePassageService {
         return segments;
     }
 
-    private String normalizeCoordKey(String raw) {
-        String normalized = raw.trim().replace(" ", ",");
-        String[] parts = normalized.split(",");
-        if (parts.length >= 2) {
-            return String.format("%.6f,%.6f", Double.parseDouble(parts[0]), Double.parseDouble(parts[1]));
-        }
-        return normalized;
-    }
-
     private String normalizeTime(String time) {
         String trimmed = time.trim();
         return trimmed.length() == 16 ? trimmed + ":00" : trimmed;
@@ -348,12 +337,6 @@ public class StormWavePassageService {
         public void setTime(String time) {
             this.time = time;
         }
-    }
-
-    private static class StormAreaRef {
-        private int id;
-        private String name;
-        private String time;
     }
 
     private static class TimeOverlap {
