@@ -1,6 +1,7 @@
 package com.hifleet.service;
 
 import com.hifleet.domain.ZoneCrossingEvent;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +13,11 @@ import org.springframework.stereotype.Service;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -21,6 +27,9 @@ import java.util.List;
 public class ZoneCrossingStoreService {
 
     private static final Logger log = LoggerFactory.getLogger(ZoneCrossingStoreService.class);
+    private static final DateTimeFormatter EVENT_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int MAX_ZONE_NAME_LENGTH = 255;
+    private static final int MAX_ZONE_SOURCE_LENGTH = 64;
 
     private static final String INSERT_SQL = "INSERT INTO dataanalysis.ship_zone_crossing_event " +
             "(mmsi, zone_id, zone_name, event_category, event_type, event_time, lon, lat, port_id, zone_type, zone_source) " +
@@ -40,40 +49,156 @@ public class ZoneCrossingStoreService {
         if (!storeEnabled || events == null || events.isEmpty()) {
             return;
         }
-        int effectiveBatchSize = Math.max(1, batchSize);
-        for (int offset = 0; offset < events.size(); offset += effectiveBatchSize) {
-            int end = Math.min(offset + effectiveBatchSize, events.size());
-            saveBatch(events.subList(offset, end));
+        List<ZoneCrossingEvent> validEvents = sanitizeEvents(events);
+        if (validEvents.isEmpty()) {
+            return;
         }
+        int effectiveBatchSize = Math.max(1, batchSize);
+        for (int offset = 0; offset < validEvents.size(); offset += effectiveBatchSize) {
+            int end = Math.min(offset + effectiveBatchSize, validEvents.size());
+            saveBatch(validEvents.subList(offset, end));
+        }
+    }
+
+    private List<ZoneCrossingEvent> sanitizeEvents(List<ZoneCrossingEvent> events) {
+        List<ZoneCrossingEvent> validEvents = new ArrayList<ZoneCrossingEvent>(events.size());
+        for (ZoneCrossingEvent event : events) {
+            String reason = validateEvent(event);
+            if (reason != null) {
+                log.warn("skip invalid zone crossing event, mmsi={}, zoneId={}, reason={}, event={}",
+                        event == null ? null : event.getMmsi(),
+                        event == null ? null : event.getZoneId(),
+                        reason,
+                        event);
+                continue;
+            }
+            normalizeEvent(event);
+            validEvents.add(event);
+        }
+        return validEvents;
+    }
+
+    private String validateEvent(ZoneCrossingEvent event) {
+        if (event == null) {
+            return "event is null";
+        }
+        if (StringUtils.isBlank(event.getMmsi())) {
+            return "mmsi is blank";
+        }
+        if (StringUtils.isBlank(event.getEventCategory())) {
+            return "event_category is blank";
+        }
+        if (StringUtils.isBlank(event.getEventType())) {
+            return "event_type is blank";
+        }
+        if (!isParseableEventTime(event.getEventTime())) {
+            return "event_time invalid: " + event.getEventTime();
+        }
+        return null;
+    }
+
+    private void normalizeEvent(ZoneCrossingEvent event) {
+        event.setEventTime(normalizeEventTime(event.getEventTime()));
+        if (event.getZoneName() != null && event.getZoneName().length() > MAX_ZONE_NAME_LENGTH) {
+            event.setZoneName(event.getZoneName().substring(0, MAX_ZONE_NAME_LENGTH));
+        }
+        if (event.getZoneSource() != null && event.getZoneSource().length() > MAX_ZONE_SOURCE_LENGTH) {
+            event.setZoneSource(event.getZoneSource().substring(0, MAX_ZONE_SOURCE_LENGTH));
+        }
+    }
+
+    private boolean isParseableEventTime(String eventTime) {
+        if (StringUtils.isBlank(eventTime)) {
+            return false;
+        }
+        try {
+            LocalDateTime.parse(normalizeEventTime(eventTime), EVENT_TIME_FORMATTER);
+            return true;
+        } catch (DateTimeParseException ex) {
+            return false;
+        }
+    }
+
+    private String normalizeEventTime(String eventTime) {
+        String trimmed = eventTime.trim();
+        return trimmed.length() == 16 ? trimmed + ":00" : trimmed;
     }
 
     private void saveBatch(final List<ZoneCrossingEvent> batch) {
         try {
-            newDataanalysisJdbcTemplate.batchUpdate(INSERT_SQL, new BatchPreparedStatementSetter() {
-                @Override
-                public void setValues(PreparedStatement stmt, int i) throws SQLException {
-                    ZoneCrossingEvent event = batch.get(i);
-                    stmt.setString(1, event.getMmsi());
-                    stmt.setObject(2, event.getZoneId());
-                    stmt.setString(3, event.getZoneName());
-                    stmt.setString(4, event.getEventCategory());
-                    stmt.setString(5, event.getEventType());
-                    stmt.setString(6, event.getEventTime());
-                    stmt.setObject(7, event.getLon());
-                    stmt.setObject(8, event.getLat());
-                    stmt.setObject(9, event.getPortId());
-                    stmt.setObject(10, event.getZoneType());
-                    stmt.setString(11, event.getZoneSource());
-                }
-
-                @Override
-                public int getBatchSize() {
-                    return batch.size();
-                }
-            });
+            batchUpdate(batch);
         } catch (Exception ex) {
-            log.error("batch save zone crossing events failed, size={}", batch.size(), ex);
-            throw new RuntimeException("save zone crossing events failed", ex);
+            log.error("batch save zone crossing events failed, size={}, rootCause={}",
+                    batch.size(), rootCauseMessage(ex), ex);
+            saveOneByOne(batch);
         }
+    }
+
+    private void saveOneByOne(List<ZoneCrossingEvent> batch) {
+        int saved = 0;
+        RuntimeException lastFailure = null;
+        for (ZoneCrossingEvent event : batch) {
+            try {
+                batchUpdate(Collections.singletonList(event));
+                saved++;
+            } catch (Exception ex) {
+                lastFailure = new RuntimeException(buildFailureMessage(event, ex), ex);
+                log.error("save single zone crossing event failed, mmsi={}, zoneId={}, category={}, type={}, time={}, zoneName={}, rootCause={}",
+                        event.getMmsi(),
+                        event.getZoneId(),
+                        event.getEventCategory(),
+                        event.getEventType(),
+                        event.getEventTime(),
+                        event.getZoneName(),
+                        rootCauseMessage(ex),
+                        ex);
+            }
+        }
+        if (lastFailure != null) {
+            throw new RuntimeException("save zone crossing events failed, saved=" + saved + "/" + batch.size()
+                    + ", lastError=" + lastFailure.getMessage(), lastFailure);
+        }
+    }
+
+    private void batchUpdate(final List<ZoneCrossingEvent> batch) {
+        newDataanalysisJdbcTemplate.batchUpdate(INSERT_SQL, new BatchPreparedStatementSetter() {
+            @Override
+            public void setValues(PreparedStatement stmt, int i) throws SQLException {
+                ZoneCrossingEvent event = batch.get(i);
+                stmt.setString(1, event.getMmsi());
+                stmt.setObject(2, event.getZoneId());
+                stmt.setString(3, event.getZoneName());
+                stmt.setString(4, event.getEventCategory());
+                stmt.setString(5, event.getEventType());
+                stmt.setString(6, event.getEventTime());
+                stmt.setObject(7, event.getLon());
+                stmt.setObject(8, event.getLat());
+                stmt.setObject(9, event.getPortId());
+                stmt.setObject(10, event.getZoneType());
+                stmt.setString(11, event.getZoneSource());
+            }
+
+            @Override
+            public int getBatchSize() {
+                return batch.size();
+            }
+        });
+    }
+
+    private String buildFailureMessage(ZoneCrossingEvent event, Exception ex) {
+        return "save zone crossing event failed, mmsi=" + event.getMmsi()
+                + ", zoneId=" + event.getZoneId()
+                + ", category=" + event.getEventCategory()
+                + ", type=" + event.getEventType()
+                + ", time=" + event.getEventTime()
+                + ", rootCause=" + rootCauseMessage(ex);
+    }
+
+    private String rootCauseMessage(Throwable ex) {
+        Throwable root = ex;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        return root.getClass().getSimpleName() + ": " + root.getMessage();
     }
 }

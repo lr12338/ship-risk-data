@@ -6,7 +6,7 @@
     <springProperty scope="context" name="LOG_PATH" source="logging.path" defaultValue="logs"/>
     <springProperty scope="context" name="LOG_FILE" source="logging.file" defaultValue="logs/log.log"/>
 
-    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50}:%line - %msg%n"/>
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50}:%line - %msg%n%ex"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
