@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -91,14 +92,17 @@ public class ZoneCrossingStoreService {
         if (StringUtils.isBlank(event.getEventType())) {
             return "event_type is blank";
         }
-        if (!isParseableEventTime(event.getEventTime())) {
+        if (resolveEventTime(event.getEventTime()) == null) {
             return "event_time invalid: " + event.getEventTime();
         }
         return null;
     }
 
     private void normalizeEvent(ZoneCrossingEvent event) {
-        event.setEventTime(normalizeEventTime(event.getEventTime()));
+        String resolved = resolveEventTime(event.getEventTime());
+        if (resolved != null) {
+            event.setEventTime(resolved);
+        }
         if (event.getZoneName() != null && event.getZoneName().length() > MAX_ZONE_NAME_LENGTH) {
             event.setZoneName(event.getZoneName().substring(0, MAX_ZONE_NAME_LENGTH));
         }
@@ -107,15 +111,25 @@ public class ZoneCrossingStoreService {
         }
     }
 
-    private boolean isParseableEventTime(String eventTime) {
+    /**
+     * 将轨迹中的 event_time 解析为 MySQL 可接受的 canonical 字符串。
+     * HBase 轨迹偶发 2025-02-29 / 02-31 等非法日历日；Java SMART 解析会归一化，
+     * 但必须写入归一化后的值，否则 MySQL strict 模式会拒绝原始字符串。
+     */
+    private String resolveEventTime(String eventTime) {
         if (StringUtils.isBlank(eventTime)) {
-            return false;
+            return null;
         }
+        String normalized = normalizeEventTime(eventTime);
         try {
-            LocalDateTime.parse(normalizeEventTime(eventTime), EVENT_TIME_FORMATTER);
-            return true;
+            LocalDateTime parsed = LocalDateTime.parse(normalized, EVENT_TIME_FORMATTER);
+            String resolved = parsed.format(EVENT_TIME_FORMATTER);
+            if (!normalized.equals(resolved)) {
+                log.warn("correct invalid event_time {} -> {}", normalized, resolved);
+            }
+            return resolved;
         } catch (DateTimeParseException ex) {
-            return false;
+            return null;
         }
     }
 
@@ -170,7 +184,8 @@ public class ZoneCrossingStoreService {
                 stmt.setString(3, event.getZoneName());
                 stmt.setString(4, event.getEventCategory());
                 stmt.setString(5, event.getEventType());
-                stmt.setString(6, event.getEventTime());
+                stmt.setTimestamp(6, Timestamp.valueOf(
+                        LocalDateTime.parse(event.getEventTime(), EVENT_TIME_FORMATTER)));
                 stmt.setObject(7, event.getLon());
                 stmt.setObject(8, event.getLat());
                 stmt.setObject(9, event.getPortId());
