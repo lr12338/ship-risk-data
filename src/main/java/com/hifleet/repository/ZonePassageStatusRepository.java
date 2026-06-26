@@ -2,9 +2,12 @@ package com.hifleet.repository;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -44,6 +47,34 @@ public class ZonePassageStatusRepository {
         upsertStatus(batchMonth, mmsi, startTime, endTime, STATUS_DONE, eventCount);
     }
 
+    public void markCompletedBatch(final List<CompletedRecord> records) {
+        if (records == null || records.isEmpty()) {
+            return;
+        }
+        String sql = "INSERT INTO dataanalysis.ship_zone_passage_status " +
+                "(batch_month, mmsi, start_time, end_time, status, event_count) " +
+                "VALUES (?, ?, ?, ?, ?, ?) " +
+                "ON DUPLICATE KEY UPDATE status = VALUES(status), event_count = VALUES(event_count), " +
+                "processed_at = CURRENT_TIMESTAMP";
+        newDataanalysisJdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
+            @Override
+            public void setValues(PreparedStatement stmt, int i) throws SQLException {
+                CompletedRecord record = records.get(i);
+                stmt.setString(1, record.getBatchMonth());
+                stmt.setString(2, record.getMmsi());
+                stmt.setString(3, record.getStartTime());
+                stmt.setString(4, record.getEndTime());
+                stmt.setString(5, STATUS_DONE);
+                stmt.setInt(6, record.getEventCount());
+            }
+
+            @Override
+            public int getBatchSize() {
+                return records.size();
+            }
+        });
+    }
+
     /**
      * 标记船舶本批次处理失败（下次重启会重试）。
      */
@@ -70,5 +101,41 @@ public class ZonePassageStatusRepository {
                 "ON DUPLICATE KEY UPDATE status = VALUES(status), event_count = VALUES(event_count), " +
                 "processed_at = CURRENT_TIMESTAMP";
         newDataanalysisJdbcTemplate.update(sql, batchMonth, mmsi, startTime, endTime, status, eventCount);
+    }
+
+    public static final class CompletedRecord {
+        private final String batchMonth;
+        private final String mmsi;
+        private final String startTime;
+        private final String endTime;
+        private final int eventCount;
+
+        public CompletedRecord(String batchMonth, String mmsi, String startTime, String endTime, int eventCount) {
+            this.batchMonth = batchMonth;
+            this.mmsi = mmsi;
+            this.startTime = startTime;
+            this.endTime = endTime;
+            this.eventCount = eventCount;
+        }
+
+        public String getBatchMonth() {
+            return batchMonth;
+        }
+
+        public String getMmsi() {
+            return mmsi;
+        }
+
+        public String getStartTime() {
+            return startTime;
+        }
+
+        public String getEndTime() {
+            return endTime;
+        }
+
+        public int getEventCount() {
+            return eventCount;
+        }
     }
 }

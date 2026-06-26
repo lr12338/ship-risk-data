@@ -11,7 +11,10 @@ import com.hifleet.hbase.NewOffersForm;
 import com.hifleet.job.ZonePassagePeriod;
 import com.hifleet.repository.AIS41GeneralQueryRepository;
 import com.hifleet.repository.ZonePassageStatusRepository;
+import com.hifleet.repository.ZonePassageStatusRepository.CompletedRecord;
 import com.hifleet.route.beans.NewShipForm;
+import com.hifleet.service.MultiZoneCrossingDetector;
+import com.hifleet.service.StormRegionIndex;
 import com.hifleet.service.StormWavePassageService;
 import com.hifleet.service.ZoneCrossingDetector;
 import com.hifleet.service.ZoneCrossingStoreService;
@@ -57,13 +60,21 @@ public class ZonePassageAnalysisService {
     private static final String ALERT_AREA_ZONE_SOURCE = "ais41.alertzones";
 
     private final GetTrajectoryFromHbase getTrajectoryFromHbase = new GetTrajectoryFromHbase();
+    private final MultiZoneCrossingDetector multiZoneCrossingDetector = new MultiZoneCrossingDetector();
     private final ZoneCrossingDetector zoneCrossingDetector = new ZoneCrossingDetector();
 
-    @Value("${zone.passage.parallelism:1}")
+    @Value("${zone.passage.parallelism:4}")
     private int shipParallelism;
 
     @Value("${zone.passage.progress-interval:100}")
     private int progressInterval;
+
+    @Value("${zone.passage.status.batch-size:50}")
+    private int statusBatchSize;
+
+    /** HBase 轨迹 DP 抽稀 zoom，与 AisAnalysisService getVoffersFromHbase 一致；≤0 表示不抽稀。推荐 8~9 */
+    @Value("${zone.passage.trajectory.simplify-zoom:9}")
+    private int trajectorySimplifyZoom;
 
     @Value("${zone.passage.backfill.from-date:2025-01-01}")
     private String backfillFromDate;
@@ -361,18 +372,26 @@ public class ZonePassageAnalysisService {
             XxlJobLogger.log("PostgreSQL 不可达，本次跳过风浪/大风，仅计算海峡/海区/桥区/风电区/alertarea");
         }
 
+        StormRegionIndex stormRegionIndex = stormWavePassageService.loadStormRegions(
+                jobParams.getStartTime(), jobParams.getEndTime());
+        XxlJobLogger.log("预加载风浪区域 wave=" + stormRegionIndex.getWaveCount()
+                + "，wind=" + stormRegionIndex.getWindCount());
+
         XxlJobLogger.log("alertarea 可计算区域数量=" + zoneContext.getAlertAreaZoneCount()
-                + "，船级并行度=" + effectiveParallelism());
+                + "，船级并行度=" + effectiveParallelism()
+                + "，轨迹抽稀 zoom=" + trajectorySimplifyZoom + "（getVoffersFromHbase）");
 
         int parallelism = effectiveParallelism();
         AtomicInteger processed = new AtomicInteger(0);
         AtomicInteger failed = new AtomicInteger(0);
         AtomicInteger totalEvents = new AtomicInteger(0);
         int logInterval = Math.max(1, progressInterval);
+        StatusBatchBuffer statusBatchBuffer = new StatusBatchBuffer(zonePassageStatusRepository, statusBatchSize);
 
         if (parallelism <= 1) {
             for (String mmsi : pendingMmsiList) {
-                processShip(mmsi, jobParams, zoneContext, processed, failed, totalEvents, pendingMmsiList.size(), logInterval);
+                processShip(mmsi, jobParams, zoneContext, stormRegionIndex, statusBatchBuffer,
+                        processed, failed, totalEvents, pendingMmsiList.size(), logInterval);
             }
         } else {
             ExecutorService executor = Executors.newFixedThreadPool(parallelism);
@@ -381,8 +400,8 @@ public class ZonePassageAnalysisService {
                     executor.submit(new Runnable() {
                         @Override
                         public void run() {
-                            processShip(mmsi, jobParams, zoneContext, processed, failed, totalEvents,
-                                    pendingMmsiList.size(), logInterval);
+                            processShip(mmsi, jobParams, zoneContext, stormRegionIndex, statusBatchBuffer,
+                                    processed, failed, totalEvents, pendingMmsiList.size(), logInterval);
                         }
                     });
                 }
@@ -400,6 +419,8 @@ public class ZonePassageAnalysisService {
             }
         }
 
+        statusBatchBuffer.flush();
+
         AnalysisResult result = new AnalysisResult(processed.get(), failed.get(), totalEvents.get());
         log.info("区域通行分析任务结束, {}", result.getSummary());
         XxlJobLogger.log("任务结束, " + result.getSummary());
@@ -413,6 +434,8 @@ public class ZonePassageAnalysisService {
     private void processShip(String mmsi,
                              JobParams jobParams,
                              ZoneContext zoneContext,
+                             StormRegionIndex stormRegionIndex,
+                             StatusBatchBuffer statusBatchBuffer,
                              AtomicInteger processed,
                              AtomicInteger failed,
                              AtomicInteger totalEvents,
@@ -423,7 +446,7 @@ public class ZonePassageAnalysisService {
                     mmsi, jobParams.getStartTime(), jobParams.getEndTime());
 
             if (trajectoryPoints.isEmpty()) {
-                zonePassageStatusRepository.markCompleted(jobParams.getBatchMonth(), mmsi,
+                statusBatchBuffer.markCompleted(jobParams.getBatchMonth(), mmsi,
                         jobParams.getStartTime(), jobParams.getEndTime(), 0);
                 int done = processed.incrementAndGet();
                 logProgress(done, totalShips, totalEvents.get(), logInterval);
@@ -431,15 +454,18 @@ public class ZonePassageAnalysisService {
             }
 
             List<ZoneCrossingEvent> allEvents = new ArrayList<ZoneCrossingEvent>();
-            allEvents.addAll(calculateStormWavePassage(mmsi, trajectoryPoints));
-            allEvents.addAll(calculateStraitPassage(mmsi, trajectoryPoints, zoneContext.getStraitMatcher()));
-            allEvents.addAll(calculateSeaAreaPassage(mmsi, trajectoryPoints, zoneContext.getSeaAreaMatcher()));
-            allEvents.addAll(calculateBridgeAndWindFarmPassage(mmsi, trajectoryPoints, zoneContext.getBridgeWindFarmMatcher()));
-            allEvents.addAll(calculateAlertAreaPassage(mmsi, trajectoryPoints, zoneContext.getAlertAreaMatcher()));
+            allEvents.addAll(stormWavePassageService.calculateStormPassage(mmsi, trajectoryPoints, stormRegionIndex));
+            allEvents.addAll(multiZoneCrossingDetector.detectEvents(
+                    mmsi,
+                    trajectoryPoints,
+                    zoneContext.getStraitMatcher(),
+                    zoneContext.getSeaAreaMatcher(),
+                    zoneContext.getBridgeWindFarmMatcher(),
+                    zoneContext.getAlertAreaMatcher()));
 
             zoneCrossingStoreService.saveEvents(allEvents);
 
-            zonePassageStatusRepository.markCompleted(jobParams.getBatchMonth(), mmsi,
+            statusBatchBuffer.markCompleted(jobParams.getBatchMonth(), mmsi,
                     jobParams.getStartTime(), jobParams.getEndTime(), allEvents.size());
 
             totalEvents.addAndGet(allEvents.size());
@@ -488,8 +514,41 @@ public class ZonePassageAnalysisService {
         return pending;
     }
 
-    public List<ZoneCrossingEvent> calculateStormWavePassage(String mmsi, Vector<NewShipForm> trajectoryPoints) {
-        return stormWavePassageService.calculateStormPassage(mmsi, trajectoryPoints);
+    public List<ZoneCrossingEvent> calculateStormWavePassage(String mmsi,
+                                                             Vector<NewShipForm> trajectoryPoints,
+                                                             StormRegionIndex stormRegionIndex) {
+        return stormWavePassageService.calculateStormPassage(mmsi, trajectoryPoints, stormRegionIndex);
+    }
+
+    private static final class StatusBatchBuffer {
+        private final ZonePassageStatusRepository repository;
+        private final int batchSize;
+        private final List<CompletedRecord> buffer = new ArrayList<CompletedRecord>();
+
+        private StatusBatchBuffer(ZonePassageStatusRepository repository, int batchSize) {
+            this.repository = repository;
+            this.batchSize = Math.max(1, batchSize);
+        }
+
+        private synchronized void markCompleted(String batchMonth, String mmsi,
+                                                String startTime, String endTime, int eventCount) {
+            buffer.add(new CompletedRecord(batchMonth, mmsi, startTime, endTime, eventCount));
+            if (buffer.size() >= batchSize) {
+                flushLocked();
+            }
+        }
+
+        private synchronized void flush() {
+            flushLocked();
+        }
+
+        private void flushLocked() {
+            if (buffer.isEmpty()) {
+                return;
+            }
+            repository.markCompletedBatch(new ArrayList<CompletedRecord>(buffer));
+            buffer.clear();
+        }
     }
 
     public List<ZoneCrossingEvent> calculateStraitPassage(String mmsi, Vector<NewShipForm> trajectoryPoints,
@@ -604,8 +663,13 @@ public class ZonePassageAnalysisService {
     }
 
     private Vector<NewShipForm> loadTrajectoryPoints(String mmsi, String startTime, String endTime) {
-        NewOffersForm offers = getTrajectoryFromHbase.getOriginalVoffersFromHbase(mmsi, startTime, endTime);
-        if (offers.getOffers() == null) {
+        NewOffersForm offers;
+        if (trajectorySimplifyZoom > 0) {
+            offers = getTrajectoryFromHbase.getVoffersFromHbase(mmsi, startTime, endTime, trajectorySimplifyZoom);
+        } else {
+            offers = getTrajectoryFromHbase.getOriginalVoffersFromHbase(mmsi, startTime, endTime);
+        }
+        if (offers == null || offers.getOffers() == null) {
             return new Vector<NewShipForm>();
         }
         return offers.getOffers();
