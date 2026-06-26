@@ -78,7 +78,7 @@ public class AIS41GeneralQueryRepository {
 				"    \t\t\t\t                 WHERE TYPE!='渔船' AND TYPE!='-' AND TYPE!='游艇'\n" +
 				"    \t\t\t\t                  AND TYPE!='工程及服务船' AND TYPE!='客船' AND TYPE!='拖带船' \n" +
 				"    \t\t\t\t                    AND TYPE!='拖轮' AND TYPE!='专用船' AND TYPE!='其他' AND TYPE!='未知类型船舶'\n" +
-				"    \t\t\t\t                   AND TYPE!='近海作业船' and dwt>1000 and updatetime>DATE_SUB(CURDATE(), INTERVAL 1 YEAR) order by mmsi desc) as A WHERE mmsi>=440186000 AND mmsi <457635000 \n" +
+				"    \t\t\t\t                   AND TYPE!='近海作业船' and dwt>1000 and updatetime>DATE_SUB(CURDATE(), INTERVAL 18 month) order by mmsi desc) as A WHERE mmsi>=440186000 \n" +// AND mmsi <457635000
 				"\n";
 //mmsi<413827957
 		Object[] params = new Object[]{};
