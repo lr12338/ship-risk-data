@@ -32,7 +32,7 @@ public class AisAnalysisRepositiory {
     public List<Integer> getReadyMmsi(){
 
 
-        String sql="select DISTINCT(mmsi) from dataanalysis.ais_analysis_status;";
+        String sql="select DISTINCT(mmsi) from dataanalysis.ais_analysis_status25;";
         return newDataanalysisJdbcTemplate.query(sql,new RowMapper<Integer>() {
             @Override
             public Integer mapRow(ResultSet rs, int rowNum) throws SQLException {
@@ -65,7 +65,7 @@ public class AisAnalysisRepositiory {
 
 
     public void insertPortofCall(int  mmsi){
-        String sql="insert into dataanalysis.ais_analysis_status (mmsi ) values (?)";
+        String sql="insert into dataanalysis.ais_analysis_status25 (mmsi ) values (?)";
 
         newDataanalysisJdbcTemplate.update(sql, new PreparedStatementSetter() {
 

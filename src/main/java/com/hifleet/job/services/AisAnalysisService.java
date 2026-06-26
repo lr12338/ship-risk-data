@@ -263,6 +263,7 @@ public class AisAnalysisService {
 //                continue;
 //            }
 
+            logger.info(ships.size()+","+i);
             if(readMmsiMap.containsKey(Integer.parseInt(mmsi))){
 
                 continue;
@@ -537,9 +538,9 @@ public class AisAnalysisService {
 
 
     public static ArrayList<LocalDate> generateDateList() {
-        LocalDate endDate = LocalDate.of(2026, 6, 10);          // 结束日期：今天
-        LocalDate startDate = endDate.minusYears(1); // 开始日期：N年前的今天
-
+        LocalDate endDate = LocalDate.of(2025, 6, 12);          // 结束日期：今天
+      //  LocalDate startDate = endDate.minusYears(1); // 开始日期：N年前的今天
+        LocalDate startDate = endDate.minusMonths(6);
         ArrayList<LocalDate> result = new ArrayList<>();
 
         // 从开始日期开始，步长 intervalDays 天
@@ -550,5 +551,10 @@ public class AisAnalysisService {
         }
 
         return result;
+    }
+
+
+    public static void main(String args[]){
+        System.out.println("1");
     }
 }
