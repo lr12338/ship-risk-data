@@ -273,13 +273,26 @@ public class StormWavePassageService {
                     || StringUtils.isBlank(point.getTi())) {
                 continue;
             }
+            String normalizedTime = normalizeTime(point.getTi());
+            if (!isParseableTime(normalizedTime)) {
+                continue;
+            }
             TrajectoryPoint tp = new TrajectoryPoint();
             tp.setLon(Double.parseDouble(point.getLo().trim()));
             tp.setLat(Double.parseDouble(point.getLa().trim()));
-            tp.setTime(normalizeTime(point.getTi()));
+            tp.setTime(normalizedTime);
             result.add(tp);
         }
         return result;
+    }
+
+    private boolean isParseableTime(String time) {
+        try {
+            LocalDateTime.parse(time, TIME_FORMATTER);
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     private List<List<TrajectoryPoint>> segmentTrajectory(List<TrajectoryPoint> points, int thresholdHours) {
