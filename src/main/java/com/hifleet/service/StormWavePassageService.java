@@ -146,24 +146,55 @@ public class StormWavePassageService {
 
         List<ZoneCrossingEvent> events = new ArrayList<ZoneCrossingEvent>();
         for (StormRegion region : candidates) {
-            if (!region.getPreparedGeometry().intersects(line)) {
-                continue;
+            try {
+                if (!region.getPreparedGeometry().intersects(line)) {
+                    continue;
+                }
+                Geometry intersection = safeIntersection(region.getGeometry(), line);
+                if (intersection == null || intersection.isEmpty()) {
+                    continue;
+                }
+                List<String> intersectionTimes = extractIntersectionTimes(intersection, coordTimeMap);
+                if (intersectionTimes.isEmpty()) {
+                    continue;
+                }
+                String enterTime = intersectionTimes.get(0);
+                String exitTime = intersectionTimes.get(intersectionTimes.size() - 1);
+                TimeOverlap overlap = calculateTimeOverlap(enterTime, exitTime, region.getTimeUtc());
+                if (overlap == null) {
+                    continue;
+                }
+                events.addAll(toEnterExitPair(mmsi, region.getId(), region.getName(), region.getCategory(), region.getTableName(),
+                        overlap.enterTime, overlap.exitTime));
+            } catch (Exception ex) {
+                log.warn("storm region intersection failed, mmsi={}, regionId={}, table={}",
+                        mmsi, region.getId(), region.getTableName(), ex);
             }
-            Geometry intersection = region.getGeometry().intersection(line);
-            List<String> intersectionTimes = extractIntersectionTimes(intersection, coordTimeMap);
-            if (intersectionTimes.isEmpty()) {
-                continue;
-            }
-            String enterTime = intersectionTimes.get(0);
-            String exitTime = intersectionTimes.get(intersectionTimes.size() - 1);
-            TimeOverlap overlap = calculateTimeOverlap(enterTime, exitTime, region.getTimeUtc());
-            if (overlap == null) {
-                continue;
-            }
-            events.addAll(toEnterExitPair(mmsi, region.getId(), region.getName(), region.getCategory(), region.getTableName(),
-                    overlap.enterTime, overlap.exitTime));
         }
         return events;
+    }
+
+    private Geometry safeIntersection(Geometry regionGeom, LineString line) {
+        try {
+            Geometry result = regionGeom.intersection(line);
+            if (result != null && !result.isEmpty()) {
+                return result;
+            }
+        } catch (Exception ex) {
+            log.debug("storm intersection retry with buffer(0), regionGeom={}", regionGeom.getGeometryType(), ex);
+        }
+        try {
+            Geometry fixedRegion = regionGeom.buffer(0);
+            Geometry result = fixedRegion.intersection(line);
+            return result == null ? emptyGeometry() : result;
+        } catch (Exception ex) {
+            log.debug("storm intersection failed after buffer(0)", ex);
+            return emptyGeometry();
+        }
+    }
+
+    private Geometry emptyGeometry() {
+        return GEOMETRY_FACTORY.createGeometryCollection(new Geometry[0]);
     }
 
     private List<StormRegion> loadRegions(String tableName, String category, String startTime, String endTime) {
