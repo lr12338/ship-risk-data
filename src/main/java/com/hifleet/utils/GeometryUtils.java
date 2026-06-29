@@ -5,7 +5,6 @@ import com.vividsolutions.jts.geom.Geometry;
 import com.vividsolutions.jts.geom.GeometryFactory;
 import com.vividsolutions.jts.io.ParseException;
 import com.vividsolutions.jts.io.WKTReader;
-import org.geotools.geometry.jts.JTSFactoryFinder;
 
 /**
  * 类说明:
@@ -16,7 +15,7 @@ import org.geotools.geometry.jts.JTSFactoryFinder;
 public class GeometryUtils {
 
 	private final static double EARTH_RADIUS_KM=6371;
-	private static GeometryFactory geometryFactory = JTSFactoryFinder.getGeometryFactory(null);;
+	private static GeometryFactory geometryFactory = new GeometryFactory();
 
 	public static Geometry getGeo(String geo) throws ParseException {
 		WKTReader reader = new WKTReader(geometryFactory);
