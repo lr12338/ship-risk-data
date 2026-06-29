@@ -5,10 +5,15 @@ import com.hifleet.analysis.portcall.model.AisPoint;
 import com.hifleet.analysis.portcall.model.StopPointEvent;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.configuration.CheckpointingOptions;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.StateBackendOptions;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
+import org.apache.flink.contrib.streaming.state.RocksDBOptions;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 
@@ -30,12 +35,7 @@ public final class FlinkPortCallJob {
      */
     public static void main(String[] args) throws Exception {
         PortCallConfig config = PortCallConfig.defaultConfig();
-
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        if (config.getFlinkCheckpointIntervalMs() > 0L) {
-            env.enableCheckpointing(config.getFlinkCheckpointIntervalMs());
-        }
-
+        StreamExecutionEnvironment env = createExecutionEnvironment(config);
         KafkaSource<String> source = KafkaSource.<String>builder()
             .setBootstrapServers(config.getKafkaBootstrapServers())
             .setTopics(config.getKafkaTopic())
@@ -44,9 +44,11 @@ public final class FlinkPortCallJob {
             .setStartingOffsets(OffsetsInitializer.committedOffsets(OffsetResetStrategy.EARLIEST))
             .setValueOnlyDeserializer(new SimpleStringSchema())
             .build();
-
+        //System.out.println(config.getKafkaBootstrapServers());
         WatermarkStrategy<AisPoint> watermarkStrategy = WatermarkStrategy
             .<AisPoint>forBoundedOutOfOrderness(Duration.ofSeconds(config.getReorderMaxLatenessSeconds()))
+            // Idle Kafka partitions otherwise keep the global watermark at MIN_WATERMARK forever.
+            .withIdleness(Duration.ofMinutes(1))
             .withTimestampAssigner(new AisPointTimestampAssigner());
 
         DataStream<StopPointEvent> stopPoints = env.fromSource(source, WatermarkStrategy.noWatermarks(), "ais-kafka-source")
@@ -95,11 +97,45 @@ public final class FlinkPortCallJob {
             .sinkTo(stopPointSink)
             .name("kafka-stop-point-sink");
 
-        stopPoints
-            .map(new StopPointJsonMapFunction())
-            .name("debug-stop-point-json")
-            .print();
+        if (config.isFlinkDebugPrint()) {
+            stopPoints
+                .map(new StopPointJsonMapFunction())
+                .name("debug-stop-point-json")
+                .print();
+        }
 
         env.execute("reliable-stop-point-flink");
+    }
+
+    private static StreamExecutionEnvironment createExecutionEnvironment(PortCallConfig config) {
+        Configuration flinkConfiguration = new Configuration();
+        applyIfConfigured(flinkConfiguration, StateBackendOptions.STATE_BACKEND, config.getFlinkStateBackend());
+        applyIfConfigured(flinkConfiguration, CheckpointingOptions.CHECKPOINTS_DIRECTORY, config.getFlinkCheckpointDir());
+        applyIfConfigured(flinkConfiguration, CheckpointingOptions.SAVEPOINT_DIRECTORY, config.getFlinkSavepointDir());
+        applyIfConfigured(flinkConfiguration, RocksDBOptions.LOCAL_DIRECTORIES, config.getFlinkRocksDbLocalDir());
+        if (config.getFlinkCheckpointIntervalMs() > 0L) {
+            flinkConfiguration.set(
+                CheckpointingOptions.MAX_RETAINED_CHECKPOINTS,
+                config.resolveMaxRetainedCheckpoints()
+            );
+        }
+
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfiguration);
+        if (config.getFlinkParallelism() > 0) {
+            env.setParallelism(config.getFlinkParallelism());
+        }
+        if (config.getFlinkCheckpointIntervalMs() > 0L) {
+            env.enableCheckpointing(config.getFlinkCheckpointIntervalMs());
+            env.getCheckpointConfig().setExternalizedCheckpointCleanup(
+                CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
+        }
+        return env;
+    }
+
+    private static void applyIfConfigured(Configuration configuration, org.apache.flink.configuration.ConfigOption<String> option, String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return;
+        }
+        configuration.set(option, value.trim());
     }
 }

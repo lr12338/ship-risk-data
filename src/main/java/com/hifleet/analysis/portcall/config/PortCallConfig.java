@@ -46,6 +46,15 @@ public class PortCallConfig implements Serializable {
     private long outputUnknownTimeoutSeconds;
 
     private long flinkCheckpointIntervalMs;
+    private String flinkStateBackend;
+    private String flinkCheckpointDir;
+    private String flinkSavepointDir;
+    private String flinkRocksDbLocalDir;
+    private int flinkParallelism;
+    private boolean flinkDebugPrint;
+    private int flinkCheckpointRetentionDays;
+    private int flinkSavepointRetentionDays;
+    private int flinkCheckpointMaxRetained;
 
     /**
      * Loads application.properties, then applies JVM -D overrides for known keys.
@@ -105,6 +114,15 @@ public class PortCallConfig implements Serializable {
         config.setOutputUnknownTimeoutSeconds(toLong(value(props, "output.unknown.timeout-seconds"), 1800L));
 
         config.setFlinkCheckpointIntervalMs(toLong(value(props, "flink.checkpoint.interval-ms"), 60000L));
+        config.setFlinkStateBackend(value(props, "flink.state.backend"));
+        config.setFlinkCheckpointDir(value(props, "flink.checkpoint.dir"));
+        config.setFlinkSavepointDir(value(props, "flink.savepoint.dir"));
+        config.setFlinkRocksDbLocalDir(value(props, "flink.rocksdb.localdir"));
+        config.setFlinkParallelism(toInt(value(props, "flink.parallelism"), 0));
+        config.setFlinkDebugPrint(toBoolean(value(props, "flink.debug.print"), false));
+        config.setFlinkCheckpointRetentionDays(toInt(value(props, "flink.checkpoint.retention-days"), 15));
+        config.setFlinkSavepointRetentionDays(toInt(value(props, "flink.savepoint.retention-days"), 15));
+        config.setFlinkCheckpointMaxRetained(toInt(value(props, "flink.checkpoint.max-retained"), 0));
         return config;
     }
 
@@ -138,6 +156,15 @@ public class PortCallConfig implements Serializable {
         defaults.setProperty("output.stop-update.min-confidence-delta", "0.05");
         defaults.setProperty("output.unknown.timeout-seconds", "1800");
         defaults.setProperty("flink.checkpoint.interval-ms", "60000");
+        defaults.setProperty("flink.state.backend", "rocksdb");
+        defaults.setProperty("flink.checkpoint.dir", "");
+        defaults.setProperty("flink.savepoint.dir", "");
+        defaults.setProperty("flink.rocksdb.localdir", "");
+        defaults.setProperty("flink.parallelism", "0");
+        defaults.setProperty("flink.debug.print", "false");
+        defaults.setProperty("flink.checkpoint.retention-days", "15");
+        defaults.setProperty("flink.savepoint.retention-days", "15");
+        defaults.setProperty("flink.checkpoint.max-retained", "0");
         return defaults;
     }
 
@@ -176,6 +203,13 @@ public class PortCallConfig implements Serializable {
         } catch (RuntimeException ex) {
             return fallback;
         }
+    }
+
+    private static boolean toBoolean(String value, boolean fallback) {
+        if (value == null || value.trim().isEmpty()) {
+            return fallback;
+        }
+        return Boolean.parseBoolean(value.trim());
     }
 
     private static Set<String> toStringSet(String value) {
@@ -414,5 +448,96 @@ public class PortCallConfig implements Serializable {
 
     public void setFlinkCheckpointIntervalMs(long flinkCheckpointIntervalMs) {
         this.flinkCheckpointIntervalMs = flinkCheckpointIntervalMs;
+    }
+
+    public String getFlinkStateBackend() {
+        return flinkStateBackend;
+    }
+
+    public void setFlinkStateBackend(String flinkStateBackend) {
+        this.flinkStateBackend = flinkStateBackend;
+    }
+
+    public String getFlinkCheckpointDir() {
+        return flinkCheckpointDir;
+    }
+
+    public void setFlinkCheckpointDir(String flinkCheckpointDir) {
+        this.flinkCheckpointDir = flinkCheckpointDir;
+    }
+
+    public String getFlinkSavepointDir() {
+        return flinkSavepointDir;
+    }
+
+    public void setFlinkSavepointDir(String flinkSavepointDir) {
+        this.flinkSavepointDir = flinkSavepointDir;
+    }
+
+    public String getFlinkRocksDbLocalDir() {
+        return flinkRocksDbLocalDir;
+    }
+
+    public void setFlinkRocksDbLocalDir(String flinkRocksDbLocalDir) {
+        this.flinkRocksDbLocalDir = flinkRocksDbLocalDir;
+    }
+
+    public int getFlinkParallelism() {
+        return flinkParallelism;
+    }
+
+    public void setFlinkParallelism(int flinkParallelism) {
+        this.flinkParallelism = flinkParallelism;
+    }
+
+    public boolean isFlinkDebugPrint() {
+        return flinkDebugPrint;
+    }
+
+    public void setFlinkDebugPrint(boolean flinkDebugPrint) {
+        this.flinkDebugPrint = flinkDebugPrint;
+    }
+
+    public int getFlinkCheckpointRetentionDays() {
+        return flinkCheckpointRetentionDays;
+    }
+
+    public void setFlinkCheckpointRetentionDays(int flinkCheckpointRetentionDays) {
+        this.flinkCheckpointRetentionDays = flinkCheckpointRetentionDays;
+    }
+
+    public int getFlinkSavepointRetentionDays() {
+        return flinkSavepointRetentionDays;
+    }
+
+    public void setFlinkSavepointRetentionDays(int flinkSavepointRetentionDays) {
+        this.flinkSavepointRetentionDays = flinkSavepointRetentionDays;
+    }
+
+    public int getFlinkCheckpointMaxRetained() {
+        return flinkCheckpointMaxRetained;
+    }
+
+    public void setFlinkCheckpointMaxRetained(int flinkCheckpointMaxRetained) {
+        this.flinkCheckpointMaxRetained = flinkCheckpointMaxRetained;
+    }
+
+    /**
+     * Resolves how many completed checkpoints Flink keeps while the job is running.
+     * When {@code flink.checkpoint.max-retained} is 0, derive from retention days and interval.
+     */
+    public int resolveMaxRetainedCheckpoints() {
+        if (flinkCheckpointMaxRetained > 0) {
+            return flinkCheckpointMaxRetained;
+        }
+        if (flinkCheckpointRetentionDays <= 0 || flinkCheckpointIntervalMs <= 0L) {
+            return 1;
+        }
+        long retentionMillis = flinkCheckpointRetentionDays * 24L * 3600L * 1000L;
+        long count = retentionMillis / flinkCheckpointIntervalMs;
+        if (count < 1L) {
+            return 1;
+        }
+        return count > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) count;
     }
 }

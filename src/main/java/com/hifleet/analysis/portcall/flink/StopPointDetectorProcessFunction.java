@@ -137,7 +137,6 @@ public class StopPointDetectorProcessFunction extends KeyedProcessFunction<Long,
                 out.collect(buildSailingStart(state, point));
             }
         }
-
         detectorState.update(state);
     }
 

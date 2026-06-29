@@ -3,8 +3,12 @@ package com.hifleet.analysis.portcall.flink;
 import com.hifleet.analysis.portcall.model.AisPoint;
 import com.hifleet.analysis.portcall.model.CleanAisPoint;
 import com.hifleet.analysis.portcall.preprocess.JumpPointFilter;
+import org.apache.flink.api.common.state.MapState;
+import org.apache.flink.api.common.state.MapStateDescriptor;
+import org.apache.flink.api.common.state.StateTtlConfig;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.configuration.Configuration;
@@ -12,10 +16,9 @@ import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
 
 import java.time.Duration;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
  * Flink-native keyed preprocessing for one vessel stream.
@@ -26,15 +29,19 @@ import java.util.TreeMap;
 public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, AisPoint, CleanAisPoint> {
 
     private static final long serialVersionUID = 1L;
+    private static final int MAX_DEDUP_KEYS_PER_VESSEL_CAP = 8192;
 
     private final long maxLatenessMillis;
     private final int maxDedupKeysPerVessel;
     private final int maxPointsPerVessel;
     private final double maxImpliedSpeedKnots;
 
-    private transient ValueState<TreeMap<Long, AisPoint>> reorderBufferState;
-    private transient ValueState<HashSet<String>> dedupKeysState;
+    private transient MapState<Long, AisPoint> reorderBuffer;
+    private transient ValueState<TreeSet<Long>> bufferEventTimes;
+    private transient MapState<String, Byte> dedupKeys;
+    private transient ValueState<Integer> dedupKeyCount;
     private transient ValueState<AisPoint> lastAcceptedState;
+    private transient ValueState<Long> activeReleaseTimer;
     private transient JumpPointFilter jumpPointFilter;
 
     public FlinkKeyedPreprocessFunction(
@@ -44,29 +51,47 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
         double maxImpliedSpeedKnots
     ) {
         this.maxLatenessMillis = Math.max(0L, maxLatenessSeconds) * 1000L;
-        this.maxDedupKeysPerVessel = normalizeLimit(maxDedupKeysPerVessel);
+        this.maxDedupKeysPerVessel = Math.min(
+            normalizeLimit(maxDedupKeysPerVessel),
+            MAX_DEDUP_KEYS_PER_VESSEL_CAP
+        );
         this.maxPointsPerVessel = normalizeLimit(maxPointsPerVessel);
         this.maxImpliedSpeedKnots = maxImpliedSpeedKnots;
     }
 
     @Override
     public void open(Configuration parameters) {
-        reorderBufferState = getRuntimeContext().getState(
-            new ValueStateDescriptor<TreeMap<Long, AisPoint>>(
-                "ais-reorder-buffer",
-                TypeInformation.of(new TypeHint<TreeMap<Long, AisPoint>>() {
+        MapStateDescriptor<Long, AisPoint> bufferDescriptor =
+            new MapStateDescriptor<>("ais-reorder-buffer", Long.class, AisPoint.class);
+        reorderBuffer = getRuntimeContext().getMapState(bufferDescriptor);
+
+        bufferEventTimes = getRuntimeContext().getState(
+            new ValueStateDescriptor<TreeSet<Long>>(
+                "ais-buffer-event-times",
+                TypeInformation.of(new TypeHint<TreeSet<Long>>() {
                 })
             )
         );
-        dedupKeysState = getRuntimeContext().getState(
-            new ValueStateDescriptor<HashSet<String>>(
-                "ais-dedup-keys",
-                TypeInformation.of(new TypeHint<HashSet<String>>() {
-                })
-            )
+
+        MapStateDescriptor<String, Byte> dedupDescriptor =
+            new MapStateDescriptor<>("ais-dedup-keys", String.class, Byte.class);
+        StateTtlConfig dedupTtl = StateTtlConfig
+            .newBuilder(Time.hours(24))
+            .setUpdateType(StateTtlConfig.UpdateType.OnCreateAndWrite)
+            .setStateVisibility(StateTtlConfig.StateVisibility.NeverReturnExpired)
+            .cleanupFullSnapshot()
+            .build();
+        dedupDescriptor.enableTimeToLive(dedupTtl);
+        dedupKeys = getRuntimeContext().getMapState(dedupDescriptor);
+
+        dedupKeyCount = getRuntimeContext().getState(
+            new ValueStateDescriptor<Integer>("ais-dedup-key-count", Integer.class)
         );
         lastAcceptedState = getRuntimeContext().getState(
             new ValueStateDescriptor<AisPoint>("last-accepted-ais", AisPoint.class)
+        );
+        activeReleaseTimer = getRuntimeContext().getState(
+            new ValueStateDescriptor<Long>("ais-active-release-timer", Long.class)
         );
         jumpPointFilter = new JumpPointFilter(maxImpliedSpeedKnots);
     }
@@ -78,16 +103,15 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
         }
 
         String dedupKey = point.buildDedupKey();
-        HashSet<String> dedupKeys = dedupKeysState.value();
-        if (dedupKeys == null) {
-            dedupKeys = new HashSet<String>();
-        }
         if (dedupKeys.contains(dedupKey)) {
             return;
         }
-        dedupKeys.add(dedupKey);
-        trimDedupKeys(dedupKeys);
-        dedupKeysState.update(dedupKeys);
+        dedupKeys.put(dedupKey, (byte) 1);
+        int dedupCount = valueOrZero(dedupKeyCount.value()) + 1;
+        if (dedupCount > maxDedupKeysPerVessel) {
+            dedupCount = trimDedupKeys(dedupCount);
+        }
+        dedupKeyCount.update(dedupCount);
 
         long eventTimeMillis = point.getUpdateTime().toEpochMilli();
         long currentWatermark = ctx.timerService().currentWatermark();
@@ -95,35 +119,87 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
             return;
         }
 
-        TreeMap<Long, AisPoint> buffer = reorderBufferState.value();
-        if (buffer == null) {
-            buffer = new TreeMap<Long, AisPoint>();
+        TreeSet<Long> eventTimes = bufferEventTimes.value();
+        if (eventTimes == null) {
+            eventTimes = new TreeSet<Long>();
         }
-        buffer.put(eventTimeMillis, point);
-        trimReorderBuffer(buffer);
-        reorderBufferState.update(buffer);
-
-        ctx.timerService().registerEventTimeTimer(eventTimeMillis + maxLatenessMillis);
+        eventTimes.add(eventTimeMillis);
+        reorderBuffer.put(eventTimeMillis, point);
+        while (eventTimes.size() > maxPointsPerVessel) {
+            Long oldest = eventTimes.pollFirst();
+            if (oldest != null) {
+                reorderBuffer.remove(oldest);
+            }
+        }
+        bufferEventTimes.update(eventTimes);
+        updateReleaseTimer(ctx);
     }
 
     @Override
     public void onTimer(long timestamp, OnTimerContext ctx, Collector<CleanAisPoint> out) throws Exception {
-        TreeMap<Long, AisPoint> buffer = reorderBufferState.value();
-        if (buffer == null || buffer.isEmpty()) {
+        TreeSet<Long> eventTimes = bufferEventTimes.value();
+        if (eventTimes == null || eventTimes.isEmpty()) {
+            clearReleaseTimer(ctx);
             return;
         }
 
         long currentWatermark = ctx.timerService().currentWatermark();
-        Iterator<Map.Entry<Long, AisPoint>> iterator = buffer.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<Long, AisPoint> entry = iterator.next();
-            if (entry.getKey() + maxLatenessMillis > currentWatermark) {
+        while (!eventTimes.isEmpty()) {
+            long firstEventTime = eventTimes.first();
+            if (firstEventTime + maxLatenessMillis > currentWatermark) {
                 break;
             }
-            emitCleanPoint(entry.getValue(), out);
-            iterator.remove();
+            eventTimes.remove(firstEventTime);
+            AisPoint point = reorderBuffer.get(firstEventTime);
+            reorderBuffer.remove(firstEventTime);
+            if (point != null) {
+                emitCleanPoint(point, out);
+            }
         }
-        reorderBufferState.update(buffer);
+
+        if (eventTimes.isEmpty()) {
+            bufferEventTimes.clear();
+        } else {
+            bufferEventTimes.update(eventTimes);
+        }
+        updateReleaseTimer(ctx);
+    }
+
+    private void updateReleaseTimer(Context ctx) throws Exception {
+        TreeSet<Long> eventTimes = bufferEventTimes.value();
+        if (eventTimes == null || eventTimes.isEmpty()) {
+            clearReleaseTimer(ctx);
+            return;
+        }
+
+        long releaseAt = eventTimes.first() + maxLatenessMillis;
+        Long activeTimer = activeReleaseTimer.value();
+        if (activeTimer != null && activeTimer.longValue() == releaseAt) {
+            return;
+        }
+        if (activeTimer != null) {
+            ctx.timerService().deleteEventTimeTimer(activeTimer);
+        }
+        ctx.timerService().registerEventTimeTimer(releaseAt);
+        activeReleaseTimer.update(releaseAt);
+    }
+
+    private void clearReleaseTimer(Context ctx) throws Exception {
+        Long activeTimer = activeReleaseTimer.value();
+        if (activeTimer != null) {
+            ctx.timerService().deleteEventTimeTimer(activeTimer);
+            activeReleaseTimer.clear();
+        }
+    }
+
+    private int trimDedupKeys(int currentCount) throws Exception {
+        Iterator<Map.Entry<String, Byte>> iterator = dedupKeys.iterator();
+        while (iterator.hasNext() && currentCount > maxDedupKeysPerVessel) {
+            iterator.next();
+            iterator.remove();
+            currentCount--;
+        }
+        return currentCount;
     }
 
     private void emitCleanPoint(AisPoint point, Collector<CleanAisPoint> out) throws Exception {
@@ -174,21 +250,8 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
         return Math.max(0L, Duration.between(point.getUpdateTime(), point.getServerReceiveTime()).getSeconds());
     }
 
-    private void trimDedupKeys(HashSet<String> dedupKeys) {
-        if (dedupKeys.size() <= maxDedupKeysPerVessel) {
-            return;
-        }
-        Iterator<String> iterator = dedupKeys.iterator();
-        while (dedupKeys.size() > maxDedupKeysPerVessel && iterator.hasNext()) {
-            iterator.next();
-            iterator.remove();
-        }
-    }
-
-    private void trimReorderBuffer(TreeMap<Long, AisPoint> buffer) {
-        while (buffer.size() > maxPointsPerVessel) {
-            buffer.pollFirstEntry();
-        }
+    private static int valueOrZero(Integer value) {
+        return value == null ? 0 : value.intValue();
     }
 
     private static int normalizeLimit(int limit) {

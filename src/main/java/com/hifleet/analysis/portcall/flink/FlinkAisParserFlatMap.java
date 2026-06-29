@@ -26,6 +26,7 @@ public class FlinkAisParserFlatMap implements FlatMapFunction<String, AisPoint> 
             if (point != null && point.getServerReceiveTime() == null) {
                 point.setServerReceiveTime(receiveTime);
             }
+            //System.out.println(point.getUpdateTime()+","+point.getServerReceiveTime());
             out.collect(point);
         }
     }

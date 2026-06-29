@@ -26,6 +26,7 @@ public class ValidAisPointFilter implements FilterFunction<AisPoint> {
 
     @Override
     public boolean filter(AisPoint point) {
+        //System.out.println(point.getMmsi()+",filter");
         return point != null
             && point.getMmsi() != null
             && point.getUpdateTime() != null
