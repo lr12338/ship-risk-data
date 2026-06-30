@@ -1,6 +1,7 @@
 package com.hifleet.service;
 
 import com.hifleet.domain.ShipBehaviorEvent;
+import com.hifleet.domain.ShipBehaviorTrace;
 import com.hifleet.trajectory.TrajectoryPoint;
 import com.hifleet.trajectory.TrajectorySegment;
 import com.hifleet.trajectory.TrajectoryUtils;
@@ -15,25 +16,34 @@ import java.util.List;
 public class ShipLoiteringDetector {
 
     public List<ShipBehaviorEvent> detect(String mmsi, List<TrajectoryPoint> points, LoiteringRule rule) {
+        List<ShipBehaviorTrace> traces = detectWithTrace(mmsi, points, rule);
+        List<ShipBehaviorEvent> events = new ArrayList<ShipBehaviorEvent>();
+        for (ShipBehaviorTrace trace : traces) {
+            events.add(trace.getEvent());
+        }
+        return events;
+    }
+
+    public List<ShipBehaviorTrace> detectWithTrace(String mmsi, List<TrajectoryPoint> points, LoiteringRule rule) {
         if (points == null || points.isEmpty()) {
             return Collections.emptyList();
         }
-        List<ShipBehaviorEvent> events = new ArrayList<ShipBehaviorEvent>();
+        List<ShipBehaviorTrace> traces = new ArrayList<ShipBehaviorTrace>();
         List<TrajectoryPoint> current = new ArrayList<TrajectoryPoint>();
         for (TrajectoryPoint point : points) {
             if (point.getSpeed() <= rule.getMaxSpeed()) {
                 current.add(point);
             } else {
-                collectSegment(mmsi, current, rule, events);
+                collectSegment(mmsi, current, rule, traces);
                 current.clear();
             }
         }
-        collectSegment(mmsi, current, rule, events);
-        return events;
+        collectSegment(mmsi, current, rule, traces);
+        return traces;
     }
 
     private void collectSegment(String mmsi, List<TrajectoryPoint> points, LoiteringRule rule,
-                                List<ShipBehaviorEvent> events) {
+                                List<ShipBehaviorTrace> traces) {
         if (points.size() < rule.getMinPoints()) {
             return;
         }
@@ -61,7 +71,7 @@ public class ShipLoiteringDetector {
         event.setAvgSpeed(TrajectoryUtils.averageSpeed(points));
         event.setPointCount(points.size());
         event.setRuleVersion(rule.getRuleVersion());
-        events.add(event);
+        traces.add(new ShipBehaviorTrace(event, new ArrayList<TrajectoryPoint>(points), Collections.<TrajectoryPoint>emptyList()));
     }
 
     public static class LoiteringRule {

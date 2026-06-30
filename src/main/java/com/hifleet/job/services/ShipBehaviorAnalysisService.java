@@ -4,12 +4,16 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.hifleet.beans.ShipForm;
 import com.hifleet.domain.ShipBehaviorEvent;
+import com.hifleet.domain.ShipBehaviorEventDetail;
+import com.hifleet.domain.ShipBehaviorTrace;
 import com.hifleet.repository.AIS41GeneralQueryRepository;
+import com.hifleet.repository.ShipBehaviorEventDetailRepository;
 import com.hifleet.repository.ShipBehaviorEventRepository;
 import com.hifleet.service.ShipAlongsideDetector;
 import com.hifleet.service.ShipLoiteringDetector;
 import com.hifleet.trajectory.TrajectoryLoaderService;
 import com.hifleet.trajectory.TrajectoryPoint;
+import com.hifleet.trajectory.TrajectoryUtils;
 import com.xxl.job.core.log.XxlJobLogger;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -66,11 +70,17 @@ public class ShipBehaviorAnalysisService {
     @Value("${ship.behavior.alongside.min-points:3}")
     private int alongsideMinPoints;
 
+    @Value("${ship.behavior.trace.log-max-events:20}")
+    private int traceLogMaxEvents;
+
     @Autowired
     private TrajectoryLoaderService trajectoryLoaderService;
 
     @Autowired
     private ShipBehaviorEventRepository shipBehaviorEventRepository;
+
+    @Autowired
+    private ShipBehaviorEventDetailRepository shipBehaviorEventDetailRepository;
 
     @Autowired
     private AIS41GeneralQueryRepository ais41GeneralQueryRepository;
@@ -93,9 +103,12 @@ public class ShipBehaviorAnalysisService {
             try {
                 List<TrajectoryPoint> points = trajectoryLoaderService.load(
                         mmsi, jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
-                List<ShipBehaviorEvent> detected = loiteringDetector.detect(mmsi, points, rule);
+                List<ShipBehaviorTrace> traces = loiteringDetector.detectWithTrace(mmsi, points, rule);
+                List<ShipBehaviorEvent> detected = extractEvents(traces);
                 tagBatch(detected, jobParams);
                 shipBehaviorEventRepository.saveEvents(detected);
+                shipBehaviorEventDetailRepository.saveDetails(toDetails(traces, jobParams));
+                logEventSummaries(traces);
                 processed++;
                 events += detected.size();
                 XxlJobLogger.log("徘徊 mmsi=" + mmsi + " points=" + points.size() + " events=" + detected.size());
@@ -129,10 +142,13 @@ public class ShipBehaviorAnalysisService {
                     jobParams.getMmsi(), jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
             List<TrajectoryPoint> targetPoints = trajectoryLoaderService.load(
                     jobParams.getTargetMmsi(), jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
-            List<ShipBehaviorEvent> detected = alongsideDetector.detect(
+            List<ShipBehaviorTrace> traces = alongsideDetector.detectWithTrace(
                     jobParams.getMmsi(), ownPoints, jobParams.getTargetMmsi(), targetPoints, rule);
+            List<ShipBehaviorEvent> detected = extractEvents(traces);
             tagBatch(detected, jobParams);
             shipBehaviorEventRepository.saveEvents(detected);
+            shipBehaviorEventDetailRepository.saveDetails(toDetails(traces, jobParams));
+            logEventSummaries(traces);
             XxlJobLogger.log("搭靠 mmsi=" + jobParams.getMmsi()
                     + " targetMmsi=" + jobParams.getTargetMmsi()
                     + " ownPoints=" + ownPoints.size()
@@ -149,6 +165,84 @@ public class ShipBehaviorAnalysisService {
     private void tagBatch(List<ShipBehaviorEvent> events, JobParams jobParams) {
         for (ShipBehaviorEvent event : events) {
             event.setBatchNo(jobParams.getBatchNo());
+        }
+    }
+
+    private List<ShipBehaviorEvent> extractEvents(List<ShipBehaviorTrace> traces) {
+        List<ShipBehaviorEvent> events = new ArrayList<ShipBehaviorEvent>();
+        for (ShipBehaviorTrace trace : traces) {
+            if (trace != null && trace.getEvent() != null) {
+                events.add(trace.getEvent());
+            }
+        }
+        return events;
+    }
+
+    private List<ShipBehaviorEventDetail> toDetails(List<ShipBehaviorTrace> traces, JobParams jobParams) {
+        List<ShipBehaviorEventDetail> details = new ArrayList<ShipBehaviorEventDetail>();
+        for (ShipBehaviorTrace trace : traces) {
+            ShipBehaviorEvent event = trace.getEvent();
+            appendDetails(details, event, trace.getOwnPoints(), ShipBehaviorEventDetail.ROLE_OWN, jobParams);
+            appendDetails(details, event, trace.getTargetPoints(), ShipBehaviorEventDetail.ROLE_TARGET, jobParams);
+        }
+        return details;
+    }
+
+    private void appendDetails(List<ShipBehaviorEventDetail> details, ShipBehaviorEvent event,
+                               List<TrajectoryPoint> points, String pointRole, JobParams jobParams) {
+        if (event == null || points == null || points.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < points.size(); i++) {
+            TrajectoryPoint point = points.get(i);
+            ShipBehaviorEventDetail detail = new ShipBehaviorEventDetail();
+            detail.setBehaviorType(event.getBehaviorType());
+            detail.setMmsi(event.getMmsi());
+            detail.setTargetMmsi(event.getTargetMmsi());
+            detail.setPointRole(pointRole);
+            detail.setEventStartTime(event.getStartTime());
+            detail.setEventEndTime(event.getEndTime());
+            detail.setPointTime(TrajectoryUtils.formatTime(point));
+            detail.setPointIndex(i + 1);
+            detail.setLon(point.getLon());
+            detail.setLat(point.getLat());
+            detail.setSpeed(point.getSpeed());
+            detail.setCourse(point.getCourse());
+            detail.setNavStatus(point.getNavStatus());
+            detail.setBatchNo(jobParams.getBatchNo());
+            detail.setRuleVersion(event.getRuleVersion());
+            details.add(detail);
+        }
+    }
+
+    private void logEventSummaries(List<ShipBehaviorTrace> traces) {
+        int maxCount = Math.max(0, traceLogMaxEvents);
+        for (int i = 0; i < traces.size() && i < maxCount; i++) {
+            ShipBehaviorEvent event = traces.get(i).getEvent();
+            if (ShipBehaviorEvent.TYPE_LOITERING.equals(event.getBehaviorType())) {
+                XxlJobLogger.log("event[" + (i + 1) + "] type=" + event.getBehaviorType()
+                        + " start=" + event.getStartTime()
+                        + " end=" + event.getEndTime()
+                        + " duration=" + event.getDurationMinutes()
+                        + " radiusNm=" + event.getMaxDistanceNm()
+                        + " avgSpeed=" + event.getAvgSpeed()
+                        + " pointCount=" + event.getPointCount()
+                        + " batchNo=" + event.getBatchNo());
+            } else {
+                XxlJobLogger.log("event[" + (i + 1) + "] type=" + event.getBehaviorType()
+                        + " start=" + event.getStartTime()
+                        + " end=" + event.getEndTime()
+                        + " duration=" + event.getDurationMinutes()
+                        + " minDistanceNm=" + event.getMinDistanceNm()
+                        + " maxDistanceNm=" + event.getMaxDistanceNm()
+                        + " avgSpeed=" + event.getAvgSpeed()
+                        + " pointCount=" + event.getPointCount()
+                        + " targetMmsi=" + event.getTargetMmsi()
+                        + " batchNo=" + event.getBatchNo());
+            }
+        }
+        if (traces.size() > maxCount) {
+            XxlJobLogger.log("event summaries truncated, total=" + traces.size() + ", logged=" + maxCount);
         }
     }
 

@@ -1,6 +1,7 @@
 package com.hifleet.service;
 
 import com.hifleet.domain.ShipBehaviorEvent;
+import com.hifleet.domain.ShipBehaviorTrace;
 import com.hifleet.trajectory.TrajectoryPoint;
 import com.hifleet.trajectory.TrajectorySegment;
 import com.hifleet.trajectory.TrajectoryUtils;
@@ -17,11 +18,22 @@ public class ShipAlongsideDetector {
     public List<ShipBehaviorEvent> detect(String mmsi, List<TrajectoryPoint> ownPoints,
                                           String targetMmsi, List<TrajectoryPoint> targetPoints,
                                           AlongsideRule rule) {
+        List<ShipBehaviorTrace> traces = detectWithTrace(mmsi, ownPoints, targetMmsi, targetPoints, rule);
+        List<ShipBehaviorEvent> events = new ArrayList<ShipBehaviorEvent>();
+        for (ShipBehaviorTrace trace : traces) {
+            events.add(trace.getEvent());
+        }
+        return events;
+    }
+
+    public List<ShipBehaviorTrace> detectWithTrace(String mmsi, List<TrajectoryPoint> ownPoints,
+                                                   String targetMmsi, List<TrajectoryPoint> targetPoints,
+                                                   AlongsideRule rule) {
         if (ownPoints == null || ownPoints.isEmpty() || targetPoints == null || targetPoints.isEmpty()) {
             return Collections.emptyList();
         }
         List<MatchedPoint> current = new ArrayList<MatchedPoint>();
-        List<ShipBehaviorEvent> events = new ArrayList<ShipBehaviorEvent>();
+        List<ShipBehaviorTrace> traces = new ArrayList<ShipBehaviorTrace>();
         int targetIndex = 0;
         for (TrajectoryPoint ownPoint : ownPoints) {
             MatchResult match = findNearest(ownPoint, targetPoints, targetIndex, rule.getMaxTimeGapMinutes());
@@ -29,14 +41,14 @@ public class ShipAlongsideDetector {
                 targetIndex = match.getIndex();
             }
             if (isAlongsideCandidate(ownPoint, match, rule)) {
-                current.add(new MatchedPoint(ownPoint, match.getDistanceNm()));
+                current.add(new MatchedPoint(ownPoint, match.getPoint(), match.getDistanceNm()));
             } else {
-                collectSegment(mmsi, targetMmsi, current, rule, events);
+                collectSegment(mmsi, targetMmsi, current, rule, traces);
                 current.clear();
             }
         }
-        collectSegment(mmsi, targetMmsi, current, rule, events);
-        return events;
+        collectSegment(mmsi, targetMmsi, current, rule, traces);
+        return traces;
     }
 
     private boolean isAlongsideCandidate(TrajectoryPoint ownPoint, MatchResult match, AlongsideRule rule) {
@@ -67,15 +79,17 @@ public class ShipAlongsideDetector {
     }
 
     private void collectSegment(String mmsi, String targetMmsi, List<MatchedPoint> matches,
-                                AlongsideRule rule, List<ShipBehaviorEvent> events) {
+                                AlongsideRule rule, List<ShipBehaviorTrace> traces) {
         if (matches.size() < rule.getMinPoints()) {
             return;
         }
         List<TrajectoryPoint> ownPoints = new ArrayList<TrajectoryPoint>();
+        List<TrajectoryPoint> targetPoints = new ArrayList<TrajectoryPoint>();
         double minDistance = Double.MAX_VALUE;
         double maxDistance = 0.0;
         for (MatchedPoint match : matches) {
             ownPoints.add(match.getOwnPoint());
+            targetPoints.add(match.getTargetPoint());
             minDistance = Math.min(minDistance, match.getDistanceNm());
             maxDistance = Math.max(maxDistance, match.getDistanceNm());
         }
@@ -101,7 +115,7 @@ public class ShipAlongsideDetector {
         event.setAvgSpeed(TrajectoryUtils.averageSpeed(ownPoints));
         event.setPointCount(matches.size());
         event.setRuleVersion(rule.getRuleVersion());
-        events.add(event);
+        traces.add(new ShipBehaviorTrace(event, ownPoints, targetPoints));
     }
 
     public static class AlongsideRule {
@@ -173,15 +187,21 @@ public class ShipAlongsideDetector {
 
     private static class MatchedPoint {
         private final TrajectoryPoint ownPoint;
+        private final TrajectoryPoint targetPoint;
         private final double distanceNm;
 
-        private MatchedPoint(TrajectoryPoint ownPoint, double distanceNm) {
+        private MatchedPoint(TrajectoryPoint ownPoint, TrajectoryPoint targetPoint, double distanceNm) {
             this.ownPoint = ownPoint;
+            this.targetPoint = targetPoint;
             this.distanceNm = distanceNm;
         }
 
         private TrajectoryPoint getOwnPoint() {
             return ownPoint;
+        }
+
+        private TrajectoryPoint getTargetPoint() {
+            return targetPoint;
         }
 
         private double getDistanceNm() {
