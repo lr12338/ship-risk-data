@@ -95,11 +95,8 @@ public class StopPointDetectorProcessFunction extends KeyedProcessFunction<Long,
             state = new DetectorState();
         }
 
-        if (unknownTimeoutSeconds > 0L) {
-            ctx.timerService().registerEventTimeTimer(point.getUpdateTime().plusSeconds(unknownTimeoutSeconds).toEpochMilli());
-        }
-
         StopPointEvent.VesselState previousMode = state.mode;
+        registerUnknownTimer(state, point, ctx);
         updateLastSeen(state, point);
 
         if (state.mode == StopPointEvent.VesselState.UNKNOWN) {
@@ -146,10 +143,16 @@ public class StopPointDetectorProcessFunction extends KeyedProcessFunction<Long,
         if (state == null || state.lastAisUpdateTime == null || unknownTimeoutSeconds <= 0L) {
             return;
         }
-        long expectedUnknownAt = state.lastAisUpdateTime.plusSeconds(unknownTimeoutSeconds).toEpochMilli();
-        if (timestamp < expectedUnknownAt || state.mode == StopPointEvent.VesselState.UNKNOWN) {
+        if (state.activeUnknownTimerMillis == null || timestamp != state.activeUnknownTimerMillis.longValue()) {
             return;
         }
+        long expectedUnknownAt = state.lastAisUpdateTime.plusSeconds(unknownTimeoutSeconds).toEpochMilli();
+        if (timestamp < expectedUnknownAt || state.mode == StopPointEvent.VesselState.UNKNOWN) {
+            state.activeUnknownTimerMillis = null;
+            detectorState.update(state);
+            return;
+        }
+        state.activeUnknownTimerMillis = null;
         state.mode = StopPointEvent.VesselState.UNKNOWN;
         StopPointEvent event = baseEvent(state, StopPointEvent.EventType.UNKNOWN, StopPointEvent.VesselState.UNKNOWN);
         event.setMessageId(String.valueOf(state.mmsi) + "-unknown-" + timestamp);
@@ -157,6 +160,22 @@ public class StopPointDetectorProcessFunction extends KeyedProcessFunction<Long,
         event.setConfidence(0.0d);
         out.collect(event);
         detectorState.update(state);
+    }
+
+    private void registerUnknownTimer(DetectorState state, CleanAisPoint point, Context ctx) throws Exception {
+        if (unknownTimeoutSeconds <= 0L) {
+            return;
+        }
+        long nextTimerMillis = point.getUpdateTime().plusSeconds(unknownTimeoutSeconds).toEpochMilli();
+        if (state.activeUnknownTimerMillis != null
+            && state.activeUnknownTimerMillis.longValue() == nextTimerMillis) {
+            return;
+        }
+        if (state.activeUnknownTimerMillis != null) {
+            ctx.timerService().deleteEventTimeTimer(state.activeUnknownTimerMillis.longValue());
+        }
+        ctx.timerService().registerEventTimeTimer(nextTimerMillis);
+        state.activeUnknownTimerMillis = nextTimerMillis;
     }
 
     private void handleCandidateProgress(DetectorState state, CleanAisPoint point, Collector<StopPointEvent> out) {
@@ -487,6 +506,7 @@ public class StopPointDetectorProcessFunction extends KeyedProcessFunction<Long,
         private Double lastOutputLon;
         private Double lastOutputLat;
         private double lastOutputConfidence;
+        private Long activeUnknownTimerMillis;
 
         public DetectorState() {
         }

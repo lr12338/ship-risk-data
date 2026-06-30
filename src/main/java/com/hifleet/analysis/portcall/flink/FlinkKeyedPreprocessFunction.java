@@ -132,7 +132,7 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
             }
         }
         bufferEventTimes.update(eventTimes);
-        updateReleaseTimer(ctx);
+        updateReleaseTimer(ctx, eventTimes);
     }
 
     @Override
@@ -162,11 +162,10 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
         } else {
             bufferEventTimes.update(eventTimes);
         }
-        updateReleaseTimer(ctx);
+        updateReleaseTimer(ctx, eventTimes);
     }
 
-    private void updateReleaseTimer(Context ctx) throws Exception {
-        TreeSet<Long> eventTimes = bufferEventTimes.value();
+    private void updateReleaseTimer(Context ctx, TreeSet<Long> eventTimes) throws Exception {
         if (eventTimes == null || eventTimes.isEmpty()) {
             clearReleaseTimer(ctx);
             return;
