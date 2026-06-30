@@ -24,6 +24,22 @@ public class ShipBehaviorEvent {
     private Integer pointCount;
     private String ruleVersion;
     private String batchNo;
+    private String eventSubType;
+    private String severityLevel;
+    private Double eventScore;
+    private String confidenceLevel;
+    private String exclusionFlag;
+    private String exclusionReason;
+    private Integer aisGapCount;
+    private Long maxAisGapMinutes;
+    private Double trackCoverageRatio;
+    private Double turnCountPerHour;
+    private Double cogChangePerHour;
+    private Double tortuosity;
+    private Double centerLon;
+    private Double centerLat;
+    private Double radiusNm;
+    private String scoreDetailJson;
 
     public String getBehaviorType() {
         return behaviorType;
@@ -151,5 +167,133 @@ public class ShipBehaviorEvent {
 
     public void setBatchNo(String batchNo) {
         this.batchNo = batchNo;
+    }
+
+    public String getEventSubType() {
+        return eventSubType;
+    }
+
+    public void setEventSubType(String eventSubType) {
+        this.eventSubType = eventSubType;
+    }
+
+    public String getSeverityLevel() {
+        return severityLevel;
+    }
+
+    public void setSeverityLevel(String severityLevel) {
+        this.severityLevel = severityLevel;
+    }
+
+    public Double getEventScore() {
+        return eventScore;
+    }
+
+    public void setEventScore(Double eventScore) {
+        this.eventScore = eventScore;
+    }
+
+    public String getConfidenceLevel() {
+        return confidenceLevel;
+    }
+
+    public void setConfidenceLevel(String confidenceLevel) {
+        this.confidenceLevel = confidenceLevel;
+    }
+
+    public String getExclusionFlag() {
+        return exclusionFlag;
+    }
+
+    public void setExclusionFlag(String exclusionFlag) {
+        this.exclusionFlag = exclusionFlag;
+    }
+
+    public String getExclusionReason() {
+        return exclusionReason;
+    }
+
+    public void setExclusionReason(String exclusionReason) {
+        this.exclusionReason = exclusionReason;
+    }
+
+    public Integer getAisGapCount() {
+        return aisGapCount;
+    }
+
+    public void setAisGapCount(Integer aisGapCount) {
+        this.aisGapCount = aisGapCount;
+    }
+
+    public Long getMaxAisGapMinutes() {
+        return maxAisGapMinutes;
+    }
+
+    public void setMaxAisGapMinutes(Long maxAisGapMinutes) {
+        this.maxAisGapMinutes = maxAisGapMinutes;
+    }
+
+    public Double getTrackCoverageRatio() {
+        return trackCoverageRatio;
+    }
+
+    public void setTrackCoverageRatio(Double trackCoverageRatio) {
+        this.trackCoverageRatio = trackCoverageRatio;
+    }
+
+    public Double getTurnCountPerHour() {
+        return turnCountPerHour;
+    }
+
+    public void setTurnCountPerHour(Double turnCountPerHour) {
+        this.turnCountPerHour = turnCountPerHour;
+    }
+
+    public Double getCogChangePerHour() {
+        return cogChangePerHour;
+    }
+
+    public void setCogChangePerHour(Double cogChangePerHour) {
+        this.cogChangePerHour = cogChangePerHour;
+    }
+
+    public Double getTortuosity() {
+        return tortuosity;
+    }
+
+    public void setTortuosity(Double tortuosity) {
+        this.tortuosity = tortuosity;
+    }
+
+    public Double getCenterLon() {
+        return centerLon;
+    }
+
+    public void setCenterLon(Double centerLon) {
+        this.centerLon = centerLon;
+    }
+
+    public Double getCenterLat() {
+        return centerLat;
+    }
+
+    public void setCenterLat(Double centerLat) {
+        this.centerLat = centerLat;
+    }
+
+    public Double getRadiusNm() {
+        return radiusNm;
+    }
+
+    public void setRadiusNm(Double radiusNm) {
+        this.radiusNm = radiusNm;
+    }
+
+    public String getScoreDetailJson() {
+        return scoreDetailJson;
+    }
+
+    public void setScoreDetailJson(String scoreDetailJson) {
+        this.scoreDetailJson = scoreDetailJson;
     }
 }

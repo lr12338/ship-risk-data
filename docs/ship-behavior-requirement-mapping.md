@@ -13,20 +13,22 @@
 
 ## 2. 当前实现边界
 
-本轮已经完成并验证成功的内容：
+当前已经完成并验证成功的内容：
 
-- 船舶徘徊任务接入 XXL-Job，并完成服务器测试
+- 船舶徘徊任务接入 XXL-Job，并完成 V2-lite 单船服务器测试
 - 船舶搭靠任务接入 XXL-Job，并完成服务器测试
 - 抽出公共轨迹支撑层，避免每个业务各自读取、解析 HBase 轨迹
 - 结果摘要落库到 `dataanalysis.ship_behavior_event`
 - 事件轨迹快照落库到 `dataanalysis.ship_behavior_event_detail`
-- 结果表、明细表支持自动建表
-- XXL-Job 日志支持输出每条事件摘要
+- 结果表、明细表支持自动建表，事件摘要表支持 V2-lite 字段自动补列
+- XXL-Job 日志支持输出 V2 徘徊任务摘要和每条事件摘要
 
 本轮没有做的事情：
 
 - 不做全量两两搭靠匹配
 - 不做最终版业务规则固化
+- 不接入港口、锚地、天气、制裁区、STS 热点等外部场景数据
+- 不做年度 WLI 汇总表落库
 - 不做长期归档清理策略
 - 不新增独立服务或新仓库
 
@@ -116,6 +118,7 @@ src/main/java/com/hifleet/trajectory
   - 写事件轨迹快照表 `ship_behavior_event_detail`
 - [ShipBehaviorTableInitializer.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/repository/ShipBehaviorTableInitializer.java:1)
   - 自动检查并创建两张表
+  - 自动检查并补齐 `ship_behavior_event` 的 V2-lite 必需字段
 
 ### 4.6 中间 DTO
 
@@ -169,11 +172,28 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 - `point_count`
 - `rule_version`
 - `batch_no`
+- `event_sub_type`
+- `severity_level`
+- `event_score`
+- `confidence_level`
+- `exclusion_flag`
+- `exclusion_reason`
+- `ais_gap_count`
+- `max_ais_gap_minutes`
+- `track_coverage_ratio`
+- `turn_count_per_hour`
+- `cog_change_per_hour`
+- `tortuosity`
+- `center_lon`
+- `center_lat`
+- `radius_nm`
+- `score_detail_json`
 
 用途：
 
 - 保存“事件级结果摘要”
 - 便于按 `batch_no`、`mmsi`、时间窗查询命中的事件
+- 徘徊 V2-lite 中保存子类型、置信度、评分、AIS gap、覆盖率、转向和半径等指标
 
 ### 6.2 事件轨迹快照明细表
 
@@ -204,7 +224,7 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 - 便于按 `batch_no + 事件时间窗` 追踪每一个点
 - 搭靠任务中通过 `point_role=OWN/TARGET` 区分主船点和目标船点
 
-### 6.3 自动建表机制
+### 6.3 自动建表与补列机制
 
 - 入口类： [ShipBehaviorTableInitializer.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/repository/ShipBehaviorTableInitializer.java:1)
 
@@ -213,13 +233,31 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 - 应用启动时检查 `ship_behavior_event`
 - 应用启动时检查 `ship_behavior_event_detail`
 - 如果表不存在，则从 classpath SQL 资源读取 DDL 自动建表
-- 如果表已存在，则跳过
+- 如果 `ship_behavior_event` 表已存在，则继续逐列检查 V2-lite 必需字段
+- 缺失字段会逐列执行 `ALTER TABLE ... ADD COLUMN`
+- 任一必需字段补齐失败，应用启动失败，避免后续任务写库时报运行时错误
+- `ship_behavior_event_detail` 本轮只保持自动建表，不做补列
+
+启动日志关键字：
+
+```text
+ship_behavior_event exists, skip ddl
+ship_behavior_event column missing, applying migration: event_sub_type
+ship_behavior_event column ready: event_sub_type
+ship_behavior_event schema ready
+```
 
 ## 7. 当前配置项
 
 配置位置：
 
 - [application.properties](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/resources/application.properties:129)
+
+注意：
+
+- 源码里的 `src/main/resources/application.properties` 只是默认配置
+- 线上以服务器 `/data/zhengyi/application.properties` 为准
+- 本模块排查数据库时，必须先确认服务器运行时配置，不要直接假定源码默认值就是线上值
 
 ### 7.1 公共开关
 
@@ -232,10 +270,22 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 
 ### 7.2 徘徊规则参数
 
-- `ship.behavior.loitering.max-speed=3.0`
-- `ship.behavior.loitering.min-duration-minutes=30`
-- `ship.behavior.loitering.max-radius-nm=1.0`
-- `ship.behavior.loitering.min-points=3`
+- `ship.behavior.loitering.rule-version=LOITERING_V2_INSURANCE`
+- `ship.behavior.loitering.max-gap-minutes=30`
+- `ship.behavior.loitering.event-split-gap-minutes=120`
+- `ship.behavior.loitering.max-valid-speed=80.0`
+- `ship.behavior.loitering.slow.max-speed=2.0`
+- `ship.behavior.loitering.slow.min-duration-minutes=240`
+- `ship.behavior.loitering.slow.max-radius-nm=3.0`
+- `ship.behavior.loitering.slow.min-points=12`
+- `ship.behavior.loitering.maneuver.min-speed=0.5`
+- `ship.behavior.loitering.maneuver.max-speed=5.0`
+- `ship.behavior.loitering.maneuver.min-duration-minutes=120`
+- `ship.behavior.loitering.maneuver.max-radius-nm=5.0`
+- `ship.behavior.loitering.maneuver.min-turn-count-per-hour=3`
+- `ship.behavior.loitering.maneuver.min-cog-change-per-hour=120`
+- `ship.behavior.loitering.maneuver.min-tortuosity=3.0`
+- `ship.behavior.loitering.high-risk.enabled=false`
 
 ### 7.3 搭靠规则参数
 
@@ -245,9 +295,96 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 - `ship.behavior.alongside.min-duration-minutes=20`
 - `ship.behavior.alongside.min-points=3`
 
-## 8. 当前验证结论
+## 8. 服务器运行时数据库说明
 
-### 8.1 徘徊测试成功样例
+### 8.1 关键结论
+
+当前船舶徘徊、船舶搭靠结果写库使用的是：
+
+- `newDataanalysisJdbcTemplate`
+- 对应服务器运行时配置：`spring.datasource.newdataanalysis.*`
+
+这点非常重要，因为服务器运行时配置与源码默认值不同。
+
+### 8.2 当前服务器运行时配置
+
+部署目录：
+
+- `/data/zhengyi`
+
+运行时配置文件：
+
+- `/data/zhengyi/application.properties`
+
+已确认的运行时写库地址：
+
+- JDBC URL：
+  - `jdbc:mysql://rm-2zeen2o6509ka50l7.mysql.rds.aliyuncs.com:3306/dataanalysis?...`
+- 用户名：
+  - `db55o2pytj4vx12b`
+- 密码：
+  - 以服务器运行时配置为准
+
+同时服务器还存在另一套：
+
+- `spring.datasource.dataanalysis`
+
+但本模块当前结果写入的是：
+
+- `spring.datasource.newdataanalysis`
+
+### 8.3 为什么本地源码里的库地址不能直接当成线上地址
+
+源码默认值里 `newdataanalysis` 指向的是另一套 MySQL。  
+但服务器 `/data/zhengyi/application.properties` 已覆盖为新的 RDS 地址。
+
+因此：
+
+- 本地看源码配置，只能作为默认参考
+- 真正查库时，必须以服务器运行时配置为准
+
+### 8.4 如何在 DBeaver 连接运行时数据库
+
+推荐使用 `MySQL + SSH Tunnel`：
+
+1. 数据库连接信息：
+   - Host: `rm-2zeen2o6509ka50l7.mysql.rds.aliyuncs.com`
+   - Port: `3306`
+   - Database: `dataanalysis`
+   - Username: `db55o2pytj4vx12b`
+   - Password: 服务器运行时配置中的密码
+2. SSH Tunnel 信息：
+   - SSH Host: `39.96.38.242`
+   - SSH Port: `1222`
+   - SSH User: `ecs-user`
+   - SSH Password: 服务器登录密码
+
+如果本机直连超时，通常说明：
+
+- 该 RDS 不能直接从本机访问
+- 需要通过部署服务器做 SSH 隧道转发
+
+### 8.5 如何确认自己没有连错库
+
+连接成功后先执行：
+
+```sql
+SHOW TABLES LIKE 'ship_behavior%';
+```
+
+正常应看到：
+
+- `ship_behavior_event`
+- `ship_behavior_event_detail`
+
+如果没有这两张表：
+
+- 先不要继续查业务数据
+- 优先确认当前 DBeaver 连接的 host / port 是否就是服务器运行时 `newdataanalysis`
+
+## 9. 当前验证结论
+
+### 9.1 徘徊 V2-lite 测试成功样例
 
 任务参数：
 
@@ -259,10 +396,31 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 
 - 任务成功执行
 - `points=115`
-- `events=2`
-- 输出了 2 条 `event[i]` 摘要日志
+- `cleanPoints=115`
+- `segments=23`
+- `candidates=1`
+- `events=1`
+- `failed=0`
+- 输出了 1 条 V2 `event[i]` 摘要日志
 
-### 8.2 搭靠测试成功样例
+对应日志样例：
+
+```text
+LOITERING_V2 start mmsi=413193000 startTime=2026-06-25 04:00:00 endTime=2026-06-30 10:30:00 batchNo=loitering-test-20260630-01 ruleVersion=LOITERING_V2_INSURANCE
+event[1] type=LOITERING subType=SLOW_LOITERING severity=L1 confidence=MEDIUM start=2026-06-29 19:46:08 end=2026-06-30 04:39:15 duration=533 radiusNm=0.17389501702977303 avgSpeed=0.2076923076923077 pointCount=13 maxGap=114 coverage=0.7222222222222222 score=24.0 exclusion=DOWNGRADED_NORMAL_LIKELY reason=NAV_STATUS_ANCHORED_OR_MOORED batchNo=loitering-test-20260630-01
+LOITERING_V2 summary mmsi=413193000 points=115 cleanPoints=115 segments=23 candidates=1 events=1 excludedEvents=1 lowConfidenceEvents=0 batchNo=loitering-test-20260630-01
+```
+
+本次判断说明：
+
+- 命中 `SLOW_LOITERING`
+- `maxGap=114` 未超过切分阈值 `120`，但超过高置信阈值 `30`
+- `coverage=0.7222`，因此置信度为 `MEDIUM`
+- `nav_status` 命中锚泊/系泊，降权为 `DOWNGRADED_NORMAL_LIKELY`
+- 最终 `event_score=24.0`，等级 `L1`
+- V2 没有把多天稀疏 AIS 点合并成高置信超长事件
+
+### 9.2 搭靠测试成功样例
 
 任务参数：
 
@@ -278,9 +436,9 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 - `events=5`
 - 输出了 5 条 `event[i]` 摘要日志
 
-## 9. 开发人员接手建议
+## 10. 开发人员接手建议
 
-### 9.1 哪些类属于公共层
+### 10.1 哪些类属于公共层
 
 以下类会同时影响徘徊和搭靠：
 
@@ -296,7 +454,7 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 
 如果修改这些类，要意识到可能同时影响两个模块。
 
-### 9.2 哪些类属于单模块业务层
+### 10.2 哪些类属于单模块业务层
 
 只影响徘徊：
 
@@ -306,7 +464,7 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 
 - `ShipAlongsideDetector`
 
-### 9.3 优先从哪层改规则
+### 10.3 优先从哪层改规则
 
 如果只是调整规则阈值或识别条件：
 
@@ -321,28 +479,48 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 
 则优先改 service 或 repository。
 
-### 9.4 需要特别避免的改法
+### 10.4 需要特别避免的改法
 
 - 不要在 detector 中直接写库
 - 不要让 detector 直接依赖 HBase 原始对象
 - 不要把搭靠扩展成全量两两匹配后直接上线
 - 不要把明细表当成长期原始轨迹归档表使用
+- 不要把 `ship_behavior_event_v2_loitering_alter.sql` 整包作为启动 SQL 执行；程序内已经按列自动补齐，整包 ALTER 在部分字段已存在时会失败
 
-## 10. 推荐测试与排查入口
+## 11. 推荐测试与排查入口
 
-### 10.1 XXL-Job 入口
+### 11.1 XXL-Job 入口
 
 - 徘徊：`shipLoiteringJobHandler`
 - 搭靠：`shipAlongsideJobHandler`
 
-### 10.2 推荐查询 SQL
+### 11.2 推荐查询 SQL
 
 事件摘要：
 
 ```sql
-SELECT *
+SELECT
+  id,
+  behavior_type,
+  mmsi,
+  start_time,
+  end_time,
+  duration_minutes,
+  event_sub_type,
+  severity_level,
+  event_score,
+  confidence_level,
+  exclusion_flag,
+  exclusion_reason,
+  ais_gap_count,
+  max_ais_gap_minutes,
+  track_coverage_ratio,
+  radius_nm,
+  score_detail_json,
+  batch_no
 FROM dataanalysis.ship_behavior_event
 WHERE batch_no = 'loitering-test-20260630-01'
+  AND behavior_type = 'LOITERING'
 ORDER BY start_time;
 ```
 
@@ -356,9 +534,9 @@ WHERE batch_no = 'loitering-test-20260630-01'
 ORDER BY event_start_time, point_role, point_index;
 ```
 
-## 11. 后续迭代建议
+## 12. 后续迭代建议
 
-- V1 已完成：任务入口、轨迹读取、候选检测、结果落库、明细落库、自动建表、服务器小范围验证
-- V2：结合业务样本调整徘徊和搭靠规则阈值
+- V2-lite 已完成：任务入口、轨迹读取、清洗、AIS gap 切分、候选检测、置信度、评分、结果落库、明细落库、自动建表补列、服务器单船验证
+- 后续 V2：结合业务样本调整阈值，接入锚地、港口、天气、制裁区、STS 热点等外部数据
 - V3：为搭靠设计“候选目标船筛选”，替代人工指定 `targetMmsi`
 - V4：如果需要长期保留明细数据，再单独设计清理和归档策略

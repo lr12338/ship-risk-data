@@ -25,8 +25,11 @@ public class ShipBehaviorEventRepository {
     private static final String INSERT_SQL = "INSERT INTO dataanalysis.ship_behavior_event " +
             "(behavior_type, mmsi, target_mmsi, start_time, end_time, duration_minutes, " +
             "start_lon, start_lat, end_lon, end_lat, min_distance_nm, max_distance_nm, " +
-            "avg_speed, point_count, rule_version, batch_no) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            "avg_speed, point_count, rule_version, batch_no, event_sub_type, severity_level, " +
+            "event_score, confidence_level, exclusion_flag, exclusion_reason, ais_gap_count, " +
+            "max_ais_gap_minutes, track_coverage_ratio, turn_count_per_hour, cog_change_per_hour, " +
+            "tortuosity, center_lon, center_lat, radius_nm, score_detail_json) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     @Value("${ship.behavior.store.enabled:true}")
     private boolean storeEnabled;
@@ -90,6 +93,22 @@ public class ShipBehaviorEventRepository {
                 stmt.setObject(14, event.getPointCount());
                 stmt.setString(15, event.getRuleVersion());
                 stmt.setString(16, event.getBatchNo());
+                stmt.setString(17, event.getEventSubType());
+                stmt.setString(18, event.getSeverityLevel());
+                stmt.setObject(19, event.getEventScore());
+                stmt.setString(20, event.getConfidenceLevel());
+                stmt.setString(21, event.getExclusionFlag());
+                stmt.setString(22, event.getExclusionReason());
+                stmt.setObject(23, event.getAisGapCount());
+                stmt.setObject(24, event.getMaxAisGapMinutes());
+                stmt.setObject(25, event.getTrackCoverageRatio());
+                stmt.setObject(26, event.getTurnCountPerHour());
+                stmt.setObject(27, event.getCogChangePerHour());
+                stmt.setObject(28, event.getTortuosity());
+                stmt.setObject(29, event.getCenterLon());
+                stmt.setObject(30, event.getCenterLat());
+                stmt.setObject(31, event.getRadiusNm());
+                stmt.setString(32, event.getScoreDetailJson());
             }
 
             @Override

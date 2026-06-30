@@ -139,6 +139,30 @@ event[1] type=ALONGSIDE start=2026-06-28 18:15:32 end=2026-06-28 19:35:46 durati
 
 这点是搭靠模块排查时最重要的辅助信息。
 
+### 5.5 运行时数据库连接说明
+
+当前搭靠结果写库使用的是服务器运行时配置中的：
+
+- `spring.datasource.newdataanalysis`
+
+当前服务器已确认的运行时连接来源：
+
+- 配置文件：`/data/zhengyi/application.properties`
+- 运行时 RDS：
+  - `rm-2zeen2o6509ka50l7.mysql.rds.aliyuncs.com:3306/dataanalysis`
+
+推荐通过 `MySQL + SSH Tunnel` 连接：
+
+- DB Host: `rm-2zeen2o6509ka50l7.mysql.rds.aliyuncs.com`
+- DB Port: `3306`
+- Database: `dataanalysis`
+- DB User: `db55o2pytj4vx12b`
+- SSH Host: `39.96.38.242`
+- SSH Port: `1222`
+- SSH User: `ecs-user`
+
+如果本机直接连 RDS 超时，优先使用 SSH Tunnel，不要误判为数据库不存在。
+
 ## 6. 已验证测试样例
 
 任务参数：
@@ -243,6 +267,8 @@ event[5] type=ALONGSIDE start=2026-06-29 21:38:18 end=2026-06-30 09:38:51 durati
 ### 9.2 查询事件摘要
 
 ```sql
+SHOW TABLES LIKE 'ship_behavior%';
+
 SELECT *
 FROM dataanalysis.ship_behavior_event
 WHERE batch_no = 'alongside-test-20260629-01'
@@ -260,6 +286,8 @@ WHERE batch_no = 'alongside-test-20260629-01'
   AND mmsi = '413433610'
 ORDER BY event_start_time, point_role, point_index;
 ```
+
+如果这两张表查不到，先确认当前连接的是服务器运行时 `newdataanalysis`，而不是源码默认配置中的其他 `dataanalysis` 库。
 
 ### 9.4 删除本批次测试数据
 

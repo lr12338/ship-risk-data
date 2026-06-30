@@ -55,6 +55,66 @@ public class ShipBehaviorAnalysisService {
     @Value("${ship.behavior.loitering.min-points:3}")
     private int loiteringMinPoints;
 
+    @Value("${ship.behavior.loitering.rule-version:LOITERING_V2_INSURANCE}")
+    private String loiteringRuleVersion;
+
+    @Value("${ship.behavior.loitering.max-gap-minutes:30}")
+    private long loiteringMaxGapMinutes;
+
+    @Value("${ship.behavior.loitering.event-split-gap-minutes:120}")
+    private long loiteringEventSplitGapMinutes;
+
+    @Value("${ship.behavior.loitering.max-valid-speed:80.0}")
+    private double loiteringMaxValidSpeed;
+
+    @Value("${ship.behavior.loitering.min-warning-points:6}")
+    private int loiteringMinWarningPoints;
+
+    @Value("${ship.behavior.loitering.slow.max-speed:2.0}")
+    private double loiteringSlowMaxSpeed;
+
+    @Value("${ship.behavior.loitering.slow.min-duration-minutes:240}")
+    private long loiteringSlowMinDurationMinutes;
+
+    @Value("${ship.behavior.loitering.slow.max-radius-nm:3.0}")
+    private double loiteringSlowMaxRadiusNm;
+
+    @Value("${ship.behavior.loitering.slow.min-points:12}")
+    private int loiteringSlowMinPoints;
+
+    @Value("${ship.behavior.loitering.maneuver.min-speed:0.5}")
+    private double loiteringManeuverMinSpeed;
+
+    @Value("${ship.behavior.loitering.maneuver.max-speed:5.0}")
+    private double loiteringManeuverMaxSpeed;
+
+    @Value("${ship.behavior.loitering.maneuver.min-duration-minutes:120}")
+    private long loiteringManeuverMinDurationMinutes;
+
+    @Value("${ship.behavior.loitering.maneuver.max-radius-nm:5.0}")
+    private double loiteringManeuverMaxRadiusNm;
+
+    @Value("${ship.behavior.loitering.maneuver.min-turn-count-per-hour:3}")
+    private double loiteringManeuverMinTurnCountPerHour;
+
+    @Value("${ship.behavior.loitering.maneuver.min-cog-change-per-hour:120}")
+    private double loiteringManeuverMinCogChangePerHour;
+
+    @Value("${ship.behavior.loitering.maneuver.min-tortuosity:3.0}")
+    private double loiteringManeuverMinTortuosity;
+
+    @Value("${ship.behavior.loitering.maneuver.turn-threshold-degree:45}")
+    private double loiteringTurnThresholdDegree;
+
+    @Value("${ship.behavior.loitering.high-risk.enabled:false}")
+    private boolean loiteringHighRiskEnabled;
+
+    @Value("${ship.behavior.loitering.high-risk.min-duration-minutes:60}")
+    private long loiteringHighRiskMinDurationMinutes;
+
+    @Value("${ship.behavior.loitering.high-risk.max-radius-nm:5.0}")
+    private double loiteringHighRiskMaxRadiusNm;
+
     @Value("${ship.behavior.alongside.max-distance-nm:0.1}")
     private double alongsideMaxDistanceNm;
 
@@ -89,26 +149,46 @@ public class ShipBehaviorAnalysisService {
         JobParams jobParams = parseParams(params);
         applyDefaultTimeRange(jobParams);
         List<String> mmsiList = resolveMmsiList(jobParams);
-        ShipLoiteringDetector.LoiteringRule rule = new ShipLoiteringDetector.LoiteringRule(
-                loiteringMaxSpeed,
-                loiteringMinDurationMinutes,
-                loiteringMaxRadiusNm,
-                loiteringMinPoints,
-                "LOITERING_V1");
+        ShipLoiteringDetector.LoiteringConfig config = buildLoiteringConfig();
 
         int processed = 0;
         int failed = 0;
         int events = 0;
         for (String mmsi : mmsiList) {
             try {
+                XxlJobLogger.log("LOITERING_V2 start mmsi=" + mmsi
+                        + " startTime=" + jobParams.getStartTime()
+                        + " endTime=" + jobParams.getEndTime()
+                        + " batchNo=" + jobParams.getBatchNo()
+                        + " ruleVersion=" + config.getRuleVersion());
                 List<TrajectoryPoint> points = trajectoryLoaderService.load(
                         mmsi, jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
-                List<ShipBehaviorTrace> traces = loiteringDetector.detectWithTrace(mmsi, points, rule);
+                List<ShipBehaviorTrace> traces = loiteringDetector.detectWithTrace(mmsi, points, config);
+                ShipLoiteringDetector.DetectionStats stats = loiteringDetector.getLastStats();
                 List<ShipBehaviorEvent> detected = extractEvents(traces);
                 tagBatch(detected, jobParams);
                 shipBehaviorEventRepository.saveEvents(detected);
                 shipBehaviorEventDetailRepository.saveDetails(toDetails(traces, jobParams));
                 logEventSummaries(traces);
+                XxlJobLogger.log("LOITERING_V2 summary mmsi=" + mmsi
+                        + " points=" + stats.getPoints()
+                        + " cleanPoints=" + stats.getCleanPoints()
+                        + " segments=" + stats.getSegments()
+                        + " candidates=" + stats.getCandidates()
+                        + " events=" + detected.size()
+                        + " excludedEvents=" + stats.getExcludedEvents()
+                        + " lowConfidenceEvents=" + stats.getLowConfidenceEvents()
+                        + " batchNo=" + jobParams.getBatchNo());
+                if (detected.isEmpty()) {
+                    String reason = stats.getCandidates() == 0
+                            ? "NO_CANDIDATE_AFTER_RULE_FILTER" : "ALL_CANDIDATES_EXCLUDED";
+                    XxlJobLogger.log("LOITERING_V2 no_event mmsi=" + mmsi
+                            + " reason=" + reason
+                            + " points=" + stats.getPoints()
+                            + " cleanPoints=" + stats.getCleanPoints()
+                            + " segments=" + stats.getSegments()
+                            + " batchNo=" + jobParams.getBatchNo());
+                }
                 processed++;
                 events += detected.size();
                 XxlJobLogger.log("徘徊 mmsi=" + mmsi + " points=" + points.size() + " events=" + detected.size());
@@ -168,6 +248,31 @@ public class ShipBehaviorAnalysisService {
         }
     }
 
+    private ShipLoiteringDetector.LoiteringConfig buildLoiteringConfig() {
+        ShipLoiteringDetector.LoiteringConfig config = ShipLoiteringDetector.LoiteringConfig.defaultConfig();
+        config.setRuleVersion(loiteringRuleVersion);
+        config.setMaxGapMinutes(loiteringMaxGapMinutes);
+        config.setEventSplitGapMinutes(loiteringEventSplitGapMinutes);
+        config.setMaxValidSpeed(loiteringMaxValidSpeed);
+        config.setMinWarningPoints(loiteringMinWarningPoints);
+        config.setSlowMaxSpeed(loiteringSlowMaxSpeed);
+        config.setSlowMinDurationMinutes(loiteringSlowMinDurationMinutes);
+        config.setSlowMaxRadiusNm(loiteringSlowMaxRadiusNm);
+        config.setSlowMinPoints(loiteringSlowMinPoints);
+        config.setManeuverMinSpeed(loiteringManeuverMinSpeed);
+        config.setManeuverMaxSpeed(loiteringManeuverMaxSpeed);
+        config.setManeuverMinDurationMinutes(loiteringManeuverMinDurationMinutes);
+        config.setManeuverMaxRadiusNm(loiteringManeuverMaxRadiusNm);
+        config.setManeuverMinTurnCountPerHour(loiteringManeuverMinTurnCountPerHour);
+        config.setManeuverMinCogChangePerHour(loiteringManeuverMinCogChangePerHour);
+        config.setManeuverMinTortuosity(loiteringManeuverMinTortuosity);
+        config.setTurnThresholdDegree(loiteringTurnThresholdDegree);
+        config.setHighRiskEnabled(loiteringHighRiskEnabled);
+        config.setHighRiskMinDurationMinutes(loiteringHighRiskMinDurationMinutes);
+        config.setHighRiskMaxRadiusNm(loiteringHighRiskMaxRadiusNm);
+        return config;
+    }
+
     private List<ShipBehaviorEvent> extractEvents(List<ShipBehaviorTrace> traces) {
         List<ShipBehaviorEvent> events = new ArrayList<ShipBehaviorEvent>();
         for (ShipBehaviorTrace trace : traces) {
@@ -221,12 +326,20 @@ public class ShipBehaviorAnalysisService {
             ShipBehaviorEvent event = traces.get(i).getEvent();
             if (ShipBehaviorEvent.TYPE_LOITERING.equals(event.getBehaviorType())) {
                 XxlJobLogger.log("event[" + (i + 1) + "] type=" + event.getBehaviorType()
+                        + " subType=" + event.getEventSubType()
+                        + " severity=" + event.getSeverityLevel()
+                        + " confidence=" + event.getConfidenceLevel()
                         + " start=" + event.getStartTime()
                         + " end=" + event.getEndTime()
                         + " duration=" + event.getDurationMinutes()
-                        + " radiusNm=" + event.getMaxDistanceNm()
+                        + " radiusNm=" + event.getRadiusNm()
                         + " avgSpeed=" + event.getAvgSpeed()
                         + " pointCount=" + event.getPointCount()
+                        + " maxGap=" + event.getMaxAisGapMinutes()
+                        + " coverage=" + event.getTrackCoverageRatio()
+                        + " score=" + event.getEventScore()
+                        + " exclusion=" + event.getExclusionFlag()
+                        + " reason=" + event.getExclusionReason()
                         + " batchNo=" + event.getBatchNo());
             } else {
                 XxlJobLogger.log("event[" + (i + 1) + "] type=" + event.getBehaviorType()
