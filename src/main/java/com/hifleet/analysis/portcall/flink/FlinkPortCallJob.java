@@ -35,6 +35,10 @@ public final class FlinkPortCallJob {
      */
     public static void main(String[] args) throws Exception {
         PortCallConfig config = PortCallConfig.defaultConfig();
+        int maxRetainedCheckpoints = config.resolveMaxRetainedCheckpoints();
+        System.err.println("[FlinkPortCallJob] checkpoint max-retained=" + maxRetainedCheckpoints
+            + ", interval-ms=" + config.getFlinkCheckpointIntervalMs()
+            + ", dir=" + config.getFlinkCheckpointDir());
         StreamExecutionEnvironment env = createExecutionEnvironment(config);
         KafkaSource<String> source = KafkaSource.<String>builder()
             .setBootstrapServers(config.getKafkaBootstrapServers())
@@ -114,22 +118,28 @@ public final class FlinkPortCallJob {
         applyIfConfigured(flinkConfiguration, CheckpointingOptions.SAVEPOINT_DIRECTORY, config.getFlinkSavepointDir());
         applyIfConfigured(flinkConfiguration, RocksDBOptions.LOCAL_DIRECTORIES, config.getFlinkRocksDbLocalDir());
         if (config.getFlinkCheckpointIntervalMs() > 0L) {
-            flinkConfiguration.set(
-                CheckpointingOptions.MAX_RETAINED_CHECKPOINTS,
-                config.resolveMaxRetainedCheckpoints()
-            );
+            applyCheckpointRetention(flinkConfiguration, config.resolveMaxRetainedCheckpoints());
         }
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfiguration);
+        // Re-apply after env creation so remote "flink run" context picks up job-level overrides.
+        env.configure(flinkConfiguration, FlinkPortCallJob.class.getClassLoader());
         if (config.getFlinkParallelism() > 0) {
             env.setParallelism(config.getFlinkParallelism());
         }
         if (config.getFlinkCheckpointIntervalMs() > 0L) {
             env.enableCheckpointing(config.getFlinkCheckpointIntervalMs());
+            env.configure(flinkConfiguration, FlinkPortCallJob.class.getClassLoader());
             env.getCheckpointConfig().setExternalizedCheckpointCleanup(
                 CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
         }
         return env;
+    }
+
+    private static void applyCheckpointRetention(Configuration flinkConfiguration, int maxRetained) {
+        flinkConfiguration.set(CheckpointingOptions.MAX_RETAINED_CHECKPOINTS, maxRetained);
+        // Legacy cluster key still read by JM in Flink 1.16.
+        flinkConfiguration.setString("state.checkpoints.num-retained", String.valueOf(maxRetained));
     }
 
     private static void applyIfConfigured(Configuration configuration, org.apache.flink.configuration.ConfigOption<String> option, String value) {

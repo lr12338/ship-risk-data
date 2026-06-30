@@ -35,6 +35,6 @@ public class PortCallConfigTest {
         Assert.assertEquals("/tmp/flink-test/rocksdb", config.getFlinkRocksDbLocalDir());
         Assert.assertEquals(15, config.getFlinkCheckpointRetentionDays());
         Assert.assertEquals(15, config.getFlinkSavepointRetentionDays());
-        Assert.assertEquals(21600, config.resolveMaxRetainedCheckpoints());
+        Assert.assertEquals(1, config.resolveMaxRetainedCheckpoints());
     }
 }

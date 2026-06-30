@@ -122,7 +122,7 @@ public class PortCallConfig implements Serializable {
         config.setFlinkDebugPrint(toBoolean(value(props, "flink.debug.print"), false));
         config.setFlinkCheckpointRetentionDays(toInt(value(props, "flink.checkpoint.retention-days"), 15));
         config.setFlinkSavepointRetentionDays(toInt(value(props, "flink.savepoint.retention-days"), 15));
-        config.setFlinkCheckpointMaxRetained(toInt(value(props, "flink.checkpoint.max-retained"), 0));
+        config.setFlinkCheckpointMaxRetained(toInt(value(props, "flink.checkpoint.max-retained"), 1));
         return config;
     }
 
@@ -164,7 +164,7 @@ public class PortCallConfig implements Serializable {
         defaults.setProperty("flink.debug.print", "false");
         defaults.setProperty("flink.checkpoint.retention-days", "15");
         defaults.setProperty("flink.savepoint.retention-days", "15");
-        defaults.setProperty("flink.checkpoint.max-retained", "0");
+        defaults.setProperty("flink.checkpoint.max-retained", "1");
         return defaults;
     }
 
@@ -524,7 +524,8 @@ public class PortCallConfig implements Serializable {
 
     /**
      * Resolves how many completed checkpoints Flink keeps while the job is running.
-     * When {@code flink.checkpoint.max-retained} is 0, derive from retention days and interval.
+     * When {@code flink.checkpoint.max-retained} is 0, derive from retention days and interval
+     * (capped to avoid thousands of multi-GB RocksDB checkpoints).
      */
     public int resolveMaxRetainedCheckpoints() {
         if (flinkCheckpointMaxRetained > 0) {
@@ -538,6 +539,8 @@ public class PortCallConfig implements Serializable {
         if (count < 1L) {
             return 1;
         }
-        return count > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) count;
+        int derived = count > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) count;
+        // e.g. 7 days @ 180s => 3360 checkpoints (~12TB); keep explicit max-retained=1 for large state.
+        return Math.min(derived, 3);
     }
 }
