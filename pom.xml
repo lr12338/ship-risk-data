@@ -53,7 +53,6 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
             <version>1.7.36</version>
-            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.kafka</groupId>
@@ -110,11 +109,12 @@
                             <include>org.lz4:lz4-java</include>
                             <include>org.xerial.snappy:snappy-java</include>
                             <include>com.alibaba:fastjson</include>
+                            <include>org.slf4j:slf4j-api</include>
+                            <include>org.slf4j:slf4j-simple</include>
                         </includes>
                         <excludes>
                             <exclude>org.apache.flink:flink-shaded-force-shading</exclude>
                             <exclude>com.google.code.findbugs:jsr305</exclude>
-                            <exclude>org.slf4j:*</exclude>
                             <exclude>org.apache.logging.log4j:*</exclude>
                         </excludes>
                     </artifactSet>
@@ -141,6 +141,44 @@
                         <goals>
                             <goal>shade</goal>
                         </goals>
+                    </execution>
+                    <execution>
+                        <id>shade-ais-archive</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>archive</shadedClassifierName>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <artifactSet>
+                                <includes>
+                                    <include>${project.groupId}:${project.artifactId}</include>
+                                    <include>org.apache.kafka:kafka-clients</include>
+                                    <include>com.github.luben:zstd-jni</include>
+                                    <include>org.lz4:lz4-java</include>
+                                    <include>org.xerial.snappy:snappy-java</include>
+                                    <include>org.slf4j:slf4j-api</include>
+                                    <include>org.slf4j:slf4j-simple</include>
+                                </includes>
+                            </artifactSet>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>com.hifleet.analysis.portcall.history.KafkaAisArchiveApplication</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

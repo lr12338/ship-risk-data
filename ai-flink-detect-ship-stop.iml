@@ -48,7 +48,7 @@
     <orderEntry type="library" name="Maven: org.apache.flink:flink-statebackend-rocksdb:1.16.0" level="project" />
     <orderEntry type="library" name="Maven: com.ververica:frocksdbjni:6.20.3-ververica-1.0" level="project" />
     <orderEntry type="library" name="Maven: org.slf4j:slf4j-api:1.7.36" level="project" />
-    <orderEntry type="library" scope="RUNTIME" name="Maven: org.slf4j:slf4j-simple:1.7.36" level="project" />
+    <orderEntry type="library" name="Maven: org.slf4j:slf4j-simple:1.7.36" level="project" />
     <orderEntry type="library" name="Maven: org.apache.kafka:kafka-clients:3.2.3" level="project" />
     <orderEntry type="library" name="Maven: org.xerial.snappy:snappy-java:1.1.8.4" level="project" />
     <orderEntry type="library" name="Maven: com.github.luben:zstd-jni:1.5.2-5" level="project" />
