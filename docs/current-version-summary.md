@@ -44,6 +44,7 @@ Flink checkpointing is the active recovery mechanism for Kafka offsets, keyed pr
 
 Default runtime settings are tuned to keep checkpoint storage bounded:
 
+- The production checkpoint interval is `flink.checkpoint.interval-ms=180000`; the first completed checkpoint normally appears after the job has run for roughly one interval, not immediately at startup.
 - RocksDB incremental checkpoints are enabled with `flink.checkpoint.incremental=true`.
 - Only one completed checkpoint is retained while the job is running via `flink.checkpoint.max-retained=1`.
 - Externalized checkpoints are deleted on normal job cancellation by default with `flink.checkpoint.externalized-cleanup=DELETE_ON_CANCELLATION`; take a savepoint before planned upgrades when a resumable handoff is required.
