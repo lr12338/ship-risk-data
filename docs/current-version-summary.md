@@ -42,6 +42,15 @@ Kafka flink_aisdata_topic
 
 Flink checkpointing is the active recovery mechanism for Kafka offsets, keyed preprocessing state, and stop detector state.
 
+Default runtime settings are tuned to keep checkpoint storage bounded:
+
+- RocksDB incremental checkpoints are enabled with `flink.checkpoint.incremental=true`.
+- Only one completed checkpoint is retained while the job is running via `flink.checkpoint.max-retained=1`.
+- Externalized checkpoints are deleted on normal job cancellation by default with `flink.checkpoint.externalized-cleanup=DELETE_ON_CANCELLATION`; take a savepoint before planned upgrades when a resumable handoff is required.
+- Deduplication state uses a smaller per-vessel cache and TTL (`pipeline.dedup.cache-size`, `pipeline.dedup.ttl-hours`), and idle vessel state expires through `pipeline.state.idle-ttl-hours`.
+
+Existing checkpoint directories created by older job runs are not removed by the new job. After deploying this version, keep one known-good checkpoint or savepoint if needed, then delete obsolete `chk-*` directories or old jobId directories from the checkpoint storage.
+
 ## Run
 
 ```bash

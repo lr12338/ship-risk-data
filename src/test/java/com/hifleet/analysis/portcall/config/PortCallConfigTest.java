@@ -17,6 +17,8 @@ public class PortCallConfigTest {
 
         Assert.assertEquals(600L, config.getReorderMaxLatenessSeconds());
         Assert.assertEquals(200, config.getReorderMaxPointsPerVessel());
+        Assert.assertEquals(6, config.getDedupTtlHours());
+        Assert.assertEquals(48, config.getStateIdleTtlHours());
         Assert.assertTrue(config.getAcceptedDataStates().contains("normal"));
         Assert.assertEquals(1.0d, config.getStopPointMaxSpeedKnots(), 0.01d);
         Assert.assertEquals(2.0d, config.getStopPointEndSpeedKnots(), 0.01d);
@@ -36,5 +38,9 @@ public class PortCallConfigTest {
         Assert.assertEquals(15, config.getFlinkCheckpointRetentionDays());
         Assert.assertEquals(15, config.getFlinkSavepointRetentionDays());
         Assert.assertEquals(1, config.resolveMaxRetainedCheckpoints());
+        Assert.assertTrue(config.isFlinkCheckpointIncremental());
+        Assert.assertEquals(60000L, config.getFlinkCheckpointMinPauseMs());
+        Assert.assertEquals(300000L, config.getFlinkCheckpointTimeoutMs());
+        Assert.assertEquals("DELETE_ON_CANCELLATION", config.getFlinkCheckpointExternalizedCleanup());
     }
 }

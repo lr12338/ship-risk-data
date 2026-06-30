@@ -38,6 +38,8 @@ public final class FlinkPortCallJob {
         int maxRetainedCheckpoints = config.resolveMaxRetainedCheckpoints();
         System.err.println("[FlinkPortCallJob] checkpoint max-retained=" + maxRetainedCheckpoints
             + ", interval-ms=" + config.getFlinkCheckpointIntervalMs()
+            + ", incremental=" + config.isFlinkCheckpointIncremental()
+            + ", cleanup=" + config.getFlinkCheckpointExternalizedCleanup()
             + ", dir=" + config.getFlinkCheckpointDir());
         StreamExecutionEnvironment env = createExecutionEnvironment(config);
         KafkaSource<String> source = KafkaSource.<String>builder()
@@ -66,6 +68,8 @@ public final class FlinkPortCallJob {
             .process(new FlinkKeyedPreprocessFunction(
                 config.getReorderMaxLatenessSeconds(),
                 config.getDedupCacheSize(),
+                config.getDedupTtlHours(),
+                config.getStateIdleTtlHours(),
                 config.getReorderMaxPointsPerVessel(),
                 config.getJumpPointMaxImpliedSpeedKnots()
             ))
@@ -88,7 +92,8 @@ public final class FlinkPortCallJob {
                 config.getOutputStopUpdateMinIntervalSeconds(),
                 config.getOutputStopUpdateMinPositionDeltaMeters(),
                 config.getOutputStopUpdateMinConfidenceDelta(),
-                config.getOutputUnknownTimeoutSeconds()
+                config.getOutputUnknownTimeoutSeconds(),
+                config.getStateIdleTtlHours()
             ))
             .name("keyed-reliable-stop-point-detection");
 
@@ -119,6 +124,7 @@ public final class FlinkPortCallJob {
         applyIfConfigured(flinkConfiguration, RocksDBOptions.LOCAL_DIRECTORIES, config.getFlinkRocksDbLocalDir());
         if (config.getFlinkCheckpointIntervalMs() > 0L) {
             applyCheckpointRetention(flinkConfiguration, config.resolveMaxRetainedCheckpoints());
+            flinkConfiguration.setString("state.backend.incremental", String.valueOf(config.isFlinkCheckpointIncremental()));
         }
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfiguration);
@@ -129,9 +135,16 @@ public final class FlinkPortCallJob {
         }
         if (config.getFlinkCheckpointIntervalMs() > 0L) {
             env.enableCheckpointing(config.getFlinkCheckpointIntervalMs());
+            env.getCheckpointConfig().setMaxConcurrentCheckpoints(1);
+            if (config.getFlinkCheckpointMinPauseMs() > 0L) {
+                env.getCheckpointConfig().setMinPauseBetweenCheckpoints(config.getFlinkCheckpointMinPauseMs());
+            }
+            if (config.getFlinkCheckpointTimeoutMs() > 0L) {
+                env.getCheckpointConfig().setCheckpointTimeout(config.getFlinkCheckpointTimeoutMs());
+            }
             env.configure(flinkConfiguration, FlinkPortCallJob.class.getClassLoader());
             env.getCheckpointConfig().setExternalizedCheckpointCleanup(
-                CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
+                resolveExternalizedCheckpointCleanup(config.getFlinkCheckpointExternalizedCleanup()));
         }
         return env;
     }
@@ -140,6 +153,17 @@ public final class FlinkPortCallJob {
         flinkConfiguration.set(CheckpointingOptions.MAX_RETAINED_CHECKPOINTS, maxRetained);
         // Legacy cluster key still read by JM in Flink 1.16.
         flinkConfiguration.setString("state.checkpoints.num-retained", String.valueOf(maxRetained));
+    }
+
+    private static CheckpointConfig.ExternalizedCheckpointCleanup resolveExternalizedCheckpointCleanup(String cleanup) {
+        if (cleanup == null || cleanup.trim().isEmpty()) {
+            return CheckpointConfig.ExternalizedCheckpointCleanup.DELETE_ON_CANCELLATION;
+        }
+        try {
+            return CheckpointConfig.ExternalizedCheckpointCleanup.valueOf(cleanup.trim());
+        } catch (IllegalArgumentException ex) {
+            return CheckpointConfig.ExternalizedCheckpointCleanup.DELETE_ON_CANCELLATION;
+        }
     }
 
     private static void applyIfConfigured(Configuration configuration, org.apache.flink.configuration.ConfigOption<String> option, String value) {

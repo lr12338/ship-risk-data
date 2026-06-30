@@ -2,8 +2,10 @@ package com.hifleet.analysis.portcall.flink;
 
 import com.hifleet.analysis.portcall.model.CleanAisPoint;
 import com.hifleet.analysis.portcall.model.StopPointEvent;
+import org.apache.flink.api.common.state.StateTtlConfig;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
@@ -36,6 +38,7 @@ public class StopPointDetectorProcessFunction extends KeyedProcessFunction<Long,
     private final double updateMinPositionDeltaMeters;
     private final double updateMinConfidenceDelta;
     private final long unknownTimeoutSeconds;
+    private final int stateIdleTtlHours;
 
     private transient ValueState<DetectorState> detectorState;
 
@@ -56,7 +59,8 @@ public class StopPointDetectorProcessFunction extends KeyedProcessFunction<Long,
         long updateMinIntervalSeconds,
         double updateMinPositionDeltaMeters,
         double updateMinConfidenceDelta,
-        long unknownTimeoutSeconds
+        long unknownTimeoutSeconds,
+        int stateIdleTtlHours
     ) {
         this.candidateMaxSpeedKnots = candidateMaxSpeedKnots;
         this.candidateMinDurationSeconds = candidateMinDurationSeconds;
@@ -75,13 +79,18 @@ public class StopPointDetectorProcessFunction extends KeyedProcessFunction<Long,
         this.updateMinPositionDeltaMeters = updateMinPositionDeltaMeters;
         this.updateMinConfidenceDelta = updateMinConfidenceDelta;
         this.unknownTimeoutSeconds = unknownTimeoutSeconds;
+        this.stateIdleTtlHours = stateIdleTtlHours;
     }
 
     @Override
     public void open(Configuration parameters) {
-        detectorState = getRuntimeContext().getState(
-            new ValueStateDescriptor<DetectorState>("stop-detector-state", DetectorState.class)
-        );
+        ValueStateDescriptor<DetectorState> descriptor =
+            new ValueStateDescriptor<DetectorState>("stop-detector-state", DetectorState.class);
+        StateTtlConfig ttlConfig = stateIdleTtlConfig();
+        if (ttlConfig != null) {
+            descriptor.enableTimeToLive(ttlConfig);
+        }
+        detectorState = getRuntimeContext().getState(descriptor);
     }
 
     @Override
@@ -467,6 +476,19 @@ public class StopPointDetectorProcessFunction extends KeyedProcessFunction<Long,
             * Math.sin(dLon / 2.0d) * Math.sin(dLon / 2.0d);
         double c = 2.0d * Math.atan2(Math.sqrt(a), Math.sqrt(1.0d - a));
         return radius * c;
+    }
+
+    private StateTtlConfig stateIdleTtlConfig() {
+        if (stateIdleTtlHours <= 0) {
+            return null;
+        }
+        return StateTtlConfig
+            .newBuilder(Time.hours(stateIdleTtlHours))
+            .setUpdateType(StateTtlConfig.UpdateType.OnCreateAndWrite)
+            .setStateVisibility(StateTtlConfig.StateVisibility.NeverReturnExpired)
+            .cleanupFullSnapshot()
+            .cleanupInRocksdbCompactFilter(1000)
+            .build();
     }
 
     /**

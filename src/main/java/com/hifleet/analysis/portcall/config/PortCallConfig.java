@@ -24,6 +24,8 @@ public class PortCallConfig implements Serializable {
     private long reorderMaxLatenessSeconds;
     private int reorderMaxPointsPerVessel;
     private int dedupCacheSize;
+    private int dedupTtlHours;
+    private int stateIdleTtlHours;
     private double jumpPointMaxImpliedSpeedKnots;
     private Set<String> acceptedDataStates = Collections.emptySet();
 
@@ -55,6 +57,10 @@ public class PortCallConfig implements Serializable {
     private int flinkCheckpointRetentionDays;
     private int flinkSavepointRetentionDays;
     private int flinkCheckpointMaxRetained;
+    private boolean flinkCheckpointIncremental;
+    private long flinkCheckpointMinPauseMs;
+    private long flinkCheckpointTimeoutMs;
+    private String flinkCheckpointExternalizedCleanup;
 
     /**
      * Loads application.properties, then applies JVM -D overrides for known keys.
@@ -92,6 +98,8 @@ public class PortCallConfig implements Serializable {
         config.setReorderMaxLatenessSeconds(toLong(value(props, "pipeline.reorder.max-lateness-seconds"), 600L));
         config.setReorderMaxPointsPerVessel(toInt(value(props, "pipeline.reorder.max-points-per-vessel"), 200));
         config.setDedupCacheSize(toInt(value(props, "pipeline.dedup.cache-size"), 200000));
+        config.setDedupTtlHours(toInt(value(props, "pipeline.dedup.ttl-hours"), 6));
+        config.setStateIdleTtlHours(toInt(value(props, "pipeline.state.idle-ttl-hours"), 48));
         config.setJumpPointMaxImpliedSpeedKnots(toDouble(value(props, "pipeline.jump-point.max-implied-speed-knots"), 45.0d));
         config.setAcceptedDataStates(toStringSet(value(props, "pipeline.accepted-data-states")));
 
@@ -123,6 +131,10 @@ public class PortCallConfig implements Serializable {
         config.setFlinkCheckpointRetentionDays(toInt(value(props, "flink.checkpoint.retention-days"), 15));
         config.setFlinkSavepointRetentionDays(toInt(value(props, "flink.savepoint.retention-days"), 15));
         config.setFlinkCheckpointMaxRetained(toInt(value(props, "flink.checkpoint.max-retained"), 1));
+        config.setFlinkCheckpointIncremental(toBoolean(value(props, "flink.checkpoint.incremental"), true));
+        config.setFlinkCheckpointMinPauseMs(toLong(value(props, "flink.checkpoint.min-pause-ms"), 0L));
+        config.setFlinkCheckpointTimeoutMs(toLong(value(props, "flink.checkpoint.timeout-ms"), 300000L));
+        config.setFlinkCheckpointExternalizedCleanup(value(props, "flink.checkpoint.externalized-cleanup"));
         return config;
     }
 
@@ -135,7 +147,9 @@ public class PortCallConfig implements Serializable {
         defaults.setProperty("kafka.client.id", "portcall-consumer-1");
         defaults.setProperty("pipeline.reorder.max-lateness-seconds", "600");
         defaults.setProperty("pipeline.reorder.max-points-per-vessel", "200");
-        defaults.setProperty("pipeline.dedup.cache-size", "200000");
+        defaults.setProperty("pipeline.dedup.cache-size", "1024");
+        defaults.setProperty("pipeline.dedup.ttl-hours", "6");
+        defaults.setProperty("pipeline.state.idle-ttl-hours", "48");
         defaults.setProperty("pipeline.jump-point.max-implied-speed-knots", "45.0");
         defaults.setProperty("pipeline.accepted-data-states", "normal");
         defaults.setProperty("stop-point.max-speed-knots", "1.0");
@@ -165,6 +179,10 @@ public class PortCallConfig implements Serializable {
         defaults.setProperty("flink.checkpoint.retention-days", "15");
         defaults.setProperty("flink.savepoint.retention-days", "15");
         defaults.setProperty("flink.checkpoint.max-retained", "1");
+        defaults.setProperty("flink.checkpoint.incremental", "true");
+        defaults.setProperty("flink.checkpoint.min-pause-ms", "0");
+        defaults.setProperty("flink.checkpoint.timeout-ms", "300000");
+        defaults.setProperty("flink.checkpoint.externalized-cleanup", "DELETE_ON_CANCELLATION");
         return defaults;
     }
 
@@ -288,6 +306,22 @@ public class PortCallConfig implements Serializable {
 
     public void setDedupCacheSize(int dedupCacheSize) {
         this.dedupCacheSize = dedupCacheSize;
+    }
+
+    public int getDedupTtlHours() {
+        return dedupTtlHours;
+    }
+
+    public void setDedupTtlHours(int dedupTtlHours) {
+        this.dedupTtlHours = dedupTtlHours;
+    }
+
+    public int getStateIdleTtlHours() {
+        return stateIdleTtlHours;
+    }
+
+    public void setStateIdleTtlHours(int stateIdleTtlHours) {
+        this.stateIdleTtlHours = stateIdleTtlHours;
     }
 
     public double getJumpPointMaxImpliedSpeedKnots() {
@@ -520,6 +554,38 @@ public class PortCallConfig implements Serializable {
 
     public void setFlinkCheckpointMaxRetained(int flinkCheckpointMaxRetained) {
         this.flinkCheckpointMaxRetained = flinkCheckpointMaxRetained;
+    }
+
+    public boolean isFlinkCheckpointIncremental() {
+        return flinkCheckpointIncremental;
+    }
+
+    public void setFlinkCheckpointIncremental(boolean flinkCheckpointIncremental) {
+        this.flinkCheckpointIncremental = flinkCheckpointIncremental;
+    }
+
+    public long getFlinkCheckpointMinPauseMs() {
+        return flinkCheckpointMinPauseMs;
+    }
+
+    public void setFlinkCheckpointMinPauseMs(long flinkCheckpointMinPauseMs) {
+        this.flinkCheckpointMinPauseMs = flinkCheckpointMinPauseMs;
+    }
+
+    public long getFlinkCheckpointTimeoutMs() {
+        return flinkCheckpointTimeoutMs;
+    }
+
+    public void setFlinkCheckpointTimeoutMs(long flinkCheckpointTimeoutMs) {
+        this.flinkCheckpointTimeoutMs = flinkCheckpointTimeoutMs;
+    }
+
+    public String getFlinkCheckpointExternalizedCleanup() {
+        return flinkCheckpointExternalizedCleanup;
+    }
+
+    public void setFlinkCheckpointExternalizedCleanup(String flinkCheckpointExternalizedCleanup) {
+        this.flinkCheckpointExternalizedCleanup = flinkCheckpointExternalizedCleanup;
     }
 
     /**

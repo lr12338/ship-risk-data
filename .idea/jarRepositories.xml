@@ -7,14 +7,14 @@
       <option name="url" value="http://nexus.hifleet.com:8026/repository/hifleet-releases/" />
     </remote-repository>
     <remote-repository>
+      <option name="id" value="hifleet-releases" />
+      <option name="name" value="hifleet-releases" />
+      <option name="url" value="http://nexus.hifleet.com:8026/repository/releases/" />
+    </remote-repository>
+    <remote-repository>
       <option name="id" value="central" />
       <option name="name" value="Central Repository" />
       <option name="url" value="https://repo.maven.apache.org/maven2" />
-    </remote-repository>
-    <remote-repository>
-      <option name="id" value="hifleet-snapshots" />
-      <option name="name" value="hifleet-snapshots" />
-      <option name="url" value="http://nexus.hifleet.com:8026/repository/snapshots/" />
     </remote-repository>
     <remote-repository>
       <option name="id" value="central" />
@@ -22,14 +22,14 @@
       <option name="url" value="https://repo1.maven.org/maven2" />
     </remote-repository>
     <remote-repository>
+      <option name="id" value="hifleet-snapshots" />
+      <option name="name" value="hifleet-snapshots" />
+      <option name="url" value="http://nexus.hifleet.com:8026/repository/snapshots/" />
+    </remote-repository>
+    <remote-repository>
       <option name="id" value="jboss.community" />
       <option name="name" value="JBoss Community repository" />
       <option name="url" value="https://repository.jboss.org/nexus/content/repositories/public/" />
-    </remote-repository>
-    <remote-repository>
-      <option name="id" value="hifleet-releases" />
-      <option name="name" value="hifleet-releases" />
-      <option name="url" value="http://nexus.hifleet.com:8026/repository/releases/" />
     </remote-repository>
   </component>
 </project>

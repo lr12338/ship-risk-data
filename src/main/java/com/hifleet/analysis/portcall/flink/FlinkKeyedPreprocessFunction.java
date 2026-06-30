@@ -5,6 +5,7 @@ import com.hifleet.analysis.portcall.model.CleanAisPoint;
 import com.hifleet.analysis.portcall.preprocess.JumpPointFilter;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
+import org.apache.flink.api.common.state.StateDescriptor;
 import org.apache.flink.api.common.state.StateTtlConfig;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
@@ -33,6 +34,8 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
 
     private final long maxLatenessMillis;
     private final int maxDedupKeysPerVessel;
+    private final int dedupTtlHours;
+    private final int stateIdleTtlHours;
     private final int maxPointsPerVessel;
     private final double maxImpliedSpeedKnots;
 
@@ -47,6 +50,8 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
     public FlinkKeyedPreprocessFunction(
         long maxLatenessSeconds,
         int maxDedupKeysPerVessel,
+        int dedupTtlHours,
+        int stateIdleTtlHours,
         int maxPointsPerVessel,
         double maxImpliedSpeedKnots
     ) {
@@ -55,6 +60,8 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
             normalizeLimit(maxDedupKeysPerVessel),
             MAX_DEDUP_KEYS_PER_VESSEL_CAP
         );
+        this.dedupTtlHours = dedupTtlHours;
+        this.stateIdleTtlHours = stateIdleTtlHours;
         this.maxPointsPerVessel = normalizeLimit(maxPointsPerVessel);
         this.maxImpliedSpeedKnots = maxImpliedSpeedKnots;
     }
@@ -63,36 +70,37 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
     public void open(Configuration parameters) {
         MapStateDescriptor<Long, AisPoint> bufferDescriptor =
             new MapStateDescriptor<>("ais-reorder-buffer", Long.class, AisPoint.class);
+        enableTtl(bufferDescriptor, stateIdleTtlConfig());
         reorderBuffer = getRuntimeContext().getMapState(bufferDescriptor);
 
-        bufferEventTimes = getRuntimeContext().getState(
+        ValueStateDescriptor<TreeSet<Long>> bufferEventTimesDescriptor =
             new ValueStateDescriptor<TreeSet<Long>>(
                 "ais-buffer-event-times",
                 TypeInformation.of(new TypeHint<TreeSet<Long>>() {
                 })
-            )
-        );
+            );
+        enableTtl(bufferEventTimesDescriptor, stateIdleTtlConfig());
+        bufferEventTimes = getRuntimeContext().getState(bufferEventTimesDescriptor);
 
         MapStateDescriptor<String, Byte> dedupDescriptor =
             new MapStateDescriptor<>("ais-dedup-keys", String.class, Byte.class);
-        StateTtlConfig dedupTtl = StateTtlConfig
-            .newBuilder(Time.hours(24))
-            .setUpdateType(StateTtlConfig.UpdateType.OnCreateAndWrite)
-            .setStateVisibility(StateTtlConfig.StateVisibility.NeverReturnExpired)
-            .cleanupFullSnapshot()
-            .build();
-        dedupDescriptor.enableTimeToLive(dedupTtl);
+        enableTtl(dedupDescriptor, dedupTtlConfig());
         dedupKeys = getRuntimeContext().getMapState(dedupDescriptor);
 
-        dedupKeyCount = getRuntimeContext().getState(
-            new ValueStateDescriptor<Integer>("ais-dedup-key-count", Integer.class)
-        );
-        lastAcceptedState = getRuntimeContext().getState(
-            new ValueStateDescriptor<AisPoint>("last-accepted-ais", AisPoint.class)
-        );
-        activeReleaseTimer = getRuntimeContext().getState(
-            new ValueStateDescriptor<Long>("ais-active-release-timer", Long.class)
-        );
+        ValueStateDescriptor<Integer> dedupKeyCountDescriptor =
+            new ValueStateDescriptor<Integer>("ais-dedup-key-count", Integer.class);
+        enableTtl(dedupKeyCountDescriptor, dedupTtlConfig());
+        dedupKeyCount = getRuntimeContext().getState(dedupKeyCountDescriptor);
+
+        ValueStateDescriptor<AisPoint> lastAcceptedDescriptor =
+            new ValueStateDescriptor<AisPoint>("last-accepted-ais", AisPoint.class);
+        enableTtl(lastAcceptedDescriptor, stateIdleTtlConfig());
+        lastAcceptedState = getRuntimeContext().getState(lastAcceptedDescriptor);
+
+        ValueStateDescriptor<Long> activeReleaseTimerDescriptor =
+            new ValueStateDescriptor<Long>("ais-active-release-timer", Long.class);
+        enableTtl(activeReleaseTimerDescriptor, stateIdleTtlConfig());
+        activeReleaseTimer = getRuntimeContext().getState(activeReleaseTimerDescriptor);
         jumpPointFilter = new JumpPointFilter(maxImpliedSpeedKnots);
     }
 
@@ -102,7 +110,7 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
             return;
         }
 
-        String dedupKey = point.buildDedupKey();
+        String dedupKey = compactDedupKey(point);
         if (dedupKeys.contains(dedupKey)) {
             return;
         }
@@ -255,5 +263,36 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
 
     private static int normalizeLimit(int limit) {
         return limit <= 0 ? Integer.MAX_VALUE : limit;
+    }
+
+    private static String compactDedupKey(AisPoint point) {
+        return String.valueOf(point.getUpdateTime().toEpochMilli());
+    }
+
+    private StateTtlConfig dedupTtlConfig() {
+        return ttlConfig(dedupTtlHours);
+    }
+
+    private StateTtlConfig stateIdleTtlConfig() {
+        return ttlConfig(stateIdleTtlHours);
+    }
+
+    private static StateTtlConfig ttlConfig(int ttlHours) {
+        if (ttlHours <= 0) {
+            return null;
+        }
+        return StateTtlConfig
+            .newBuilder(Time.hours(ttlHours))
+            .setUpdateType(StateTtlConfig.UpdateType.OnCreateAndWrite)
+            .setStateVisibility(StateTtlConfig.StateVisibility.NeverReturnExpired)
+            .cleanupFullSnapshot()
+            .cleanupInRocksdbCompactFilter(1000)
+            .build();
+    }
+
+    private static void enableTtl(StateDescriptor<?, ?> descriptor, StateTtlConfig ttlConfig) {
+        if (ttlConfig != null) {
+            descriptor.enableTimeToLive(ttlConfig);
+        }
     }
 }
