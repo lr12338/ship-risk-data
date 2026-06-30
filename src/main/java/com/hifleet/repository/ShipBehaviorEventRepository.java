@@ -38,10 +38,14 @@ public class ShipBehaviorEventRepository {
     @Qualifier("newDataanalysisJdbcTemplate")
     private JdbcTemplate newDataanalysisJdbcTemplate;
 
+    @Autowired
+    private ShipBehaviorTableInitializer shipBehaviorTableInitializer;
+
     public void saveEvents(List<ShipBehaviorEvent> events) {
         if (!storeEnabled || events == null || events.isEmpty()) {
             return;
         }
+        shipBehaviorTableInitializer.ensureTableReady();
         List<ShipBehaviorEvent> validEvents = filterValid(events);
         int effectiveBatchSize = Math.max(1, batchSize);
         for (int offset = 0; offset < validEvents.size(); offset += effectiveBatchSize) {
