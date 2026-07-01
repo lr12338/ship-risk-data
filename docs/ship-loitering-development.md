@@ -13,6 +13,8 @@
 - 事件置信度
 - 单事件风险评分
 - L0-L4 风险等级
+- V2.1 重复候选合并
+- V2.1 弱候选与 no-candidate 诊断
 - V2 字段落库
 - 事件明细追溯
 - 启动时自动建表与自动补列
@@ -283,6 +285,114 @@ event_score = duration_score + trajectory_score + area_score + evidence_score
 - `51-75`：`L3`
 - `76-100`：`L4`
 
+### 4.7 V2.1 重复事件合并
+
+V2.1 解决同一轨迹片段同时命中 `SLOW_LOITERING` 和 `MANEUVER_LOITERING` 时重复落库的问题。
+
+合并条件：
+
+- 时间窗口完全一致，或时间重叠率 `>= 0.8`
+- 空间中心距离 `<= 1.0` 海里；中心点不可用时只使用时间重叠判断
+- 点集合重叠率 `>= 0.8` 时也合并
+
+合并策略：
+
+- `event_sub_type=COMPOSITE_LOITERING`
+- `start_time` 取最早开始时间
+- `end_time` 取最晚结束时间
+- 轨迹点去重合并
+- 重新计算 `duration_minutes`、中心点、半径、平均航速、AIS gap、覆盖率、评分和等级
+- 不允许把两个候选分数相加
+
+合并信息写入 `score_detail_json`：
+
+```json
+{
+  "matchedSubTypes": ["SLOW_LOITERING", "MANEUVER_LOITERING"],
+  "mergeReason": "OVERLAP_TIME_AND_SPACE",
+  "rawCandidateCount": 2
+}
+```
+
+日志：
+
+```text
+LOITERING_V2 merge rawCandidates=3 mergedCandidates=2 duplicateMerged=1 batchNo=loitering-2025-beihai-v21
+```
+
+### 4.8 V2.1 风险等级封顶
+
+V2.1 保留算法原始分 `rawScore`，但在商业保险业务等级上增加封顶，避免 `NO_SCENE_DATA` 的候选事件直接被定为高风险。
+
+如果同时满足以下条件，最终 `severity_level` 最高不超过配置值，默认 `L2`：
+
+- `exclusion_reason=NO_SCENE_DATA`
+- `risk_area_tags` 为空
+- 无严重 AIS gap，当前定义为 `ais_gap_count > 0 && max_ais_gap_minutes >= 120`
+- 无搭靠、STS、风险区等外部证据
+- `duration_minutes < 720`
+- `confidence_level != HIGH`
+
+`score_detail_json` 会记录：
+
+```json
+{
+  "rawScore": 53.0,
+  "finalScore": 53.0,
+  "rawSeverity": "L3",
+  "finalSeverity": "L2",
+  "severityCapReason": "NO_SCENE_DATA_NO_EXTERNAL_EVIDENCE",
+  "sceneDataAvailable": false,
+  "riskAreaEnabled": false
+}
+```
+
+V2.1 默认不自动生成 `L4`，除非后续接入明确外部强证据并打开配置。
+
+### 4.9 V2.1 no-candidate 诊断与 weak candidate
+
+当没有正式候选，或只有弱候选时，V2.1 会输出 `reject_summary` 和最多 10 条 `near_miss`。
+
+诊断统计项：
+
+- `rejectByDuration`
+- `rejectByPointCount`
+- `rejectByRadius`
+- `rejectBySpeed`
+- `rejectByTurnFeature`
+- `rejectByGapSplit`
+- `rejectByCoverage`
+- `rejectByNormalScene`
+- `rejectByUnknown`
+
+日志样例：
+
+```text
+LOITERING_V2 reject_summary mmsi=412440781 segments=86 rejectByDuration=12 rejectByPointCount=18 rejectByRadius=30 rejectBySpeed=8 rejectByTurnFeature=10 rejectByGapSplit=0 rejectByCoverage=0 rejectByNormalScene=0 rejectByUnknown=8 nearMissCount=4
+
+LOITERING_V2 near_miss[1] start=2021-10-11 03:00:00 end=2021-10-11 07:30:00 duration=270 pointCount=7 avgSpeed=2.4 radiusNm=6.8 maxGap=75 coverage=0.7 failedRules=radius|pointCount
+```
+
+弱候选触发条件：
+
+```text
+duration_minutes >= 60
+avg_sog <= 3.0
+radius_nm <= 8.0
+point_count >= 6
+max_ais_gap_minutes <= 180
+```
+
+弱候选输出：
+
+- `event_sub_type=WEAK_LOITERING_CANDIDATE`
+- `severity_level=L1`
+- `confidence_level=LOW`
+- `event_score <= 20`
+- `score_detail_json.includeInAnnualScore=false`
+
+弱候选用于公开样本复核和规则调参，不参与正式年度 WLI。
+
 ## 5. 配置项
 
 源码默认配置位于：
@@ -317,6 +427,34 @@ ship.behavior.loitering.high-risk.enabled=false
 ship.behavior.loitering.high-risk.min-duration-minutes=60
 ship.behavior.loitering.high-risk.max-radius-nm=5.0
 ship.behavior.loitering.score.weight=0.20
+```
+
+V2.1 配置：
+
+```properties
+ship.behavior.loitering.merge.enabled=true
+ship.behavior.loitering.merge.min-overlap-ratio=0.8
+ship.behavior.loitering.merge.max-center-distance-nm=1.0
+ship.behavior.loitering.merge.composite-subtype=COMPOSITE_LOITERING
+
+ship.behavior.loitering.severity-cap.enabled=true
+ship.behavior.loitering.severity-cap.no-scene-data.max-level=L2
+ship.behavior.loitering.severity-cap.no-scene-data.max-duration-minutes=720
+ship.behavior.loitering.severity-cap.require-external-evidence-for-l3=true
+ship.behavior.loitering.severity-cap.auto-l4-enabled=false
+ship.behavior.loitering.scene-data.available=false
+
+ship.behavior.loitering.diagnostic.enabled=true
+ship.behavior.loitering.diagnostic.near-miss-limit=10
+
+ship.behavior.loitering.weak.enabled=true
+ship.behavior.loitering.weak.store-enabled=true
+ship.behavior.loitering.weak.min-duration-minutes=60
+ship.behavior.loitering.weak.max-speed=3.0
+ship.behavior.loitering.weak.max-radius-nm=8.0
+ship.behavior.loitering.weak.min-points=6
+ship.behavior.loitering.weak.max-gap-minutes=180
+ship.behavior.loitering.weak.max-score=20
 ```
 
 ## 6. 数据落库与自动建表补列
@@ -355,13 +493,16 @@ V2-lite 新增摘要字段：
 - 如果 `ship_behavior_event` 不存在，自动执行完整 DDL 建表
 - 如果 `ship_behavior_event` 已存在，逐列检查 V2-lite 必需字段
 - 缺失字段会逐列执行 `ALTER TABLE ... ADD COLUMN`
+- 启动时检查 `ship_behavior_event.batch_no` 和 `ship_behavior_event_detail.batch_no` 长度，低于 `64` 时自动执行 `MODIFY COLUMN batch_no VARCHAR(64)`
 - 任一必需列补齐失败，应用启动失败，避免后续写库时报隐蔽错误
-- `ship_behavior_event_detail` 本轮只保持自动建表，不做补列
+- `ship_behavior_event_detail` 本轮只做自动建表和 `batch_no` 长度修正，不做其他补列
 
 启动日志关键字：
 
 ```text
 ship_behavior_event exists, skip ddl
+ship_behavior_event.batch_no column length ready: 64
+ship_behavior_event.batch_no column length insufficient: 32, applying migration
 ship_behavior_event column missing, applying migration: event_sub_type
 ship_behavior_event column ready: event_sub_type
 ship_behavior_event schema ready
@@ -390,7 +531,9 @@ event[1] type=LOITERING subType=SLOW_LOITERING severity=L1 confidence=MEDIUM sta
 任务汇总：
 
 ```text
-LOITERING_V2 summary mmsi=413193000 points=115 cleanPoints=115 segments=23 candidates=1 events=1 excludedEvents=1 lowConfidenceEvents=0 batchNo=loitering-test-20260630-01
+LOITERING_V2 merge rawCandidates=1 mergedCandidates=1 duplicateMerged=0 batchNo=loitering-test-20260630-01
+
+LOITERING_V2 summary mmsi=413193000 points=115 cleanPoints=115 segments=23 rawCandidates=1 mergedCandidates=1 savedEvents=1 events=1 validRiskEvents=0 excludedNormalEvents=0 downgradedNormalLikelyEvents=1 lowConfidenceEvents=0 weakCandidates=0 duplicateMerged=0 sceneDataAvailable=false riskAreaEnabled=false batchNo=loitering-test-20260630-01
 ```
 
 兼容旧摘要：
@@ -399,7 +542,14 @@ LOITERING_V2 summary mmsi=413193000 points=115 cleanPoints=115 segments=23 candi
 徘徊 mmsi=413193000 points=115 events=1
 ```
 
-当前日志中的 `excludedEvents` 包含 `DOWNGRADED_NORMAL_LIKELY`，它表示“正常可能性较高并降权”，不是完全排除。后续可考虑拆成 `excludedEvents` 和 `downgradedEvents` 两个字段。
+V2.1 已拆分统计口径：
+
+- `savedEvents`：实际落库事件数
+- `validRiskEvents`：`VALID_RISK_EVENT` 事件数
+- `excludedNormalEvents`：`EXCLUDED_NORMAL` 事件数
+- `downgradedNormalLikelyEvents`：`DOWNGRADED_NORMAL_LIKELY` 事件数
+- `weakCandidates`：弱候选事件数
+- `duplicateMerged`：被合并的重复候选数
 
 ## 8. 部署后单船测试记录
 
@@ -507,6 +657,47 @@ WHERE batch_no = 'loitering-test-20260630-01'
 ORDER BY event_start_time, point_index;
 ```
 
+V2.1 查询重复事件：
+
+```sql
+SELECT
+  mmsi,
+  batch_no,
+  start_time,
+  end_time,
+  COUNT(*) AS duplicate_count,
+  GROUP_CONCAT(event_sub_type ORDER BY event_sub_type) AS sub_types,
+  GROUP_CONCAT(id ORDER BY id) AS event_ids
+FROM dataanalysis.ship_behavior_event
+WHERE behavior_type = 'LOITERING'
+  AND batch_no = 'loitering-2025-beihai-v21'
+GROUP BY mmsi, batch_no, start_time, end_time
+HAVING COUNT(*) > 1;
+```
+
+V2.1 查询弱候选：
+
+```sql
+SELECT
+  id,
+  mmsi,
+  start_time,
+  end_time,
+  duration_minutes,
+  event_sub_type,
+  severity_level,
+  confidence_level,
+  event_score,
+  score_detail_json
+FROM dataanalysis.ship_behavior_event
+WHERE batch_no IN (
+  'loitering-case-412440781-202110-v21',
+  'loitering-case-351383000-20211011-v21'
+)
+  AND event_sub_type = 'WEAK_LOITERING_CANDIDATE'
+ORDER BY mmsi, start_time;
+```
+
 清理测试批次：
 
 ```sql
@@ -541,7 +732,65 @@ grep -n "LOITERING_V2\\|徘徊 mmsi=413193000\\|event\\[1\\]" /data/zhengyi/logs
 - `events=0`：看是否低速、时长、半径、点数、机动指标不足
 - 事件看起来不合理：查询明细表，按 `point_time` 检查速度、经纬度、航向、导航状态
 
-## 11. 本地验证记录
+## 11. V2.1 回归测试参数
+
+重复合并样本：
+
+```json
+{"mmsi":"414060000","startTime":"2025-01-01 00:00:00","endTime":"2025-02-01 23:59:59","batchNo":"loitering-2025-beihai-v21"}
+```
+
+预期：
+
+- `rawCandidates=3`
+- `mergedCandidates=2`
+- `duplicateMerged=1`
+- `savedEvents=2`
+- 2025-01-27 事件为 `COMPOSITE_LOITERING`
+- `score_detail_json.matchedSubTypes` 包含 `SLOW_LOITERING` 和 `MANEUVER_LOITERING`
+- 无外部证据时最终 `severity_level` 不高于 `L2`
+
+长时间窗口重复样本：
+
+```json
+{"mmsi":"356470000","startTime":"2021-01-01 04:00:00","endTime":"2021-10-30 10:30:00","batchNo":"loitering-case-356470000-20210110-v21"}
+```
+
+预期：
+
+- 事件数小于或等于 V2 的 `25`
+- 2021-05-28 附近重复事件应合并
+- 明细表仍能追溯事件点
+
+正样本：
+
+```json
+{"mmsi":"356470000","startTime":"2021-09-01 00:00:00","endTime":"2021-12-31 23:59:59","batchNo":"loitering-case-356470000-20210912-v21"}
+```
+
+预期：
+
+- 2021-10-07 左右 `SLOW_LOITERING` 仍能命中
+- 低置信事件不升级
+- 无重复时 `duplicateMerged=0`
+
+诊断样本：
+
+```json
+{"mmsi":"412440781","startTime":"2021-10-01 00:00:00","endTime":"2021-10-31 23:59:59","batchNo":"loitering-case-412440781-202110-v21"}
+```
+
+```json
+{"mmsi":"351383000","startTime":"2021-10-01 00:00:00","endTime":"2021-11-30 23:59:59","batchNo":"loitering-case-351383000-20211011-v21"}
+```
+
+预期：
+
+- 如果没有正式事件，必须输出 `reject_summary`
+- 必须输出 `nearMissCount`
+- 如果满足弱候选条件，可以输出 `WEAK_LOITERING_CANDIDATE`
+
+## 12. 本地验证记录
 
 本地编译：
 
@@ -554,7 +803,7 @@ BUILD SUCCESS
 
 ```text
 JUnitCore ShipLoiteringDetectorTest ShipBehaviorTableInitializerTest
-OK (15 tests)
+OK (20 tests)
 ```
 
 覆盖内容：
@@ -574,10 +823,29 @@ OK (15 tests)
 - 缺单列时只补单列
 - 缺多列时按顺序补列
 - 补列失败时启动初始化失败
+- 重复 `SLOW_LOITERING` / `MANEUVER_LOITERING` 合并为 `COMPOSITE_LOITERING`
+- `NO_SCENE_DATA` 无外部证据时 L3 封顶到 L2
+- 弱候选输出 `WEAK_LOITERING_CANDIDATE`
+- 无正式候选时生成 `reject_summary` 和 `near_miss`
+- `batch_no` 长度不足时自动扩容到 `VARCHAR(64)`
 
-## 12. 后续建议
+## 13. 编译产物
 
-- 将 summary 中的 `excludedEvents` 拆分为 `excludedEvents` 和 `downgradedEvents`
+本地已更新 jar：
+
+```text
+target/ship-risk-data-0.0.1-SNAPSHOT.jar
+dist/ship-risk-data-0.0.1-SNAPSHOT.jar
+```
+
+部署提醒：
+
+- 日常更新只上传 `dist/ship-risk-data-0.0.1-SNAPSHOT.jar` 和脚本
+- 不要覆盖服务器 `/data/zhengyi/application.properties`
+- 线上需同步 V2.1 新增配置项
+
+## 14. 后续建议
+
 - 后续接入锚地、港口、天气、制裁区、STS 热点等外部场景数据后，再启用更完整的正常场景排除和 `HIGH_RISK_WAITING`
 - 年度 WLI 汇总表本轮未落库，可在事件规则稳定后单独实现
 - 明细表仍只作为事件轨迹快照，不作为长期 AIS 原始轨迹归档表

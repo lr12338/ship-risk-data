@@ -32,11 +32,13 @@ public class ShipLoiteringDetectorTest {
 
     @Test
     public void gapGreaterThanSplitThresholdCutsEvents() {
+        ShipLoiteringDetector.LoiteringConfig config = config();
+        config.setWeakEnabled(false);
         List<TrajectoryPoint> points = new ArrayList<TrajectoryPoint>();
         points.addAll(slowPoints(8, 20, 1.0, null));
         points.addAll(slowPoints(LocalDateTime.of(2026, 6, 30, 8, 0), 8, 20, 1.0, null));
 
-        List<ShipBehaviorTrace> traces = detector.detectWithTrace("413193000", points, config());
+        List<ShipBehaviorTrace> traces = detector.detectWithTrace("413193000", points, config);
 
         assertTrue(traces.isEmpty());
         assertEquals(2, detector.getLastStats().getSegments());
@@ -118,6 +120,71 @@ public class ShipLoiteringDetectorTest {
 
         assertNotNull(event.getScoreDetailJson());
         assertTrue(event.getScoreDetailJson().contains("durationScore"));
+    }
+
+    @Test
+    public void overlappingSlowAndManeuverMergeToComposite() {
+        List<TrajectoryPoint> points = new ArrayList<TrajectoryPoint>();
+        LocalDateTime start = LocalDateTime.of(2026, 6, 30, 0, 0);
+        double[] cogs = new double[]{0, 90, 180, 270, 0, 90, 180, 270, 0, 90, 180, 270, 0};
+        for (int i = 0; i < cogs.length; i++) {
+            points.add(point(start.plusMinutes(i * 20), 121.0 + (i % 2) * 0.001,
+                    31.0 + (i % 3) * 0.001, 1.5, cogs[i], null));
+        }
+
+        List<ShipBehaviorTrace> traces = detector.detectWithTrace("413193000", points, config());
+
+        assertEquals(1, traces.size());
+        ShipBehaviorEvent event = traces.get(0).getEvent();
+        assertEquals(ShipLoiteringDetector.SUB_TYPE_COMPOSITE_LOITERING, event.getEventSubType());
+        assertTrue(event.getScoreDetailJson().contains("SLOW_LOITERING"));
+        assertTrue(event.getScoreDetailJson().contains("MANEUVER_LOITERING"));
+        assertEquals(1, detector.getLastStats().getDuplicateMerged());
+    }
+
+    @Test
+    public void noSceneDataCapsL3SeverityToL2() {
+        List<TrajectoryPoint> points = new ArrayList<TrajectoryPoint>();
+        LocalDateTime start = LocalDateTime.of(2026, 6, 30, 0, 0);
+        double[] cogs = new double[]{0, 90, 180, 270, 0, 90, 180, 270, 0, 90, 180, 270, 0, 90, 180, 270, 0, 90, 180, 270, 0, 90};
+        for (int i = 0; i < cogs.length; i++) {
+            points.add(point(start.plusMinutes(i * 31), 121.0 + (i % 2) * 0.001,
+                    31.0 + (i % 3) * 0.001, 1.5, cogs[i], null));
+        }
+
+        ShipBehaviorEvent event = detector.detectWithTrace("413193000", points, config()).get(0).getEvent();
+
+        assertEquals("L2", event.getSeverityLevel());
+        assertTrue(event.getScoreDetailJson().contains("\"rawSeverity\":\"L3\""));
+        assertTrue(event.getScoreDetailJson().contains("NO_SCENE_DATA_NO_EXTERNAL_EVIDENCE"));
+    }
+
+    @Test
+    public void weakCandidateIsStoredAsLowL1() {
+        ShipLoiteringDetector.LoiteringConfig config = config();
+        List<TrajectoryPoint> points = slowPoints(7, 15, 2.5, null);
+
+        ShipBehaviorEvent event = detector.detectWithTrace("413193000", points, config).get(0).getEvent();
+
+        assertEquals(ShipLoiteringDetector.SUB_TYPE_WEAK_LOITERING_CANDIDATE, event.getEventSubType());
+        assertEquals("L1", event.getSeverityLevel());
+        assertEquals(ShipLoiteringDetector.CONFIDENCE_LOW, event.getConfidenceLevel());
+        assertTrue(event.getEventScore() <= 20.0);
+        assertTrue(event.getScoreDetailJson().contains("\"weakCandidate\":true"));
+        assertTrue(event.getScoreDetailJson().contains("\"includeInAnnualScore\":false"));
+    }
+
+    @Test
+    public void noCandidateTrackProducesRejectSummaryAndNearMiss() {
+        ShipLoiteringDetector.LoiteringConfig config = config();
+        config.setWeakEnabled(false);
+        List<TrajectoryPoint> points = slowPoints(5, 20, 2.5, null);
+
+        List<ShipBehaviorTrace> traces = detector.detectWithTrace("413193000", points, config);
+
+        assertTrue(traces.isEmpty());
+        assertTrue(detector.getLastStats().getRejectSummary().getRejectByPointCount() > 0);
+        assertTrue(detector.getLastStats().getRejectSummary().getNearMisses().size() > 0);
     }
 
     private ShipLoiteringDetector.LoiteringConfig config() {

@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -22,6 +23,8 @@ public class ShipLoiteringDetector {
     public static final String SUB_TYPE_SLOW_LOITERING = "SLOW_LOITERING";
     public static final String SUB_TYPE_MANEUVER_LOITERING = "MANEUVER_LOITERING";
     public static final String SUB_TYPE_HIGH_RISK_WAITING = "HIGH_RISK_WAITING";
+    public static final String SUB_TYPE_COMPOSITE_LOITERING = "COMPOSITE_LOITERING";
+    public static final String SUB_TYPE_WEAK_LOITERING_CANDIDATE = "WEAK_LOITERING_CANDIDATE";
 
     public static final String CONFIDENCE_HIGH = "HIGH";
     public static final String CONFIDENCE_MEDIUM = "MEDIUM";
@@ -59,16 +62,25 @@ public class ShipLoiteringDetector {
         List<TrajectoryPoint> cleanPoints = cleanAndSort(points, effectiveConfig);
         List<SegmentWithQuality> segments = splitByGapAndQuality(cleanPoints, effectiveConfig);
         List<LoiteringCandidate> candidates = new ArrayList<LoiteringCandidate>();
+        RejectSummary rejectSummary = new RejectSummary();
         for (SegmentWithQuality segment : segments) {
-            candidates.addAll(detectSlowLoitering(mmsi, segment, effectiveConfig));
-            candidates.addAll(detectManeuverLoitering(mmsi, segment, effectiveConfig));
-            candidates.addAll(detectHighRiskWaiting(mmsi, segment, effectiveConfig));
+            List<LoiteringCandidate> segmentCandidates = new ArrayList<LoiteringCandidate>();
+            segmentCandidates.addAll(detectSlowLoitering(mmsi, segment, effectiveConfig));
+            segmentCandidates.addAll(detectManeuverLoitering(mmsi, segment, effectiveConfig));
+            segmentCandidates.addAll(detectHighRiskWaiting(mmsi, segment, effectiveConfig));
+            if (segmentCandidates.isEmpty()) {
+                collectRejectAndNearMiss(segment, effectiveConfig, rejectSummary);
+                segmentCandidates.addAll(detectWeakLoitering(mmsi, segment, effectiveConfig));
+            }
+            candidates.addAll(segmentCandidates);
         }
-        applyNormalSceneExclusion(candidates);
-        scoreCandidates(candidates, effectiveConfig);
-        List<ShipBehaviorTrace> traces = buildTraces(candidates);
-        lastStats = new DetectionStats(points.size(), cleanPoints.size(), segments.size(), candidates.size(),
-                countExcluded(candidates), countLowConfidence(candidates));
+        int rawCandidates = candidates.size();
+        List<LoiteringCandidate> mergedCandidates = mergeCandidates(candidates, effectiveConfig);
+        applyNormalSceneExclusion(mergedCandidates);
+        scoreCandidates(mergedCandidates, effectiveConfig);
+        List<ShipBehaviorTrace> traces = buildTraces(filterStoredCandidates(mergedCandidates, effectiveConfig));
+        lastStats = DetectionStats.from(points.size(), cleanPoints.size(), segments.size(), rawCandidates,
+                mergedCandidates, traces.size(), rejectSummary, effectiveConfig);
         return traces;
     }
 
@@ -204,6 +216,24 @@ public class ShipLoiteringDetector {
         return Collections.emptyList();
     }
 
+    public List<LoiteringCandidate> detectWeakLoitering(String mmsi, SegmentWithQuality segment,
+                                                         LoiteringConfig config) {
+        if (!config.isWeakEnabled() || segment == null || segment.getPoints().size() < config.getWeakMinPoints()) {
+            return Collections.emptyList();
+        }
+        LoiteringEventFeature feature = calculateFeature(segment, config);
+        if (feature.getDurationMinutes() >= config.getWeakMinDurationMinutes()
+                && feature.getAvgSog() <= config.getWeakMaxSpeed()
+                && feature.getRadiusNm() <= config.getWeakMaxRadiusNm()
+                && feature.getPointCount() >= config.getWeakMinPoints()
+                && feature.getMaxAisGapMinutes() <= config.getWeakMaxGapMinutes()) {
+            LoiteringCandidate candidate = new LoiteringCandidate(mmsi, SUB_TYPE_WEAK_LOITERING_CANDIDATE, segment, feature);
+            candidate.setWeakCandidate(true);
+            return Collections.singletonList(candidate);
+        }
+        return Collections.emptyList();
+    }
+
     public double calculateRadiusNm(List<TrajectoryPoint> points, double centerLon, double centerLat) {
         if (points == null || points.isEmpty()) {
             return 0.0;
@@ -305,19 +335,42 @@ public class ShipLoiteringDetector {
         int evidenceScore = calculateEvidenceScore(feature);
         double confidenceAdjustment = CONFIDENCE_LOW.equals(feature.getConfidenceLevel()) ? 0.6 : 1.0;
         double normalSceneAdjustment = DOWNGRADED_NORMAL_LIKELY.equals(candidate.getExclusionFlag()) ? 0.5 : 1.0;
-        double score = durationScore + trajectoryScore + areaScore + evidenceScore;
+        double rawScore = durationScore + trajectoryScore + areaScore + evidenceScore;
+        double score = rawScore;
         if (EXCLUDED_NORMAL.equals(candidate.getExclusionFlag())) {
             score = 0.0;
         } else {
             score = score * normalSceneAdjustment * confidenceAdjustment;
         }
+        if (candidate.isWeakCandidate()) {
+            score = Math.min(score, config.getWeakMaxScore());
+        }
         score = Math.max(0.0, Math.min(100.0, score));
-        String severity = determineSeverityLevel(score);
-        if (CONFIDENCE_LOW.equals(feature.getConfidenceLevel()) && severityRank(severity) > severityRank("L2")) {
-            severity = "L2";
+        String rawSeverity = determineSeverityLevel(rawScore);
+        String finalSeverity = determineSeverityLevel(score);
+        String severityCapReason = "";
+        if (CONFIDENCE_LOW.equals(feature.getConfidenceLevel()) && severityRank(finalSeverity) > severityRank("L2")) {
+            finalSeverity = "L2";
+            severityCapReason = "LOW_CONFIDENCE_MAX_L2";
+        }
+        if (config.isSeverityCapEnabled() && config.isRequireExternalEvidenceForL3()
+                && shouldCapNoSceneData(candidate, config)
+                && severityRank(finalSeverity) > severityRank(config.getSeverityCapNoSceneDataMaxLevel())) {
+            finalSeverity = config.getSeverityCapNoSceneDataMaxLevel();
+            severityCapReason = "NO_SCENE_DATA_NO_EXTERNAL_EVIDENCE";
+        }
+        if (!config.isAutoL4Enabled() && "L4".equals(finalSeverity)) {
+            finalSeverity = "L3";
+            severityCapReason = "AUTO_L4_DISABLED";
+        }
+        if (candidate.isWeakCandidate()) {
+            finalSeverity = "L1";
         }
         return new LoiteringEventScore(durationScore, trajectoryScore, areaScore, evidenceScore,
-                confidenceAdjustment, normalSceneAdjustment, score, severity);
+                confidenceAdjustment, normalSceneAdjustment, rawScore, score, rawSeverity, finalSeverity,
+                severityCapReason, config.isSceneDataAvailable(), config.isHighRiskEnabled(),
+                candidate.isWeakCandidate(), !candidate.isWeakCandidate(), candidate.getMatchedSubTypes(),
+                candidate.getMergeReason(), candidate.getRawCandidateCount());
     }
 
     public String determineSeverityLevel(double score) {
@@ -373,6 +426,240 @@ public class ShipLoiteringDetector {
         event.setRadiusNm(feature.getRadiusNm());
         event.setScoreDetailJson(candidate.getScore().toJson());
         return new ShipBehaviorTrace(event, new ArrayList<TrajectoryPoint>(points), Collections.<TrajectoryPoint>emptyList());
+    }
+
+    private List<LoiteringCandidate> mergeCandidates(List<LoiteringCandidate> candidates, LoiteringConfig config) {
+        if (!config.isMergeEnabled() || candidates == null || candidates.size() < 2) {
+            return candidates == null ? Collections.<LoiteringCandidate>emptyList() : candidates;
+        }
+        List<LoiteringCandidate> merged = new ArrayList<LoiteringCandidate>();
+        boolean[] used = new boolean[candidates.size()];
+        for (int i = 0; i < candidates.size(); i++) {
+            if (used[i]) {
+                continue;
+            }
+            LoiteringCandidate current = candidates.get(i);
+            used[i] = true;
+            for (int j = i + 1; j < candidates.size(); j++) {
+                if (!used[j] && shouldMerge(current, candidates.get(j), config)) {
+                    current = mergeTwoCandidates(current, candidates.get(j), config);
+                    used[j] = true;
+                }
+            }
+            merged.add(current);
+        }
+        return merged;
+    }
+
+    private boolean shouldMerge(LoiteringCandidate a, LoiteringCandidate b, LoiteringConfig config) {
+        if (a == null || b == null || !same(a.getMmsi(), b.getMmsi())) {
+            return false;
+        }
+        boolean timeOverlap = timeOverlapRatio(a, b) >= config.getMergeMinOverlapRatio()
+                || sameWindow(a, b);
+        boolean pointOverlap = pointOverlapRatio(a.getSegment().getPoints(), b.getSegment().getPoints())
+                >= config.getMergeMinOverlapRatio();
+        boolean spaceClose = centerDistanceNm(a, b) <= config.getMergeMaxCenterDistanceNm();
+        return (timeOverlap && spaceClose) || pointOverlap || sameWindow(a, b);
+    }
+
+    private LoiteringCandidate mergeTwoCandidates(LoiteringCandidate a, LoiteringCandidate b, LoiteringConfig config) {
+        List<TrajectoryPoint> points = mergePoints(a.getSegment().getPoints(), b.getSegment().getPoints());
+        SegmentWithQuality segment = recalculateSegmentQuality(points, config);
+        LoiteringEventFeature feature = calculateFeature(segment, config);
+        LoiteringCandidate merged = new LoiteringCandidate(a.getMmsi(), config.getMergeCompositeSubtype(), segment, feature);
+        merged.setMatchedSubTypes(unionSubTypes(a, b));
+        merged.setMergeReason("OVERLAP_TIME_AND_SPACE");
+        merged.setRawCandidateCount(a.getRawCandidateCount() + b.getRawCandidateCount());
+        merged.setWeakCandidate(a.isWeakCandidate() && b.isWeakCandidate());
+        return merged;
+    }
+
+    private List<LoiteringCandidate> filterStoredCandidates(List<LoiteringCandidate> candidates, LoiteringConfig config) {
+        List<LoiteringCandidate> stored = new ArrayList<LoiteringCandidate>();
+        for (LoiteringCandidate candidate : candidates) {
+            if (!candidate.isWeakCandidate() || config.isWeakStoreEnabled()) {
+                stored.add(candidate);
+            }
+        }
+        return stored;
+    }
+
+    private void collectRejectAndNearMiss(SegmentWithQuality segment, LoiteringConfig config, RejectSummary summary) {
+        if (segment == null || segment.getPoints().isEmpty()) {
+            summary.rejectByUnknown++;
+            return;
+        }
+        LoiteringEventFeature feature = calculateFeature(segment, config);
+        String failedRules = failedRules(feature, config);
+        summary.addReject(feature, config, failedRules);
+        if (isNearMiss(feature)) {
+            summary.addNearMiss(new NearMiss(segment, feature, failedRules));
+        }
+    }
+
+    private String failedRules(LoiteringEventFeature feature, LoiteringConfig config) {
+        List<String> failed = new ArrayList<String>();
+        if (feature.getDurationMinutes() < config.getWeakMinDurationMinutes()) {
+            failed.add("duration");
+        }
+        if (feature.getPointCount() < config.getWeakMinPoints()) {
+            failed.add("pointCount");
+        }
+        if (feature.getRadiusNm() > config.getWeakMaxRadiusNm()) {
+            failed.add("radius");
+        }
+        if (feature.getAvgSog() > config.getWeakMaxSpeed()) {
+            failed.add("speed");
+        }
+        if (feature.getTurnCountPerHour() < config.getManeuverMinTurnCountPerHour()
+                && feature.getCogChangePerHour() < config.getManeuverMinCogChangePerHour()
+                && feature.getTortuosity() < config.getManeuverMinTortuosity()) {
+            failed.add("turnFeature");
+        }
+        if (feature.getMaxAisGapMinutes() > config.getWeakMaxGapMinutes()) {
+            failed.add("gap");
+        }
+        if (feature.getTrackCoverageRatio() < 0.6) {
+            failed.add("coverage");
+        }
+        return join(failed, "|");
+    }
+
+    private boolean isNearMiss(LoiteringEventFeature feature) {
+        return feature.getDurationMinutes() >= 60 && feature.getAvgSog() <= 3.0
+                || feature.getDurationMinutes() >= 120 && feature.getRadiusNm() <= 8.0
+                || feature.getPointCount() >= 6 && feature.getAvgSog() <= 2.0
+                || feature.getRadiusNm() <= 5.0 && feature.getAvgSog() <= 3.0
+                || feature.getDurationMinutes() >= 60 && feature.getPointCount() >= 4
+                && feature.getMaxAisGapMinutes() <= 180;
+    }
+
+    private boolean shouldCapNoSceneData(LoiteringCandidate candidate, LoiteringConfig config) {
+        LoiteringEventFeature feature = candidate.getFeature();
+        return "NO_SCENE_DATA".equals(candidate.getExclusionReason())
+                && candidate.getRiskAreaTags().isEmpty()
+                && feature.getDurationMinutes() < config.getSeverityCapNoSceneDataMaxDurationMinutes()
+                && !CONFIDENCE_HIGH.equals(feature.getConfidenceLevel())
+                && !hasSeriousAisGap(feature);
+    }
+
+    private boolean hasSeriousAisGap(LoiteringEventFeature feature) {
+        return feature.getAisGapCount() > 0 && feature.getMaxAisGapMinutes() >= 120;
+    }
+
+    private double timeOverlapRatio(LoiteringCandidate a, LoiteringCandidate b) {
+        long start = Math.max(firstMillis(a), firstMillis(b));
+        long end = Math.min(lastMillis(a), lastMillis(b));
+        if (end <= start) {
+            return 0.0;
+        }
+        long duration = Math.min(Math.max(1L, lastMillis(a) - firstMillis(a)),
+                Math.max(1L, lastMillis(b) - firstMillis(b)));
+        return (end - start) / (double) duration;
+    }
+
+    private boolean sameWindow(LoiteringCandidate a, LoiteringCandidate b) {
+        return firstMillis(a) == firstMillis(b) && lastMillis(a) == lastMillis(b);
+    }
+
+    private long firstMillis(LoiteringCandidate candidate) {
+        return java.sql.Timestamp.valueOf(candidate.getSegment().getPoints().get(0).getTime()).getTime();
+    }
+
+    private long lastMillis(LoiteringCandidate candidate) {
+        List<TrajectoryPoint> points = candidate.getSegment().getPoints();
+        return java.sql.Timestamp.valueOf(points.get(points.size() - 1).getTime()).getTime();
+    }
+
+    private double pointOverlapRatio(List<TrajectoryPoint> a, List<TrajectoryPoint> b) {
+        Set<String> aKeys = pointKeys(a);
+        Set<String> bKeys = pointKeys(b);
+        int overlap = 0;
+        for (String key : aKeys) {
+            if (bKeys.contains(key)) {
+                overlap++;
+            }
+        }
+        return overlap / (double) Math.max(1, Math.min(aKeys.size(), bKeys.size()));
+    }
+
+    private Set<String> pointKeys(List<TrajectoryPoint> points) {
+        Set<String> keys = new HashSet<String>();
+        for (TrajectoryPoint point : points) {
+            keys.add(point.getTime() + "|" + point.getLon() + "|" + point.getLat());
+        }
+        return keys;
+    }
+
+    private double centerDistanceNm(LoiteringCandidate a, LoiteringCandidate b) {
+        TrajectoryPoint pa = new TrajectoryPoint(a.getMmsi(), a.getSegment().getPoints().get(0).getTime(),
+                a.getFeature().getCenterLon(), a.getFeature().getCenterLat(), 0.0, 0.0, null);
+        TrajectoryPoint pb = new TrajectoryPoint(b.getMmsi(), b.getSegment().getPoints().get(0).getTime(),
+                b.getFeature().getCenterLon(), b.getFeature().getCenterLat(), 0.0, 0.0, null);
+        return TrajectoryUtils.distanceNm(pa, pb);
+    }
+
+    private List<TrajectoryPoint> mergePoints(List<TrajectoryPoint> a, List<TrajectoryPoint> b) {
+        List<TrajectoryPoint> result = new ArrayList<TrajectoryPoint>();
+        Set<String> seen = new HashSet<String>();
+        appendUniquePoints(result, seen, a);
+        appendUniquePoints(result, seen, b);
+        Collections.sort(result, new Comparator<TrajectoryPoint>() {
+            @Override
+            public int compare(TrajectoryPoint a, TrajectoryPoint b) {
+                return a.getTime().compareTo(b.getTime());
+            }
+        });
+        return result;
+    }
+
+    private void appendUniquePoints(List<TrajectoryPoint> result, Set<String> seen, List<TrajectoryPoint> points) {
+        for (TrajectoryPoint point : points) {
+            String key = point.getTime() + "|" + point.getLon() + "|" + point.getLat();
+            if (!seen.contains(key)) {
+                seen.add(key);
+                result.add(point);
+            }
+        }
+    }
+
+    private SegmentWithQuality recalculateSegmentQuality(List<TrajectoryPoint> points, LoiteringConfig config) {
+        int gapCount = 0;
+        long maxGap = 0L;
+        for (int i = 1; i < points.size(); i++) {
+            long gap = Duration.between(points.get(i - 1).getTime(), points.get(i).getTime()).toMinutes();
+            if (gap > config.getMaxGapMinutes()) {
+                gapCount++;
+                maxGap = Math.max(maxGap, gap);
+            }
+        }
+        return new SegmentWithQuality(points, gapCount, maxGap);
+    }
+
+    private List<String> unionSubTypes(LoiteringCandidate a, LoiteringCandidate b) {
+        LinkedHashSet<String> subTypes = new LinkedHashSet<String>();
+        subTypes.addAll(a.getMatchedSubTypes());
+        subTypes.addAll(b.getMatchedSubTypes());
+        return new ArrayList<String>(subTypes);
+    }
+
+    private boolean same(String a, String b) {
+        return a == null ? b == null : a.equals(b);
+    }
+
+    private String join(List<String> values, String delimiter) {
+        if (values == null || values.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                builder.append(delimiter);
+            }
+            builder.append(values.get(i));
+        }
+        return builder.toString();
     }
 
     private void addSegment(List<SegmentWithQuality> segments, List<TrajectoryPoint> points,
@@ -557,8 +844,19 @@ public class ShipLoiteringDetector {
         private final int cleanPoints;
         private final int segments;
         private final int candidates;
+        private final int rawCandidates;
+        private final int mergedCandidates;
+        private final int savedEvents;
+        private final int validRiskEvents;
+        private final int excludedNormalEvents;
+        private final int downgradedNormalLikelyEvents;
         private final int excludedEvents;
         private final int lowConfidenceEvents;
+        private final int weakCandidates;
+        private final int duplicateMerged;
+        private final boolean sceneDataAvailable;
+        private final boolean riskAreaEnabled;
+        private final RejectSummary rejectSummary;
 
         private DetectionStats(int points, int cleanPoints, int segments, int candidates,
                                int excludedEvents, int lowConfidenceEvents) {
@@ -566,12 +864,75 @@ public class ShipLoiteringDetector {
             this.cleanPoints = cleanPoints;
             this.segments = segments;
             this.candidates = candidates;
+            this.rawCandidates = candidates;
+            this.mergedCandidates = candidates;
+            this.savedEvents = candidates;
+            this.validRiskEvents = 0;
+            this.excludedNormalEvents = excludedEvents;
+            this.downgradedNormalLikelyEvents = 0;
             this.excludedEvents = excludedEvents;
             this.lowConfidenceEvents = lowConfidenceEvents;
+            this.weakCandidates = 0;
+            this.duplicateMerged = 0;
+            this.sceneDataAvailable = false;
+            this.riskAreaEnabled = false;
+            this.rejectSummary = new RejectSummary();
+        }
+
+        private DetectionStats(int points, int cleanPoints, int segments, int rawCandidates,
+                               int mergedCandidates, int savedEvents, int validRiskEvents,
+                               int excludedNormalEvents, int downgradedNormalLikelyEvents,
+                               int lowConfidenceEvents, int weakCandidates, boolean sceneDataAvailable,
+                               boolean riskAreaEnabled, RejectSummary rejectSummary) {
+            this.points = points;
+            this.cleanPoints = cleanPoints;
+            this.segments = segments;
+            this.candidates = rawCandidates;
+            this.rawCandidates = rawCandidates;
+            this.mergedCandidates = mergedCandidates;
+            this.savedEvents = savedEvents;
+            this.validRiskEvents = validRiskEvents;
+            this.excludedNormalEvents = excludedNormalEvents;
+            this.downgradedNormalLikelyEvents = downgradedNormalLikelyEvents;
+            this.excludedEvents = excludedNormalEvents;
+            this.lowConfidenceEvents = lowConfidenceEvents;
+            this.weakCandidates = weakCandidates;
+            this.duplicateMerged = Math.max(0, rawCandidates - mergedCandidates);
+            this.sceneDataAvailable = sceneDataAvailable;
+            this.riskAreaEnabled = riskAreaEnabled;
+            this.rejectSummary = rejectSummary == null ? new RejectSummary() : rejectSummary;
         }
 
         private static DetectionStats empty() {
             return new DetectionStats(0, 0, 0, 0, 0, 0);
+        }
+
+        private static DetectionStats from(int points, int cleanPoints, int segments, int rawCandidates,
+                                           List<LoiteringCandidate> mergedCandidates, int savedEvents,
+                                           RejectSummary rejectSummary, LoiteringConfig config) {
+            int validRisk = 0;
+            int excludedNormal = 0;
+            int downgraded = 0;
+            int lowConfidence = 0;
+            int weak = 0;
+            for (LoiteringCandidate candidate : mergedCandidates) {
+                if (VALID_RISK_EVENT.equals(candidate.getExclusionFlag())) {
+                    validRisk++;
+                } else if (EXCLUDED_NORMAL.equals(candidate.getExclusionFlag())) {
+                    excludedNormal++;
+                } else if (DOWNGRADED_NORMAL_LIKELY.equals(candidate.getExclusionFlag())) {
+                    downgraded++;
+                }
+                if (CONFIDENCE_LOW.equals(candidate.getFeature().getConfidenceLevel())) {
+                    lowConfidence++;
+                }
+                if (candidate.isWeakCandidate()) {
+                    weak++;
+                }
+            }
+            return new DetectionStats(points, cleanPoints, segments, rawCandidates, mergedCandidates.size(),
+                    savedEvents, validRisk, excludedNormal, downgraded, lowConfidence, weak,
+                    config.isSceneDataAvailable(), config.isHighRiskEnabled(), rejectSummary);
         }
 
         public int getPoints() {
@@ -590,12 +951,56 @@ public class ShipLoiteringDetector {
             return candidates;
         }
 
+        public int getRawCandidates() {
+            return rawCandidates;
+        }
+
+        public int getMergedCandidates() {
+            return mergedCandidates;
+        }
+
+        public int getSavedEvents() {
+            return savedEvents;
+        }
+
+        public int getValidRiskEvents() {
+            return validRiskEvents;
+        }
+
+        public int getExcludedNormalEvents() {
+            return excludedNormalEvents;
+        }
+
+        public int getDowngradedNormalLikelyEvents() {
+            return downgradedNormalLikelyEvents;
+        }
+
         public int getExcludedEvents() {
             return excludedEvents;
         }
 
         public int getLowConfidenceEvents() {
             return lowConfidenceEvents;
+        }
+
+        public int getWeakCandidates() {
+            return weakCandidates;
+        }
+
+        public int getDuplicateMerged() {
+            return duplicateMerged;
+        }
+
+        public boolean isSceneDataAvailable() {
+            return sceneDataAvailable;
+        }
+
+        public boolean isRiskAreaEnabled() {
+            return riskAreaEnabled;
+        }
+
+        public RejectSummary getRejectSummary() {
+            return rejectSummary;
         }
     }
 
@@ -620,6 +1025,26 @@ public class ShipLoiteringDetector {
         private boolean highRiskEnabled = false;
         private long highRiskMinDurationMinutes = 60L;
         private double highRiskMaxRadiusNm = 5.0;
+        private boolean mergeEnabled = true;
+        private double mergeMinOverlapRatio = 0.8;
+        private double mergeMaxCenterDistanceNm = 1.0;
+        private String mergeCompositeSubtype = SUB_TYPE_COMPOSITE_LOITERING;
+        private boolean severityCapEnabled = true;
+        private String severityCapNoSceneDataMaxLevel = "L2";
+        private long severityCapNoSceneDataMaxDurationMinutes = 720L;
+        private boolean requireExternalEvidenceForL3 = true;
+        private boolean autoL4Enabled = false;
+        private boolean sceneDataAvailable = false;
+        private boolean diagnosticEnabled = true;
+        private int nearMissLimit = 10;
+        private boolean weakEnabled = true;
+        private boolean weakStoreEnabled = true;
+        private long weakMinDurationMinutes = 60L;
+        private double weakMaxSpeed = 3.0;
+        private double weakMaxRadiusNm = 8.0;
+        private int weakMinPoints = 6;
+        private long weakMaxGapMinutes = 180L;
+        private double weakMaxScore = 20.0;
 
         public static LoiteringConfig defaultConfig() {
             return new LoiteringConfig();
@@ -796,6 +1221,166 @@ public class ShipLoiteringDetector {
         public void setHighRiskMaxRadiusNm(double highRiskMaxRadiusNm) {
             this.highRiskMaxRadiusNm = highRiskMaxRadiusNm;
         }
+
+        public boolean isMergeEnabled() {
+            return mergeEnabled;
+        }
+
+        public void setMergeEnabled(boolean mergeEnabled) {
+            this.mergeEnabled = mergeEnabled;
+        }
+
+        public double getMergeMinOverlapRatio() {
+            return mergeMinOverlapRatio;
+        }
+
+        public void setMergeMinOverlapRatio(double mergeMinOverlapRatio) {
+            this.mergeMinOverlapRatio = mergeMinOverlapRatio;
+        }
+
+        public double getMergeMaxCenterDistanceNm() {
+            return mergeMaxCenterDistanceNm;
+        }
+
+        public void setMergeMaxCenterDistanceNm(double mergeMaxCenterDistanceNm) {
+            this.mergeMaxCenterDistanceNm = mergeMaxCenterDistanceNm;
+        }
+
+        public String getMergeCompositeSubtype() {
+            return mergeCompositeSubtype;
+        }
+
+        public void setMergeCompositeSubtype(String mergeCompositeSubtype) {
+            this.mergeCompositeSubtype = mergeCompositeSubtype;
+        }
+
+        public boolean isSeverityCapEnabled() {
+            return severityCapEnabled;
+        }
+
+        public void setSeverityCapEnabled(boolean severityCapEnabled) {
+            this.severityCapEnabled = severityCapEnabled;
+        }
+
+        public String getSeverityCapNoSceneDataMaxLevel() {
+            return severityCapNoSceneDataMaxLevel;
+        }
+
+        public void setSeverityCapNoSceneDataMaxLevel(String severityCapNoSceneDataMaxLevel) {
+            this.severityCapNoSceneDataMaxLevel = severityCapNoSceneDataMaxLevel;
+        }
+
+        public long getSeverityCapNoSceneDataMaxDurationMinutes() {
+            return severityCapNoSceneDataMaxDurationMinutes;
+        }
+
+        public void setSeverityCapNoSceneDataMaxDurationMinutes(long severityCapNoSceneDataMaxDurationMinutes) {
+            this.severityCapNoSceneDataMaxDurationMinutes = severityCapNoSceneDataMaxDurationMinutes;
+        }
+
+        public boolean isRequireExternalEvidenceForL3() {
+            return requireExternalEvidenceForL3;
+        }
+
+        public void setRequireExternalEvidenceForL3(boolean requireExternalEvidenceForL3) {
+            this.requireExternalEvidenceForL3 = requireExternalEvidenceForL3;
+        }
+
+        public boolean isAutoL4Enabled() {
+            return autoL4Enabled;
+        }
+
+        public void setAutoL4Enabled(boolean autoL4Enabled) {
+            this.autoL4Enabled = autoL4Enabled;
+        }
+
+        public boolean isSceneDataAvailable() {
+            return sceneDataAvailable;
+        }
+
+        public void setSceneDataAvailable(boolean sceneDataAvailable) {
+            this.sceneDataAvailable = sceneDataAvailable;
+        }
+
+        public boolean isDiagnosticEnabled() {
+            return diagnosticEnabled;
+        }
+
+        public void setDiagnosticEnabled(boolean diagnosticEnabled) {
+            this.diagnosticEnabled = diagnosticEnabled;
+        }
+
+        public int getNearMissLimit() {
+            return nearMissLimit;
+        }
+
+        public void setNearMissLimit(int nearMissLimit) {
+            this.nearMissLimit = nearMissLimit;
+        }
+
+        public boolean isWeakEnabled() {
+            return weakEnabled;
+        }
+
+        public void setWeakEnabled(boolean weakEnabled) {
+            this.weakEnabled = weakEnabled;
+        }
+
+        public boolean isWeakStoreEnabled() {
+            return weakStoreEnabled;
+        }
+
+        public void setWeakStoreEnabled(boolean weakStoreEnabled) {
+            this.weakStoreEnabled = weakStoreEnabled;
+        }
+
+        public long getWeakMinDurationMinutes() {
+            return weakMinDurationMinutes;
+        }
+
+        public void setWeakMinDurationMinutes(long weakMinDurationMinutes) {
+            this.weakMinDurationMinutes = weakMinDurationMinutes;
+        }
+
+        public double getWeakMaxSpeed() {
+            return weakMaxSpeed;
+        }
+
+        public void setWeakMaxSpeed(double weakMaxSpeed) {
+            this.weakMaxSpeed = weakMaxSpeed;
+        }
+
+        public double getWeakMaxRadiusNm() {
+            return weakMaxRadiusNm;
+        }
+
+        public void setWeakMaxRadiusNm(double weakMaxRadiusNm) {
+            this.weakMaxRadiusNm = weakMaxRadiusNm;
+        }
+
+        public int getWeakMinPoints() {
+            return weakMinPoints;
+        }
+
+        public void setWeakMinPoints(int weakMinPoints) {
+            this.weakMinPoints = weakMinPoints;
+        }
+
+        public long getWeakMaxGapMinutes() {
+            return weakMaxGapMinutes;
+        }
+
+        public void setWeakMaxGapMinutes(long weakMaxGapMinutes) {
+            this.weakMaxGapMinutes = weakMaxGapMinutes;
+        }
+
+        public double getWeakMaxScore() {
+            return weakMaxScore;
+        }
+
+        public void setWeakMaxScore(double weakMaxScore) {
+            this.weakMaxScore = weakMaxScore;
+        }
     }
 
     public static class LoiteringRule {
@@ -869,6 +1454,10 @@ public class ShipLoiteringDetector {
         private String exclusionReason;
         private List<String> riskAreaTags = Collections.emptyList();
         private LoiteringEventScore score;
+        private List<String> matchedSubTypes = new ArrayList<String>();
+        private String mergeReason = "";
+        private int rawCandidateCount = 1;
+        private boolean weakCandidate;
 
         private LoiteringCandidate(String mmsi, String subType, SegmentWithQuality segment,
                                    LoiteringEventFeature feature) {
@@ -876,6 +1465,7 @@ public class ShipLoiteringDetector {
             this.subType = subType;
             this.segment = segment;
             this.feature = feature;
+            this.matchedSubTypes.add(subType);
         }
 
         private String getMmsi() {
@@ -932,6 +1522,38 @@ public class ShipLoiteringDetector {
 
         private void setScore(LoiteringEventScore score) {
             this.score = score;
+        }
+
+        private List<String> getMatchedSubTypes() {
+            return matchedSubTypes;
+        }
+
+        private void setMatchedSubTypes(List<String> matchedSubTypes) {
+            this.matchedSubTypes = matchedSubTypes == null ? new ArrayList<String>() : matchedSubTypes;
+        }
+
+        private String getMergeReason() {
+            return mergeReason;
+        }
+
+        private void setMergeReason(String mergeReason) {
+            this.mergeReason = mergeReason == null ? "" : mergeReason;
+        }
+
+        private int getRawCandidateCount() {
+            return rawCandidateCount;
+        }
+
+        private void setRawCandidateCount(int rawCandidateCount) {
+            this.rawCandidateCount = rawCandidateCount;
+        }
+
+        private boolean isWeakCandidate() {
+            return weakCandidate;
+        }
+
+        private void setWeakCandidate(boolean weakCandidate) {
+            this.weakCandidate = weakCandidate;
         }
     }
 
@@ -1030,20 +1652,43 @@ public class ShipLoiteringDetector {
         private final int evidenceScore;
         private final double confidenceAdjustment;
         private final double normalSceneAdjustment;
+        private final double rawScore;
         private final double eventScore;
+        private final String rawSeverity;
         private final String severityLevel;
+        private final String severityCapReason;
+        private final boolean sceneDataAvailable;
+        private final boolean riskAreaEnabled;
+        private final boolean weakCandidate;
+        private final boolean includeInAnnualScore;
+        private final List<String> matchedSubTypes;
+        private final String mergeReason;
+        private final int rawCandidateCount;
 
         private LoiteringEventScore(int durationScore, int trajectoryScore, int areaScore, int evidenceScore,
                                     double confidenceAdjustment, double normalSceneAdjustment,
-                                    double eventScore, String severityLevel) {
+                                    double rawScore, double eventScore, String rawSeverity, String severityLevel,
+                                    String severityCapReason, boolean sceneDataAvailable, boolean riskAreaEnabled,
+                                    boolean weakCandidate, boolean includeInAnnualScore, List<String> matchedSubTypes,
+                                    String mergeReason, int rawCandidateCount) {
             this.durationScore = durationScore;
             this.trajectoryScore = trajectoryScore;
             this.areaScore = areaScore;
             this.evidenceScore = evidenceScore;
             this.confidenceAdjustment = confidenceAdjustment;
             this.normalSceneAdjustment = normalSceneAdjustment;
+            this.rawScore = rawScore;
             this.eventScore = eventScore;
+            this.rawSeverity = rawSeverity;
             this.severityLevel = severityLevel;
+            this.severityCapReason = severityCapReason == null ? "" : severityCapReason;
+            this.sceneDataAvailable = sceneDataAvailable;
+            this.riskAreaEnabled = riskAreaEnabled;
+            this.weakCandidate = weakCandidate;
+            this.includeInAnnualScore = includeInAnnualScore;
+            this.matchedSubTypes = matchedSubTypes == null ? Collections.<String>emptyList() : matchedSubTypes;
+            this.mergeReason = mergeReason == null ? "" : mergeReason;
+            this.rawCandidateCount = rawCandidateCount;
         }
 
         public double getEventScore() {
@@ -1060,9 +1705,175 @@ public class ShipLoiteringDetector {
                     + ",\"trajectoryScore\":" + trajectoryScore
                     + ",\"areaScore\":" + areaScore
                     + ",\"evidenceScore\":" + evidenceScore
+                    + ",\"rawScore\":" + rawScore
+                    + ",\"finalScore\":" + eventScore
+                    + ",\"rawSeverity\":\"" + rawSeverity + "\""
+                    + ",\"finalSeverity\":\"" + severityLevel + "\""
+                    + ",\"matchedSubTypes\":" + toJsonArray(matchedSubTypes)
+                    + ",\"mergeReason\":\"" + mergeReason + "\""
+                    + ",\"rawCandidateCount\":" + rawCandidateCount
                     + ",\"confidenceAdjustment\":" + confidenceAdjustment
                     + ",\"normalSceneAdjustment\":" + normalSceneAdjustment
+                    + ",\"severityCapReason\":\"" + severityCapReason + "\""
+                    + ",\"sceneDataAvailable\":" + sceneDataAvailable
+                    + ",\"riskAreaEnabled\":" + riskAreaEnabled
+                    + ",\"weakCandidate\":" + weakCandidate
+                    + ",\"includeInAnnualScore\":" + includeInAnnualScore
                     + "}";
+        }
+
+        private String toJsonArray(List<String> values) {
+            StringBuilder builder = new StringBuilder("[");
+            for (int i = 0; i < values.size(); i++) {
+                if (i > 0) {
+                    builder.append(",");
+                }
+                builder.append("\"").append(values.get(i)).append("\"");
+            }
+            builder.append("]");
+            return builder.toString();
+        }
+    }
+
+    public static class RejectSummary {
+        private int rejectByDuration;
+        private int rejectByPointCount;
+        private int rejectByRadius;
+        private int rejectBySpeed;
+        private int rejectByTurnFeature;
+        private int rejectByGapSplit;
+        private int rejectByCoverage;
+        private int rejectByNormalScene;
+        private int rejectByUnknown;
+        private final List<NearMiss> nearMisses = new ArrayList<NearMiss>();
+
+        private void addReject(LoiteringEventFeature feature, LoiteringConfig config, String failedRules) {
+            boolean any = false;
+            if (failedRules.contains("duration")) {
+                rejectByDuration++;
+                any = true;
+            }
+            if (failedRules.contains("pointCount")) {
+                rejectByPointCount++;
+                any = true;
+            }
+            if (failedRules.contains("radius")) {
+                rejectByRadius++;
+                any = true;
+            }
+            if (failedRules.contains("speed")) {
+                rejectBySpeed++;
+                any = true;
+            }
+            if (failedRules.contains("turnFeature")) {
+                rejectByTurnFeature++;
+                any = true;
+            }
+            if (failedRules.contains("gap")) {
+                rejectByGapSplit++;
+                any = true;
+            }
+            if (failedRules.contains("coverage")) {
+                rejectByCoverage++;
+                any = true;
+            }
+            if (!any) {
+                rejectByUnknown++;
+            }
+        }
+
+        private void addNearMiss(NearMiss nearMiss) {
+            nearMisses.add(nearMiss);
+            Collections.sort(nearMisses, new Comparator<NearMiss>() {
+                @Override
+                public int compare(NearMiss a, NearMiss b) {
+                    int byDuration = Long.compare(b.getFeature().getDurationMinutes(), a.getFeature().getDurationMinutes());
+                    if (byDuration != 0) {
+                        return byDuration;
+                    }
+                    int bySpeed = Double.compare(a.getFeature().getAvgSog(), b.getFeature().getAvgSog());
+                    if (bySpeed != 0) {
+                        return bySpeed;
+                    }
+                    int byRadius = Double.compare(a.getFeature().getRadiusNm(), b.getFeature().getRadiusNm());
+                    if (byRadius != 0) {
+                        return byRadius;
+                    }
+                    return Integer.compare(b.getFeature().getPointCount(), a.getFeature().getPointCount());
+                }
+            });
+        }
+
+        public int getRejectByDuration() {
+            return rejectByDuration;
+        }
+
+        public int getRejectByPointCount() {
+            return rejectByPointCount;
+        }
+
+        public int getRejectByRadius() {
+            return rejectByRadius;
+        }
+
+        public int getRejectBySpeed() {
+            return rejectBySpeed;
+        }
+
+        public int getRejectByTurnFeature() {
+            return rejectByTurnFeature;
+        }
+
+        public int getRejectByGapSplit() {
+            return rejectByGapSplit;
+        }
+
+        public int getRejectByCoverage() {
+            return rejectByCoverage;
+        }
+
+        public int getRejectByNormalScene() {
+            return rejectByNormalScene;
+        }
+
+        public int getRejectByUnknown() {
+            return rejectByUnknown;
+        }
+
+        public List<NearMiss> getNearMisses() {
+            return nearMisses;
+        }
+    }
+
+    public static class NearMiss {
+        private final SegmentWithQuality segment;
+        private final LoiteringEventFeature feature;
+        private final String failedRules;
+
+        private NearMiss(SegmentWithQuality segment, LoiteringEventFeature feature, String failedRules) {
+            this.segment = segment;
+            this.feature = feature;
+            this.failedRules = failedRules;
+        }
+
+        public SegmentWithQuality getSegment() {
+            return segment;
+        }
+
+        public LoiteringEventFeature getFeature() {
+            return feature;
+        }
+
+        public String getFailedRules() {
+            return failedRules;
+        }
+
+        public String getStartTime() {
+            return TrajectoryUtils.formatTime(segment.getPoints().get(0));
+        }
+
+        public String getEndTime() {
+            return TrajectoryUtils.formatTime(segment.getPoints().get(segment.getPoints().size() - 1));
         }
     }
 }

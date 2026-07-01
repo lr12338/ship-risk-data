@@ -28,6 +28,9 @@ public class ShipBehaviorTableInitializer {
             "WHERE table_schema = ? AND table_name = ?";
     private static final String CHECK_COLUMN_SQL = "SELECT COUNT(*) FROM information_schema.columns " +
             "WHERE table_schema = ? AND table_name = ? AND column_name = ?";
+    private static final String CHECK_COLUMN_LENGTH_SQL = "SELECT character_maximum_length FROM information_schema.columns " +
+            "WHERE table_schema = ? AND table_name = ? AND column_name = ?";
+    private static final int BATCH_NO_MIN_LENGTH = 64;
 
     private static final List<ColumnMigration> EVENT_TABLE_MIGRATIONS = buildEventTableMigrations();
 
@@ -61,6 +64,7 @@ public class ShipBehaviorTableInitializer {
                 return true;
             }
             ensureTableExists(tableName, ddlPath);
+            ensureBatchNoLength(tableName);
             if (ensureColumns && EVENT_TABLE_NAME.equals(tableName)) {
                 ensureEventTableColumnsReady();
                 log.info("{} schema ready", tableName);
@@ -77,6 +81,24 @@ public class ShipBehaviorTableInitializer {
             return detailTableReady;
         }
         return false;
+    }
+
+    private void ensureBatchNoLength(String tableName) {
+        Integer length = newDataanalysisJdbcTemplate.queryForObject(
+                CHECK_COLUMN_LENGTH_SQL, Integer.class, TABLE_SCHEMA, tableName, "batch_no");
+        if (length != null && length >= BATCH_NO_MIN_LENGTH) {
+            log.info("{}.batch_no column length ready: {}", tableName, length);
+            return;
+        }
+        String alterSql = "ALTER TABLE dataanalysis." + tableName
+                + " MODIFY COLUMN batch_no VARCHAR(64) DEFAULT NULL COMMENT '计算批次'";
+        log.info("{}.batch_no column length insufficient: {}, applying migration", tableName, length);
+        try {
+            newDataanalysisJdbcTemplate.execute(alterSql);
+        } catch (Exception ex) {
+            throw new IllegalStateException("ensure batch_no length failed for "
+                    + TABLE_SCHEMA + "." + tableName + ", sql=" + alterSql, ex);
+        }
     }
 
     private void ensureTableExists(String tableName, String ddlPath) {

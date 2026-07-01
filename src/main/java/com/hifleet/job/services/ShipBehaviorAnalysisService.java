@@ -115,6 +115,66 @@ public class ShipBehaviorAnalysisService {
     @Value("${ship.behavior.loitering.high-risk.max-radius-nm:5.0}")
     private double loiteringHighRiskMaxRadiusNm;
 
+    @Value("${ship.behavior.loitering.merge.enabled:true}")
+    private boolean loiteringMergeEnabled;
+
+    @Value("${ship.behavior.loitering.merge.min-overlap-ratio:0.8}")
+    private double loiteringMergeMinOverlapRatio;
+
+    @Value("${ship.behavior.loitering.merge.max-center-distance-nm:1.0}")
+    private double loiteringMergeMaxCenterDistanceNm;
+
+    @Value("${ship.behavior.loitering.merge.composite-subtype:COMPOSITE_LOITERING}")
+    private String loiteringMergeCompositeSubtype;
+
+    @Value("${ship.behavior.loitering.severity-cap.enabled:true}")
+    private boolean loiteringSeverityCapEnabled;
+
+    @Value("${ship.behavior.loitering.severity-cap.no-scene-data.max-level:L2}")
+    private String loiteringSeverityCapNoSceneDataMaxLevel;
+
+    @Value("${ship.behavior.loitering.severity-cap.no-scene-data.max-duration-minutes:720}")
+    private long loiteringSeverityCapNoSceneDataMaxDurationMinutes;
+
+    @Value("${ship.behavior.loitering.severity-cap.require-external-evidence-for-l3:true}")
+    private boolean loiteringRequireExternalEvidenceForL3;
+
+    @Value("${ship.behavior.loitering.severity-cap.auto-l4-enabled:false}")
+    private boolean loiteringAutoL4Enabled;
+
+    @Value("${ship.behavior.loitering.scene-data.available:false}")
+    private boolean loiteringSceneDataAvailable;
+
+    @Value("${ship.behavior.loitering.diagnostic.enabled:true}")
+    private boolean loiteringDiagnosticEnabled;
+
+    @Value("${ship.behavior.loitering.diagnostic.near-miss-limit:10}")
+    private int loiteringNearMissLimit;
+
+    @Value("${ship.behavior.loitering.weak.enabled:true}")
+    private boolean loiteringWeakEnabled;
+
+    @Value("${ship.behavior.loitering.weak.store-enabled:true}")
+    private boolean loiteringWeakStoreEnabled;
+
+    @Value("${ship.behavior.loitering.weak.min-duration-minutes:60}")
+    private long loiteringWeakMinDurationMinutes;
+
+    @Value("${ship.behavior.loitering.weak.max-speed:3.0}")
+    private double loiteringWeakMaxSpeed;
+
+    @Value("${ship.behavior.loitering.weak.max-radius-nm:8.0}")
+    private double loiteringWeakMaxRadiusNm;
+
+    @Value("${ship.behavior.loitering.weak.min-points:6}")
+    private int loiteringWeakMinPoints;
+
+    @Value("${ship.behavior.loitering.weak.max-gap-minutes:180}")
+    private long loiteringWeakMaxGapMinutes;
+
+    @Value("${ship.behavior.loitering.weak.max-score:20}")
+    private double loiteringWeakMaxScore;
+
     @Value("${ship.behavior.alongside.max-distance-nm:0.1}")
     private double alongsideMaxDistanceNm;
 
@@ -169,16 +229,9 @@ public class ShipBehaviorAnalysisService {
                 tagBatch(detected, jobParams);
                 shipBehaviorEventRepository.saveEvents(detected);
                 shipBehaviorEventDetailRepository.saveDetails(toDetails(traces, jobParams));
+                logLoiteringMerge(jobParams, stats);
                 logEventSummaries(traces);
-                XxlJobLogger.log("LOITERING_V2 summary mmsi=" + mmsi
-                        + " points=" + stats.getPoints()
-                        + " cleanPoints=" + stats.getCleanPoints()
-                        + " segments=" + stats.getSegments()
-                        + " candidates=" + stats.getCandidates()
-                        + " events=" + detected.size()
-                        + " excludedEvents=" + stats.getExcludedEvents()
-                        + " lowConfidenceEvents=" + stats.getLowConfidenceEvents()
-                        + " batchNo=" + jobParams.getBatchNo());
+                logLoiteringSummary(mmsi, jobParams, stats, detected.size());
                 if (detected.isEmpty()) {
                     String reason = stats.getCandidates() == 0
                             ? "NO_CANDIDATE_AFTER_RULE_FILTER" : "ALL_CANDIDATES_EXCLUDED";
@@ -189,6 +242,7 @@ public class ShipBehaviorAnalysisService {
                             + " segments=" + stats.getSegments()
                             + " batchNo=" + jobParams.getBatchNo());
                 }
+                logLoiteringDiagnostics(mmsi, stats);
                 processed++;
                 events += detected.size();
                 XxlJobLogger.log("徘徊 mmsi=" + mmsi + " points=" + points.size() + " events=" + detected.size());
@@ -270,6 +324,26 @@ public class ShipBehaviorAnalysisService {
         config.setHighRiskEnabled(loiteringHighRiskEnabled);
         config.setHighRiskMinDurationMinutes(loiteringHighRiskMinDurationMinutes);
         config.setHighRiskMaxRadiusNm(loiteringHighRiskMaxRadiusNm);
+        config.setMergeEnabled(loiteringMergeEnabled);
+        config.setMergeMinOverlapRatio(loiteringMergeMinOverlapRatio);
+        config.setMergeMaxCenterDistanceNm(loiteringMergeMaxCenterDistanceNm);
+        config.setMergeCompositeSubtype(loiteringMergeCompositeSubtype);
+        config.setSeverityCapEnabled(loiteringSeverityCapEnabled);
+        config.setSeverityCapNoSceneDataMaxLevel(loiteringSeverityCapNoSceneDataMaxLevel);
+        config.setSeverityCapNoSceneDataMaxDurationMinutes(loiteringSeverityCapNoSceneDataMaxDurationMinutes);
+        config.setRequireExternalEvidenceForL3(loiteringRequireExternalEvidenceForL3);
+        config.setAutoL4Enabled(loiteringAutoL4Enabled);
+        config.setSceneDataAvailable(loiteringSceneDataAvailable);
+        config.setDiagnosticEnabled(loiteringDiagnosticEnabled);
+        config.setNearMissLimit(loiteringNearMissLimit);
+        config.setWeakEnabled(loiteringWeakEnabled);
+        config.setWeakStoreEnabled(loiteringWeakStoreEnabled);
+        config.setWeakMinDurationMinutes(loiteringWeakMinDurationMinutes);
+        config.setWeakMaxSpeed(loiteringWeakMaxSpeed);
+        config.setWeakMaxRadiusNm(loiteringWeakMaxRadiusNm);
+        config.setWeakMinPoints(loiteringWeakMinPoints);
+        config.setWeakMaxGapMinutes(loiteringWeakMaxGapMinutes);
+        config.setWeakMaxScore(loiteringWeakMaxScore);
         return config;
     }
 
@@ -281,6 +355,69 @@ public class ShipBehaviorAnalysisService {
             }
         }
         return events;
+    }
+
+    private void logLoiteringMerge(JobParams jobParams, ShipLoiteringDetector.DetectionStats stats) {
+        XxlJobLogger.log("LOITERING_V2 merge rawCandidates=" + stats.getRawCandidates()
+                + " mergedCandidates=" + stats.getMergedCandidates()
+                + " duplicateMerged=" + stats.getDuplicateMerged()
+                + " batchNo=" + jobParams.getBatchNo());
+    }
+
+    private void logLoiteringSummary(String mmsi, JobParams jobParams,
+                                     ShipLoiteringDetector.DetectionStats stats, int detectedSize) {
+        XxlJobLogger.log("LOITERING_V2 summary mmsi=" + mmsi
+                + " points=" + stats.getPoints()
+                + " cleanPoints=" + stats.getCleanPoints()
+                + " segments=" + stats.getSegments()
+                + " rawCandidates=" + stats.getRawCandidates()
+                + " mergedCandidates=" + stats.getMergedCandidates()
+                + " savedEvents=" + stats.getSavedEvents()
+                + " events=" + detectedSize
+                + " validRiskEvents=" + stats.getValidRiskEvents()
+                + " excludedNormalEvents=" + stats.getExcludedNormalEvents()
+                + " downgradedNormalLikelyEvents=" + stats.getDowngradedNormalLikelyEvents()
+                + " lowConfidenceEvents=" + stats.getLowConfidenceEvents()
+                + " weakCandidates=" + stats.getWeakCandidates()
+                + " duplicateMerged=" + stats.getDuplicateMerged()
+                + " sceneDataAvailable=" + stats.isSceneDataAvailable()
+                + " riskAreaEnabled=" + stats.isRiskAreaEnabled()
+                + " batchNo=" + jobParams.getBatchNo());
+    }
+
+    private void logLoiteringDiagnostics(String mmsi, ShipLoiteringDetector.DetectionStats stats) {
+        int formalSavedEvents = Math.max(0, stats.getSavedEvents() - stats.getWeakCandidates());
+        if (!loiteringDiagnosticEnabled || (stats.getRawCandidates() > 0 && formalSavedEvents > 0)) {
+            return;
+        }
+        ShipLoiteringDetector.RejectSummary reject = stats.getRejectSummary();
+        XxlJobLogger.log("LOITERING_V2 reject_summary mmsi=" + mmsi
+                + " segments=" + stats.getSegments()
+                + " rejectByDuration=" + reject.getRejectByDuration()
+                + " rejectByPointCount=" + reject.getRejectByPointCount()
+                + " rejectByRadius=" + reject.getRejectByRadius()
+                + " rejectBySpeed=" + reject.getRejectBySpeed()
+                + " rejectByTurnFeature=" + reject.getRejectByTurnFeature()
+                + " rejectByGapSplit=" + reject.getRejectByGapSplit()
+                + " rejectByCoverage=" + reject.getRejectByCoverage()
+                + " rejectByNormalScene=" + reject.getRejectByNormalScene()
+                + " rejectByUnknown=" + reject.getRejectByUnknown()
+                + " nearMissCount=" + reject.getNearMisses().size());
+        int limit = Math.max(0, loiteringNearMissLimit);
+        for (int i = 0; i < reject.getNearMisses().size() && i < limit; i++) {
+            ShipLoiteringDetector.NearMiss nearMiss = reject.getNearMisses().get(i);
+            ShipLoiteringDetector.LoiteringEventFeature feature = nearMiss.getFeature();
+            XxlJobLogger.log("LOITERING_V2 near_miss[" + (i + 1) + "]"
+                    + " start=" + nearMiss.getStartTime()
+                    + " end=" + nearMiss.getEndTime()
+                    + " duration=" + feature.getDurationMinutes()
+                    + " pointCount=" + feature.getPointCount()
+                    + " avgSpeed=" + feature.getAvgSog()
+                    + " radiusNm=" + feature.getRadiusNm()
+                    + " maxGap=" + feature.getMaxAisGapMinutes()
+                    + " coverage=" + feature.getTrackCoverageRatio()
+                    + " failedRules=" + nearMiss.getFailedRules());
+        }
     }
 
     private List<ShipBehaviorEventDetail> toDetails(List<ShipBehaviorTrace> traces, JobParams jobParams) {

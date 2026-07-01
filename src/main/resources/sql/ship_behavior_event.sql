@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_event` (
   `avg_speed` DOUBLE DEFAULT NULL COMMENT '片段平均航速',
   `point_count` INT DEFAULT NULL COMMENT '参与识别的轨迹点数量',
   `rule_version` VARCHAR(32) DEFAULT NULL COMMENT '规则版本，便于后续规则调整后区分结果',
-  `batch_no` VARCHAR(32) DEFAULT NULL COMMENT '计算批次',
+  `batch_no` VARCHAR(64) DEFAULT NULL COMMENT '计算批次',
   `event_sub_type` VARCHAR(32) DEFAULT NULL COMMENT '徘徊子类型',
   `severity_level` VARCHAR(8) DEFAULT NULL COMMENT 'L0-L4',
   `event_score` DOUBLE DEFAULT NULL COMMENT '单事件风险分，0-100',

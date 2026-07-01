@@ -101,6 +101,37 @@ chmod +x *.sh
 
 ---
 
+## 4.1 启动期自动表结构检查
+
+应用启动时会自动检查船舶行为表：
+
+- `dataanalysis.ship_behavior_event`
+- `dataanalysis.ship_behavior_event_detail`
+
+处理规则：
+
+- 表不存在时自动建表
+- `ship_behavior_event` 缺少徘徊 V2 必需字段时逐列补齐
+- `ship_behavior_event.batch_no` 和 `ship_behavior_event_detail.batch_no` 长度低于 64 时自动扩容
+- 任一必需字段补齐或 `batch_no` 扩容失败，应用启动失败
+
+需要数据库账号具备：
+
+- `CREATE TABLE`
+- `ALTER TABLE`
+- 查询 `information_schema.columns`
+
+关键日志：
+
+```text
+ship_behavior_event exists, skip ddl
+ship_behavior_event.batch_no column length ready: 64
+ship_behavior_event column ready: event_sub_type
+ship_behavior_event schema ready
+```
+
+---
+
 ## 5. 日志说明
 
 | 文件 | 说明 |

@@ -42,6 +42,22 @@ public class ShipBehaviorTableInitializerTest {
     }
 
     @Test
+    public void shortBatchNoColumnTriggersModify() throws Exception {
+        StubJdbcTemplate jdbcTemplate = new StubJdbcTemplate();
+        jdbcTemplate.eventTableExists = true;
+        jdbcTemplate.detailTableExists = true;
+        jdbcTemplate.eventBatchNoLength = 32;
+        jdbcTemplate.existingColumns.addAll(allEventColumns());
+
+        ShipBehaviorTableInitializer initializer = newInitializer(jdbcTemplate);
+
+        initializer.ensureTableReady();
+
+        assertTrue(jdbcTemplate.executedSqlContains("MODIFY COLUMN batch_no VARCHAR(64)"));
+        assertEquals(64, jdbcTemplate.eventBatchNoLength);
+    }
+
+    @Test
     public void singleMissingColumnTriggersSingleAlter() throws Exception {
         StubJdbcTemplate jdbcTemplate = new StubJdbcTemplate();
         jdbcTemplate.eventTableExists = true;
@@ -114,6 +130,8 @@ public class ShipBehaviorTableInitializerTest {
     private static class StubJdbcTemplate extends JdbcTemplate {
         private boolean eventTableExists;
         private boolean detailTableExists;
+        private int eventBatchNoLength = 64;
+        private int detailBatchNoLength = 64;
         private final Set<String> existingColumns = new HashSet<String>();
         private final List<String> alterExecutions = new ArrayList<String>();
         private final List<String> executedSql = new ArrayList<String>();
@@ -126,6 +144,12 @@ public class ShipBehaviorTableInitializerTest {
                 Integer count = "ship_behavior_event".equals(tableName) && eventTableExists
                         || "ship_behavior_event_detail".equals(tableName) && detailTableExists ? 1 : 0;
                 return requiredType.cast(count);
+            }
+            if (sql.contains("character_maximum_length")) {
+                String tableName = String.valueOf(args[1]);
+                Integer length = "ship_behavior_event_detail".equals(tableName)
+                        ? detailBatchNoLength : eventBatchNoLength;
+                return requiredType.cast(length);
             }
             if (sql.contains("information_schema.columns")) {
                 String columnName = String.valueOf(args[2]);
@@ -140,11 +164,21 @@ public class ShipBehaviorTableInitializerTest {
             executedSql.add(sql);
             if (sql.contains("CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_event`")) {
                 eventTableExists = true;
+                eventBatchNoLength = 64;
                 existingColumns.addAll(allMigrationColumns());
                 return;
             }
             if (sql.contains("CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_event_detail`")) {
                 detailTableExists = true;
+                detailBatchNoLength = 64;
+                return;
+            }
+            if (sql.contains("ALTER TABLE dataanalysis.ship_behavior_event MODIFY COLUMN batch_no VARCHAR(64)")) {
+                eventBatchNoLength = 64;
+                return;
+            }
+            if (sql.contains("ALTER TABLE dataanalysis.ship_behavior_event_detail MODIFY COLUMN batch_no VARCHAR(64)")) {
+                detailBatchNoLength = 64;
                 return;
             }
             if (sql.startsWith("ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN")) {
