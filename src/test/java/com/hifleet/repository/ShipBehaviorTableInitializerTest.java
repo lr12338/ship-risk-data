@@ -58,6 +58,36 @@ public class ShipBehaviorTableInitializerTest {
     }
 
     @Test
+    public void createsLoiteringBatchStatusTableWhenMissing() throws Exception {
+        StubJdbcTemplate jdbcTemplate = new StubJdbcTemplate();
+        jdbcTemplate.eventTableExists = true;
+        jdbcTemplate.detailTableExists = true;
+        jdbcTemplate.loiteringBatchStatusTableExists = false;
+        jdbcTemplate.existingColumns.addAll(allEventColumns());
+
+        ShipBehaviorTableInitializer initializer = newInitializer(jdbcTemplate);
+
+        initializer.ensureLoiteringBatchStatusTableReady();
+
+        assertTrue(jdbcTemplate.executedSqlContains("CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_loitering_batch_status`"));
+    }
+
+    @Test
+    public void createsAlongsideBatchStatusTableWhenMissing() throws Exception {
+        StubJdbcTemplate jdbcTemplate = new StubJdbcTemplate();
+        jdbcTemplate.eventTableExists = true;
+        jdbcTemplate.detailTableExists = true;
+        jdbcTemplate.alongsideBatchStatusTableExists = false;
+        jdbcTemplate.existingColumns.addAll(allEventColumns());
+
+        ShipBehaviorTableInitializer initializer = newInitializer(jdbcTemplate);
+
+        initializer.ensureAlongsideBatchStatusTableReady();
+
+        assertTrue(jdbcTemplate.executedSqlContains("CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_alongside_batch_status`"));
+    }
+
+    @Test
     public void singleMissingColumnTriggersSingleAlter() throws Exception {
         StubJdbcTemplate jdbcTemplate = new StubJdbcTemplate();
         jdbcTemplate.eventTableExists = true;
@@ -130,6 +160,8 @@ public class ShipBehaviorTableInitializerTest {
     private static class StubJdbcTemplate extends JdbcTemplate {
         private boolean eventTableExists;
         private boolean detailTableExists;
+        private boolean loiteringBatchStatusTableExists;
+        private boolean alongsideBatchStatusTableExists;
         private int eventBatchNoLength = 64;
         private int detailBatchNoLength = 64;
         private final Set<String> existingColumns = new HashSet<String>();
@@ -142,7 +174,10 @@ public class ShipBehaviorTableInitializerTest {
             if (sql.contains("information_schema.tables")) {
                 String tableName = String.valueOf(args[1]);
                 Integer count = "ship_behavior_event".equals(tableName) && eventTableExists
-                        || "ship_behavior_event_detail".equals(tableName) && detailTableExists ? 1 : 0;
+                        || "ship_behavior_event_detail".equals(tableName) && detailTableExists
+                        || "ship_behavior_loitering_batch_status".equals(tableName) && loiteringBatchStatusTableExists
+                        || "ship_behavior_alongside_batch_status".equals(tableName) && alongsideBatchStatusTableExists
+                        ? 1 : 0;
                 return requiredType.cast(count);
             }
             if (sql.contains("character_maximum_length")) {
@@ -171,6 +206,14 @@ public class ShipBehaviorTableInitializerTest {
             if (sql.contains("CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_event_detail`")) {
                 detailTableExists = true;
                 detailBatchNoLength = 64;
+                return;
+            }
+            if (sql.contains("CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_loitering_batch_status`")) {
+                loiteringBatchStatusTableExists = true;
+                return;
+            }
+            if (sql.contains("CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_alongside_batch_status`")) {
+                alongsideBatchStatusTableExists = true;
                 return;
             }
             if (sql.contains("ALTER TABLE dataanalysis.ship_behavior_event MODIFY COLUMN batch_no VARCHAR(64)")) {

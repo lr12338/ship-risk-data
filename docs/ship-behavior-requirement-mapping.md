@@ -289,11 +289,43 @@ ship_behavior_event schema ready
 
 ### 7.3 搭靠规则参数
 
+当前搭靠版本为 `ALONGSIDE_V2_INSURANCE`。保留 V1 兼容配置，同时新增 candidate、confirm、heading、merge、severity cap 等保险化配置。
+
+兼容旧配置：
+
 - `ship.behavior.alongside.max-distance-nm=0.1`
 - `ship.behavior.alongside.max-speed=2.0`
 - `ship.behavior.alongside.max-time-gap-minutes=10`
 - `ship.behavior.alongside.min-duration-minutes=20`
 - `ship.behavior.alongside.min-points=3`
+
+V2 配置：
+
+- `ship.behavior.alongside.rule-version=ALONGSIDE_V2_INSURANCE`
+- `ship.behavior.alongside.mode.auto.enabled=true`
+- `ship.behavior.alongside.candidate.max-distance-nm=0.5`
+- `ship.behavior.alongside.candidate.max-speed=4.0`
+- `ship.behavior.alongside.candidate.time-bucket-minutes=5`
+- `ship.behavior.alongside.candidate.min-points=3`
+- `ship.behavior.alongside.candidate.min-duration-minutes=20`
+- `ship.behavior.alongside.candidate.split-gap-minutes=30`
+- `ship.behavior.alongside.confirm.max-distance-nm=0.15`
+- `ship.behavior.alongside.confirm.max-speed=2.0`
+- `ship.behavior.alongside.confirm.max-relative-speed=1.0`
+- `ship.behavior.alongside.confirm.max-time-gap-minutes=10`
+- `ship.behavior.alongside.confirm.high-confidence-time-gap-minutes=5`
+- `ship.behavior.alongside.confirm.min-duration-minutes=30`
+- `ship.behavior.alongside.confirm.min-points=6`
+- `ship.behavior.alongside.heading.enabled=true`
+- `ship.behavior.alongside.heading.parallel-threshold-degree=30`
+- `ship.behavior.alongside.merge.enabled=true`
+- `ship.behavior.alongside.merge.max-gap-minutes=30`
+- `ship.behavior.alongside.merge.max-center-distance-nm=1.0`
+- `ship.behavior.alongside.score.weight=0.20`
+- `ship.behavior.alongside.severity-cap.no-scene-data.max-level=L2`
+- `ship.behavior.alongside.scene-data.available=false`
+- `ship.behavior.alongside.counterparty-risk.available=false`
+- `ship.behavior.alongside.auto-l4-enabled=false`
 
 ## 8. 服务器运行时数据库说明
 
@@ -428,13 +460,23 @@ LOITERING_V2 summary mmsi=413193000 points=115 cleanPoints=115 segments=23 candi
 {"mmsi":"413433610","targetMmsi":"413193000","startTime":"2026-06-28 18:00:00","endTime":"2026-06-30 09:40:00","batchNo":"alongside-test-20260629-01"}
 ```
 
-已验证结果：
+历史服务器样例已验证结果：
 
 - 任务成功执行
 - `ownPoints=42`
 - `targetPoints=46`
 - `events=5`
 - 输出了 5 条 `event[i]` 摘要日志
+
+当前源码版本已升级为 `ALONGSIDE_V2_INSURANCE`：
+
+- PAIR 模式仍支持上述参数，继续读取主船和目标船轨迹并落库
+- 事件会额外写入 `event_sub_type`、`severity_level`、`event_score`、`confidence_level`、`exclusion_flag`、`exclusion_reason`、`score_detail_json`
+- 日志升级为 `ALONGSIDE_V2 start / event[i] / summary`
+- AUTO 模式支持不传 `targetMmsi`，当前会读取主船轨迹、提取低速窗口，并基于 `getRecentAis` 区域回放接口按 bbox 召回候选目标船
+- AUTO 候选召回链路为 `ShipAlongsideReplayCandidateProvider -> SpatialAisReplayClient -> ReplayAisPointParser -> ShipAlongsideDetector`
+- AUTO 会输出 `low_speed_summary`、`replay_query`、`candidate_summary` 和时间窗年度指标日志
+- 如果 replay 接口返回空结果或没有目标船满足预过滤规则，`candidateTargets=0` 是正常结果，但不再是固定空候选
 
 ## 10. 开发人员接手建议
 

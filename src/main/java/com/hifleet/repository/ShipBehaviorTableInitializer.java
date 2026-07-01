@@ -24,6 +24,8 @@ public class ShipBehaviorTableInitializer {
     private static final String TABLE_SCHEMA = "dataanalysis";
     private static final String EVENT_TABLE_NAME = "ship_behavior_event";
     private static final String DETAIL_TABLE_NAME = "ship_behavior_event_detail";
+    private static final String LOITERING_BATCH_STATUS_TABLE_NAME = "ship_behavior_loitering_batch_status";
+    private static final String ALONGSIDE_BATCH_STATUS_TABLE_NAME = "ship_behavior_alongside_batch_status";
     private static final String CHECK_SQL = "SELECT COUNT(*) FROM information_schema.tables " +
             "WHERE table_schema = ? AND table_name = ?";
     private static final String CHECK_COLUMN_SQL = "SELECT COUNT(*) FROM information_schema.columns " +
@@ -36,6 +38,8 @@ public class ShipBehaviorTableInitializer {
 
     private volatile boolean eventTableReady;
     private volatile boolean detailTableReady;
+    private volatile boolean loiteringBatchStatusTableReady;
+    private volatile boolean alongsideBatchStatusTableReady;
 
     @Autowired
     @Qualifier("newDataanalysisJdbcTemplate")
@@ -45,6 +49,8 @@ public class ShipBehaviorTableInitializer {
     public void init() {
         ensureTableReady();
         ensureDetailTableReady();
+        ensureLoiteringBatchStatusTableReady();
+        ensureAlongsideBatchStatusTableReady();
     }
 
     public void ensureTableReady() {
@@ -53,6 +59,16 @@ public class ShipBehaviorTableInitializer {
 
     public void ensureDetailTableReady() {
         detailTableReady = ensureReady(detailTableReady, DETAIL_TABLE_NAME, "sql/ship_behavior_event_detail.sql", false);
+    }
+
+    public void ensureLoiteringBatchStatusTableReady() {
+        loiteringBatchStatusTableReady = ensureReady(loiteringBatchStatusTableReady,
+                LOITERING_BATCH_STATUS_TABLE_NAME, "sql/ship_behavior_loitering_batch_status.sql", false);
+    }
+
+    public void ensureAlongsideBatchStatusTableReady() {
+        alongsideBatchStatusTableReady = ensureReady(alongsideBatchStatusTableReady,
+                ALONGSIDE_BATCH_STATUS_TABLE_NAME, "sql/ship_behavior_alongside_batch_status.sql", false);
     }
 
     private boolean ensureReady(boolean ready, String tableName, String ddlPath, boolean ensureColumns) {
@@ -80,10 +96,19 @@ public class ShipBehaviorTableInitializer {
         if (DETAIL_TABLE_NAME.equals(tableName)) {
             return detailTableReady;
         }
+        if (LOITERING_BATCH_STATUS_TABLE_NAME.equals(tableName)) {
+            return loiteringBatchStatusTableReady;
+        }
+        if (ALONGSIDE_BATCH_STATUS_TABLE_NAME.equals(tableName)) {
+            return alongsideBatchStatusTableReady;
+        }
         return false;
     }
 
     private void ensureBatchNoLength(String tableName) {
+        if (!EVENT_TABLE_NAME.equals(tableName) && !DETAIL_TABLE_NAME.equals(tableName)) {
+            return;
+        }
         Integer length = newDataanalysisJdbcTemplate.queryForObject(
                 CHECK_COLUMN_LENGTH_SQL, Integer.class, TABLE_SCHEMA, tableName, "batch_no");
         if (length != null && length >= BATCH_NO_MIN_LENGTH) {

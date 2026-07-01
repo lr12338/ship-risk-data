@@ -30,6 +30,20 @@ public class ShipBehaviorJob {
         }
     }
 
+    @XxlJob("shipLoiteringBatchJobHandler")
+    public ReturnT<String> shipLoiteringBatchJobHandler(String params) {
+        try {
+            AnalysisResult result = shipBehaviorAnalysisService.analysisLoiteringBatch(params);
+            ReturnT<String> ret = result.isSuccess() ? ReturnT.SUCCESS : ReturnT.FAIL;
+            ret.setMsg(result.getSummary());
+            return ret;
+        } catch (Exception ex) {
+            log.error("ship loitering batch job failed", ex);
+            XxlJobLogger.log(ex);
+            return new ReturnT<String>(ReturnT.FAIL_CODE, ex.getMessage());
+        }
+    }
+
     @XxlJob("shipAlongsideJobHandler")
     public ReturnT<String> shipAlongsideJobHandler(String params) {
         try {
@@ -39,6 +53,20 @@ public class ShipBehaviorJob {
             return ret;
         } catch (Exception ex) {
             log.error("ship alongside job failed", ex);
+            XxlJobLogger.log(ex);
+            return new ReturnT<String>(ReturnT.FAIL_CODE, ex.getMessage());
+        }
+    }
+
+    @XxlJob("shipAlongsideBatchJobHandler")
+    public ReturnT<String> shipAlongsideBatchJobHandler(String params) {
+        try {
+            AnalysisResult result = shipBehaviorAnalysisService.analysisAlongsideBatch(params);
+            ReturnT<String> ret = result.isSuccess() ? ReturnT.SUCCESS : ReturnT.FAIL;
+            ret.setMsg(result.getSummary());
+            return ret;
+        } catch (Exception ex) {
+            log.error("ship alongside batch job failed", ex);
             XxlJobLogger.log(ex);
             return new ReturnT<String>(ReturnT.FAIL_CODE, ex.getMessage());
         }

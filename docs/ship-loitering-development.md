@@ -803,7 +803,7 @@ BUILD SUCCESS
 
 ```text
 JUnitCore ShipLoiteringDetectorTest ShipBehaviorTableInitializerTest
-OK (20 tests)
+OK (21 tests)
 ```
 
 覆盖内容：
@@ -828,8 +828,77 @@ OK (20 tests)
 - 弱候选输出 `WEAK_LOITERING_CANDIDATE`
 - 无正式候选时生成 `reject_summary` 和 `near_miss`
 - `batch_no` 长度不足时自动扩容到 `VARCHAR(64)`
+- 船舶徘徊批量进度表缺失时自动建表
 
-## 13. 编译产物
+## 13. 批量船队与批量时段任务
+
+批量任务入口：
+
+- `shipLoiteringBatchJobHandler`
+
+适用场景：
+
+- 多船同一时间范围批量计算
+- 长时间范围按日、周、月自动拆分
+- 任务中断后按 `batchNo + mmsi + 时间切片` 断点续跑
+
+推荐小批量冒烟参数：
+
+```json
+{
+  "mmsiList": ["414060000", "356470000"],
+  "startTime": "2025-01-01 00:00:00",
+  "endTime": "2025-02-01 23:59:59",
+  "sliceMode": "WEEK",
+  "batchNo": "loitering-batch-smoke-202501-v1",
+  "resume": true,
+  "parallelism": 1
+}
+```
+
+参数说明：
+
+- `mmsiList`：可选，传入时只计算指定船舶
+- `mmsiList` 为空：从 `ais41.recentships` 加载船队
+- `sliceMode`：支持 `DAY`、`WEEK`、`MONTH`、`CUSTOM_DAYS`
+- `sliceDays`：仅 `CUSTOM_DAYS` 生效
+- `batchNo`：事件表和进度表共同使用的批次号
+- `resume`：为 `true` 时跳过进度表中 `DONE` 的切片
+- `parallelism`：默认 `1`，建议小批量验证稳定后再调到 `2-4`
+- `maxShips`：大批量前可先限制船舶数量，`0` 表示不限制
+
+批量日志：
+
+```text
+LOITERING_BATCH start batchNo=... ships=... windows=... totalTasks=... pendingTasks=... skipped=... sliceMode=WEEK parallelism=1 resume=true
+LOITERING_BATCH ship_window mmsi=... startTime=... endTime=... status=DONE points=... events=... batchNo=...
+LOITERING_BATCH progress processed=... failed=... totalTasks=... events=... elapsedMs=...
+LOITERING_BATCH summary batchNo=... ships=... windows=... totalTasks=... processed=... skipped=... failed=... events=... doneStatus=... failedStatus=...
+```
+
+进度表：
+
+- `dataanalysis.ship_behavior_loitering_batch_status`
+- 应用启动时由 `ShipBehaviorTableInitializer` 自动建表
+- 不需要手工执行 DDL
+
+验证 SQL：
+
+```sql
+SELECT status, COUNT(*) AS cnt, SUM(event_count) AS events
+FROM dataanalysis.ship_behavior_loitering_batch_status
+WHERE batch_no = 'loitering-batch-smoke-202501-v1'
+GROUP BY status;
+
+SELECT mmsi, COUNT(*) AS event_count, SUM(duration_minutes) AS total_duration
+FROM dataanalysis.ship_behavior_event
+WHERE batch_no = 'loitering-batch-smoke-202501-v1'
+  AND behavior_type = 'LOITERING'
+GROUP BY mmsi
+ORDER BY event_count DESC;
+```
+
+## 14. 编译产物
 
 本地已更新 jar：
 
@@ -844,7 +913,7 @@ dist/ship-risk-data-0.0.1-SNAPSHOT.jar
 - 不要覆盖服务器 `/data/zhengyi/application.properties`
 - 线上需同步 V2.1 新增配置项
 
-## 14. 后续建议
+## 15. 后续建议
 
 - 后续接入锚地、港口、天气、制裁区、STS 热点等外部场景数据后，再启用更完整的正常场景排除和 `HIGH_RISK_WAITING`
 - 年度 WLI 汇总表本轮未落库，可在事件规则稳定后单独实现
