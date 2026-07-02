@@ -98,7 +98,6 @@ public class SpatialAisReplayClient {
                         return result;
                     }
                     parseBody(body, request, result);
-                    result.setSuccess(true);
                     return result;
                 } finally {
                     response.close();
@@ -140,13 +139,19 @@ public class SpatialAisReplayClient {
             return;
         }
         JSONObject root = JSON.parseObject(body);
-        if (!"OK".equalsIgnoreCase(root.getString("status"))) {
-            result.setErrorMessage("STATUS_" + root.getString("status"));
+        String status = root.getString("status");
+        String message = root.getString("msg");
+        result.setResponseStatus(status);
+        result.setResponseMessage(message);
+        boolean success = "1".equals(status) || "OK".equalsIgnoreCase(status);
+        if (!success) {
+            result.setErrorMessage("STATUS_" + status + (StringUtils.isBlank(message) ? "" : "_" + message));
             return;
         }
         JSONObject data = root.getJSONObject("data");
         if (data == null || data.isEmpty()) {
             result.setTracksByMmsi(new HashMap<String, List<TrajectoryPoint>>());
+            result.setSuccess(true);
             return;
         }
         Map<String, List<TrajectoryPoint>> tracks = new HashMap<String, List<TrajectoryPoint>>();
@@ -180,6 +185,7 @@ public class SpatialAisReplayClient {
         result.setLargeResult(rawPoints >= largeResultThreshold);
         result.setTruncated(request.getDevSize() > 0 && rawPoints >= request.getDevSize());
         result.setTracksByMmsi(tracks);
+        result.setSuccess(true);
     }
 
     private ReplayQueryResult failed(ReplayQueryRequest request, String message) {

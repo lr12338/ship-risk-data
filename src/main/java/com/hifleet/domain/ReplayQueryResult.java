@@ -21,6 +21,8 @@ public class ReplayQueryResult {
     private int httpStatus;
     private long elapsedMs;
     private String errorMessage;
+    private String responseStatus;
+    private String responseMessage;
     private ReplayQueryRequest request;
     private Map<String, List<TrajectoryPoint>> tracksByMmsi = new HashMap<String, List<TrajectoryPoint>>();
 
@@ -104,6 +106,22 @@ public class ReplayQueryResult {
         this.errorMessage = errorMessage;
     }
 
+    public String getResponseStatus() {
+        return responseStatus;
+    }
+
+    public void setResponseStatus(String responseStatus) {
+        this.responseStatus = responseStatus;
+    }
+
+    public String getResponseMessage() {
+        return responseMessage;
+    }
+
+    public void setResponseMessage(String responseMessage) {
+        this.responseMessage = responseMessage;
+    }
+
     public ReplayQueryRequest getRequest() {
         return request;
     }
@@ -134,6 +152,12 @@ public class ReplayQueryResult {
         this.success = this.success || other.success;
         if (other.errorMessage != null) {
             this.errorMessage = other.errorMessage;
+        }
+        if (other.responseStatus != null) {
+            this.responseStatus = other.responseStatus;
+        }
+        if (other.responseMessage != null) {
+            this.responseMessage = other.responseMessage;
         }
     }
 }

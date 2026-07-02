@@ -295,6 +295,9 @@ public class ShipAlongsideReplayCandidateProvider {
                 + " maxlon=" + request.getMaxLon()
                 + " minlat=" + request.getMinLat()
                 + " maxlat=" + request.getMaxLat()
+                + " httpStatus=" + (result == null ? 0 : result.getHttpStatus())
+                + " responseStatus=" + (result == null ? nullToDash(null) : nullToDash(result.getResponseStatus()))
+                + " responseMsg=" + (result == null ? nullToDash(null) : nullToDash(result.getResponseMessage()))
                 + " returnedVessels=" + (result == null ? 0 : result.getRawVesselCount())
                 + " rawPoints=" + (result == null ? 0 : result.getRawPointCount())
                 + " validPoints=" + (result == null ? 0 : result.getValidPointCount())
@@ -302,7 +305,12 @@ public class ShipAlongsideReplayCandidateProvider {
                 + " elapsedMs=" + (result == null ? 0 : result.getElapsedMs())
                 + " truncated=" + (result != null && result.isTruncated())
                 + " success=" + (result != null && result.isSuccess())
+                + " error=" + (result == null ? nullToDash(null) : nullToDash(result.getErrorMessage()))
                 + " batchNo=" + batchNo);
+    }
+
+    private String nullToDash(String value) {
+        return StringUtils.isBlank(value) ? "-" : value;
     }
 
     private class CandidateMatchStats {
