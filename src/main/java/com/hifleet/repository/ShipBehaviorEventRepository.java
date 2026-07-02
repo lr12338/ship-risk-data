@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.ResultSet;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -55,6 +56,21 @@ public class ShipBehaviorEventRepository {
             int end = Math.min(offset + effectiveBatchSize, validEvents.size());
             saveBatch(validEvents.subList(offset, end));
         }
+    }
+
+    public List<ShipBehaviorEvent> findAlongsideEvents(String batchNo, String mmsi, String startTime, String endTime) {
+        shipBehaviorTableInitializer.ensureTableReady();
+        String sql = "SELECT behavior_type, mmsi, target_mmsi, start_time, end_time, duration_minutes, "
+                + "min_distance_nm, max_distance_nm, avg_speed, point_count, rule_version, batch_no, "
+                + "event_sub_type, severity_level, event_score, confidence_level, exclusion_flag, "
+                + "exclusion_reason, ais_gap_count, max_ais_gap_minutes "
+                + "FROM dataanalysis.ship_behavior_event "
+                + "WHERE behavior_type = ? AND batch_no = ? AND mmsi = ? "
+                + "AND start_time >= ? AND end_time <= ? ORDER BY start_time";
+        return newDataanalysisJdbcTemplate.query(sql,
+                new Object[]{ShipBehaviorEvent.TYPE_ALONGSIDE, batchNo, mmsi,
+                        parseTime(startTime), parseTime(endTime)},
+                (rs, rowNum) -> mapEvent(rs));
     }
 
     private List<ShipBehaviorEvent> filterValid(List<ShipBehaviorEvent> events) {
@@ -120,6 +136,35 @@ public class ShipBehaviorEventRepository {
 
     private Timestamp parseTime(String time) {
         return Timestamp.valueOf(LocalDateTime.parse(normalizeTime(time), TIME_FORMATTER));
+    }
+
+    private ShipBehaviorEvent mapEvent(ResultSet rs) throws SQLException {
+        ShipBehaviorEvent event = new ShipBehaviorEvent();
+        event.setBehaviorType(rs.getString("behavior_type"));
+        event.setMmsi(rs.getString("mmsi"));
+        event.setTargetMmsi(rs.getString("target_mmsi"));
+        event.setStartTime(formatTimestamp(rs.getTimestamp("start_time")));
+        event.setEndTime(formatTimestamp(rs.getTimestamp("end_time")));
+        event.setDurationMinutes(rs.getObject("duration_minutes") == null ? null : rs.getLong("duration_minutes"));
+        event.setMinDistanceNm(rs.getObject("min_distance_nm") == null ? null : rs.getDouble("min_distance_nm"));
+        event.setMaxDistanceNm(rs.getObject("max_distance_nm") == null ? null : rs.getDouble("max_distance_nm"));
+        event.setAvgSpeed(rs.getObject("avg_speed") == null ? null : rs.getDouble("avg_speed"));
+        event.setPointCount(rs.getObject("point_count") == null ? null : rs.getInt("point_count"));
+        event.setRuleVersion(rs.getString("rule_version"));
+        event.setBatchNo(rs.getString("batch_no"));
+        event.setEventSubType(rs.getString("event_sub_type"));
+        event.setSeverityLevel(rs.getString("severity_level"));
+        event.setEventScore(rs.getObject("event_score") == null ? null : rs.getDouble("event_score"));
+        event.setConfidenceLevel(rs.getString("confidence_level"));
+        event.setExclusionFlag(rs.getString("exclusion_flag"));
+        event.setExclusionReason(rs.getString("exclusion_reason"));
+        event.setAisGapCount(rs.getObject("ais_gap_count") == null ? null : rs.getInt("ais_gap_count"));
+        event.setMaxAisGapMinutes(rs.getObject("max_ais_gap_minutes") == null ? null : rs.getLong("max_ais_gap_minutes"));
+        return event;
+    }
+
+    private String formatTimestamp(Timestamp timestamp) {
+        return timestamp == null ? null : timestamp.toLocalDateTime().format(TIME_FORMATTER);
     }
 
     private String normalizeTime(String time) {

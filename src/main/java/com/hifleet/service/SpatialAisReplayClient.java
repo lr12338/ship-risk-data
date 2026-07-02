@@ -117,7 +117,7 @@ public class SpatialAisReplayClient {
 
     private URI buildUri(ReplayQueryRequest request) throws Exception {
         URIBuilder builder = new URIBuilder(replayUrl);
-        builder.addParameter("startime", request.getStartTime());
+        builder.addParameter("starttime", request.getStartTime());
         builder.addParameter("endtime", request.getEndTime());
         builder.addParameter("devSize", String.valueOf(request.getDevSize()));
         if (request.getMinLat() != null && request.getMaxLat() != null

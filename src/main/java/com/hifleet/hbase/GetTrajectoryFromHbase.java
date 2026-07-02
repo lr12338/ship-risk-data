@@ -41,6 +41,7 @@ public class GetTrajectoryFromHbase {
 
 		Table table = null;
 		Scan scan = null;
+		ResultScanner hbasers = null;
 
 		try {
 
@@ -61,7 +62,7 @@ public class GetTrajectoryFromHbase {
 
 			scan.setStartRow(start_rowkey.getBytes());
 			scan.setStopRow(end_rowkey.getBytes());
-			ResultScanner hbasers = table.getScanner(scan);
+			hbasers = table.getScanner(scan);
 			String mmsi_timestamp[];
 			//int datacount=0;
 
@@ -166,12 +167,21 @@ public class GetTrajectoryFromHbase {
 
 
 			 rightforms= simplifier.simplify(deleteClosedrightforms, zoom);
-
-			 hbasers.close();
-			
-		
 		} catch (Exception ex) {
 			ex.printStackTrace();
+		} finally {
+			if (hbasers != null) {
+				try {
+					hbasers.close();
+				} catch (Exception ignore) {
+				}
+			}
+			if (table != null) {
+				try {
+					table.close();
+				} catch (Exception ignore) {
+				}
+			}
 		}
 		}catch(Exception e) {
 			e.printStackTrace();

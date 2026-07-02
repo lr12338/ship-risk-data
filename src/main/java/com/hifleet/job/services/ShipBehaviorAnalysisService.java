@@ -201,6 +201,15 @@ public class ShipBehaviorAnalysisService {
     @Value("${ship.behavior.alongside.batch.progress-interval:50}")
     private int alongsideBatchProgressInterval;
 
+    @Value("${ship.behavior.alongside.batch.trajectory-load-slice-hours:6}")
+    private int alongsideBatchTrajectoryLoadSliceHours;
+
+    @Value("${ship.behavior.alongside.batch.max-points-per-window:50000}")
+    private int alongsideBatchMaxPointsPerWindow;
+
+    @Value("${ship.behavior.alongside.batch.max-replay-queries-per-window:300}")
+    private int alongsideBatchMaxReplayQueriesPerWindow;
+
     @Value("${ship.behavior.alongside.max-distance-nm:0.1}")
     private double alongsideMaxDistanceNm;
 
@@ -575,14 +584,33 @@ public class ShipBehaviorAnalysisService {
 
     private AlongsideWindowResult analysisAlongsideOneWindow(JobParams jobParams,
                                                              ShipAlongsideDetector.AlongsideRule rule) {
-        List<TrajectoryPoint> ownPoints = trajectoryLoaderService.load(
-                jobParams.getMmsi(), jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
+        return analysisAlongsideOneWindow(jobParams, rule, false);
+    }
+
+    private AlongsideWindowResult analysisAlongsideOneWindow(JobParams jobParams,
+                                                             ShipAlongsideDetector.AlongsideRule rule,
+                                                             boolean safeLoad) {
+        List<TrajectoryPoint> ownPoints = safeLoad
+                ? trajectoryLoaderService.loadSafely(jobParams.getMmsi(), jobParams.getStartTime(),
+                jobParams.getEndTime(), trajectorySimplifyZoom, alongsideBatchTrajectoryLoadSliceHours,
+                alongsideBatchMaxPointsPerWindow)
+                : trajectoryLoaderService.load(jobParams.getMmsi(), jobParams.getStartTime(),
+                jobParams.getEndTime(), trajectorySimplifyZoom);
         List<ShipAlongsideDetector.LowSpeedWindow> windows = alongsideDetector.extractLowSpeedWindows(
                 jobParams.getMmsi(), ownPoints, alongsideCandidateMaxSpeed,
                 alongsideCandidateMinDurationMinutes, alongsideCandidateSplitGapMinutes);
         Map<String, List<TrajectoryPoint>> ownPointsByWindow = collectOwnPointsByWindow(windows, ownPoints);
         AlongsideReplaySearchResult replaySearchResult = alongsideReplayCandidateProvider.findCandidates(
                 jobParams.getMmsi(), windows, ownPointsByWindow, jobParams.getBatchNo());
+        if (safeLoad
+                && alongsideBatchMaxReplayQueriesPerWindow > 0
+                && replaySearchResult.getReplayQueryCount() > alongsideBatchMaxReplayQueriesPerWindow) {
+            throw new IllegalStateException("too many replay queries, mmsi=" + jobParams.getMmsi()
+                    + ", startTime=" + jobParams.getStartTime()
+                    + ", endTime=" + jobParams.getEndTime()
+                    + ", replayQueries=" + replaySearchResult.getReplayQueryCount()
+                    + ", maxReplayQueries=" + alongsideBatchMaxReplayQueriesPerWindow);
+        }
         List<AlongsideCandidateTarget> candidates = replaySearchResult.getCandidates();
         int candidateTargetCount = countUniqueTargets(candidates);
         XxlJobLogger.log("ALONGSIDE_V2 low_speed_summary mmsi=" + jobParams.getMmsi()
@@ -646,6 +674,7 @@ public class ShipBehaviorAnalysisService {
                 + " failed=" + failed
                 + " replayQueries=" + replaySearchResult.getReplayQueryCount()
                 + " replayElapsedMs=" + replaySearchResult.getElapsedMs()
+                + " safeLoad=" + safeLoad
                 + " batchNo=" + jobParams.getBatchNo());
         return new AlongsideWindowResult(ownPoints.size(), windows.size(), candidateTargetCount,
                 replaySearchResult.getReplayQueryCount(), replaySearchResult.getReplayFailures(),
@@ -688,6 +717,7 @@ public class ShipBehaviorAnalysisService {
                 + " failedStatus=" + alongsideBatchStatusRepository.countByStatus(batchParams.getBatchNo(),
                 ShipBehaviorAlongsideBatchStatusRepository.STATUS_FAILED)
                 + " elapsedMs=" + (System.currentTimeMillis() - startMillis));
+        logAlongsideBatchAnnualScores(batchParams, mmsiList);
         return new AnalysisResult(result.getProcessed(), result.getFailed(), result.getEvents());
     }
 
@@ -739,7 +769,7 @@ public class ShipBehaviorAnalysisService {
         windowParams.setBatchNo(task.getBatchNo());
         windowParams.setMode("AUTO");
         try {
-            AlongsideWindowResult result = analysisAlongsideOneWindow(windowParams, buildAlongsideRule());
+            AlongsideWindowResult result = analysisAlongsideOneWindow(windowParams, buildAlongsideRule(), true);
             alongsideBatchStatusRepository.markDone(task.getBatchNo(), task.getMmsi(),
                     task.getWindow().getStartTime(), task.getWindow().getEndTime(),
                     result.getPoints(), result.getLowSpeedWindows(), result.getCandidateTargets(),
@@ -753,19 +783,58 @@ public class ShipBehaviorAnalysisService {
                     + " replayQueries=" + result.getReplayQueries()
                     + " replayFailures=" + result.getReplayFailures()
                     + " events=" + result.getEvents()
+                    + " loadSliceHours=" + alongsideBatchTrajectoryLoadSliceHours
                     + " batchNo=" + task.getBatchNo());
             return AlongsideTaskResult.done(result.getEvents());
-        } catch (Exception ex) {
+        } catch (Throwable ex) {
             alongsideBatchStatusRepository.markFailed(task.getBatchNo(), task.getMmsi(),
-                    task.getWindow().getStartTime(), task.getWindow().getEndTime(), ex.getMessage());
+                    task.getWindow().getStartTime(), task.getWindow().getEndTime(), throwableMessage(ex));
             log.error("alongside batch task failed, batchNo={}, mmsi={}, window={}",
                     task.getBatchNo(), task.getMmsi(), task.getWindow(), ex);
             XxlJobLogger.log("ALONGSIDE_BATCH ship_window mmsi=" + task.getMmsi()
                     + " startTime=" + task.getWindow().getStartTime()
                     + " endTime=" + task.getWindow().getEndTime()
-                    + " status=FAILED error=" + ex.getMessage()
+                    + " status=FAILED error=" + throwableMessage(ex)
                     + " batchNo=" + task.getBatchNo());
             return AlongsideTaskResult.failed(0);
+        }
+    }
+
+    private String throwableMessage(Throwable throwable) {
+        if (throwable == null) {
+            return null;
+        }
+        String message = throwable.getMessage();
+        return throwable.getClass().getSimpleName() + (StringUtils.isBlank(message) ? "" : ": " + message);
+    }
+
+    private void logAlongsideBatchAnnualScores(BatchJobParams batchParams, List<String> mmsiList) {
+        for (String mmsi : mmsiList) {
+            try {
+                List<ShipBehaviorEvent> events = shipBehaviorEventRepository.findAlongsideEvents(
+                        batchParams.getBatchNo(), mmsi, batchParams.getStartTime(), batchParams.getEndTime());
+                JobParams statParams = new JobParams();
+                statParams.setMmsi(mmsi);
+                statParams.setStartTime(batchParams.getStartTime());
+                statParams.setEndTime(batchParams.getEndTime());
+                AlongsideAnnualScore score = calculateAlongsideAnnualScore(statParams, events);
+                XxlJobLogger.log("ALONGSIDE_BATCH annual_score mmsi=" + mmsi
+                        + " eventCount=" + score.getEventCount()
+                        + " validEventCount=" + score.getValidEventCount()
+                        + " highRiskEventCount=" + score.getHighRiskEventCount()
+                        + " severeEventCount=" + score.getSevereEventCount()
+                        + " ARI=" + score.getAnnualRiskIndex()
+                        + " subScore10=" + score.getSubScore10()
+                        + " weightedScore=" + score.getWeightedScore()
+                        + " manualReview=" + score.isManualReviewRequired()
+                        + " batchNo=" + batchParams.getBatchNo());
+            } catch (Exception ex) {
+                log.warn("alongside batch annual score failed, batchNo={}, mmsi={}",
+                        batchParams.getBatchNo(), mmsi, ex);
+                XxlJobLogger.log("ALONGSIDE_BATCH annual_score_failed mmsi=" + mmsi
+                        + " error=" + ex.getMessage()
+                        + " batchNo=" + batchParams.getBatchNo());
+            }
         }
     }
 

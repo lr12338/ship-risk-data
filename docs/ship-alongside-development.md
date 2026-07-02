@@ -193,6 +193,8 @@ ShipAlongsideReplayCandidateProvider
 
 批量搭靠用于船队和多时间窗自动运行，固定复用单船 AUTO 链路，不支持 `targetMmsi` 批量 PAIR。已知两船复核仍使用 `shipAlongsideJobHandler`。
 
+单船长周期计算也应走该入口。不要用 `shipAlongsideJobHandler` 直接跑一年 AUTO；应按 `DAY` 外层切片，并由批量链路在每个日窗口内部按 6 小时分段读取 HBase，避免单次 scan 原始 AIS 点过多导致 OOM。
+
 链路：
 
 ```text
@@ -200,6 +202,7 @@ shipAlongsideBatchJobHandler
 -> ShipBehaviorAnalysisService.analysisAlongsideBatch
 -> mmsiList / mmsi / ais41.recentships
 -> DAY/WEEK/MONTH/CUSTOM_DAYS 时间切片
+-> 安全分段读取主船轨迹(默认 6 小时)
 -> analysisAlongsideOneWindow(AUTO)
 -> getRecentAis 候选召回
 -> ShipAlongsideDetector
@@ -211,11 +214,11 @@ shipAlongsideBatchJobHandler
 
 ```json
 {
-  "mmsiList": ["414060000", "356470000"],
-  "startTime": "2025-01-01 00:00:00",
-  "endTime": "2025-02-01 23:59:59",
-  "sliceMode": "WEEK",
-  "batchNo": "alongside-batch-smoke-202501-v1",
+  "mmsi": "414790000",
+  "startTime": "2026-01-01 00:00:00",
+  "endTime": "2026-12-31 23:59:59",
+  "sliceMode": "DAY",
+  "batchNo": "alongside-single-414790000-2026-v1",
   "resume": true,
   "parallelism": 1,
   "mode": "AUTO"
@@ -230,10 +233,18 @@ shipAlongsideBatchJobHandler
 
 时间切片：
 
-- `DAY`：按天切片
+- `DAY`：按天切片，单船长周期推荐使用
 - `WEEK`：按周切片
 - `MONTH`：按月切片
 - `CUSTOM_DAYS`：按 `sliceDays` 切片
+
+安全加载：
+
+- 批量 AUTO 默认使用 `TrajectoryLoaderService.loadSafely`
+- 外层即使是 `DAY`，内部仍按 `trajectory-load-slice-hours` 拆成小段读取 HBase
+- 默认内部切片为 6 小时
+- 单窗口合并后轨迹点数超过 `max-points-per-window` 时，当前窗口标记 `FAILED`，不打断整个批次
+- 发生 `OutOfMemoryError` 等 `Throwable` 时，当前窗口标记 `FAILED`，后续可用同一 `batchNo + resume=true` 续跑
 
 断点续跑：
 
@@ -635,6 +646,9 @@ ship.behavior.alongside.rule-version=ALONGSIDE_V2_INSURANCE
 ship.behavior.alongside.mode.auto.enabled=true
 ship.behavior.alongside.batch.parallelism=1
 ship.behavior.alongside.batch.progress-interval=50
+ship.behavior.alongside.batch.trajectory-load-slice-hours=6
+ship.behavior.alongside.batch.max-points-per-window=50000
+ship.behavior.alongside.batch.max-replay-queries-per-window=300
 ship.behavior.alongside.auto.enabled=true
 ship.behavior.alongside.auto.candidate-provider=SPATIAL_AIS_REPLAY
 
@@ -749,7 +763,7 @@ ALONGSIDE_V2 annual_score mmsi=xxx eventCount=... validEventCount=... highRiskEv
 汇总日志：
 
 ```text
-ALONGSIDE_V2 summary mode=AUTO mmsi=xxx points=... lowSpeedWindows=... candidateTargets=... rawEvents=... mergedEvents=... savedEvents=... failed=... replayQueries=... replayElapsedMs=... batchNo=...
+ALONGSIDE_V2 summary mode=AUTO mmsi=xxx points=... lowSpeedWindows=... candidateTargets=... rawEvents=... mergedEvents=... savedEvents=... failed=... replayQueries=... replayElapsedMs=... safeLoad=... batchNo=...
 ```
 
 ### 13.3 批量 AUTO 模式
@@ -763,7 +777,7 @@ ALONGSIDE_BATCH start batchNo=... ships=... windows=... totalTasks=... pendingTa
 单窗口日志：
 
 ```text
-ALONGSIDE_BATCH ship_window mmsi=... startTime=... endTime=... status=DONE points=... lowSpeedWindows=... candidateTargets=... replayQueries=... replayFailures=... events=... batchNo=...
+ALONGSIDE_BATCH ship_window mmsi=... startTime=... endTime=... status=DONE points=... lowSpeedWindows=... candidateTargets=... replayQueries=... replayFailures=... events=... loadSliceHours=... batchNo=...
 ```
 
 进度日志：
@@ -776,6 +790,12 @@ ALONGSIDE_BATCH progress processed=... failed=... totalTasks=... events=... elap
 
 ```text
 ALONGSIDE_BATCH summary batchNo=... ships=... windows=... totalTasks=... processed=... skipped=... failed=... events=... doneStatus=... failedStatus=... elapsedMs=...
+```
+
+批量年度聚合日志：
+
+```text
+ALONGSIDE_BATCH annual_score mmsi=... eventCount=... validEventCount=... highRiskEventCount=... severeEventCount=... ARI=... subScore10=... weightedScore=... manualReview=... batchNo=...
 ```
 
 ## 14. 验证方式
@@ -835,11 +855,11 @@ ALONGSIDE_BATCH summary batchNo=... ships=... windows=... totalTasks=... process
 
 ```json
 {
-  "mmsiList": ["414060000", "356470000"],
-  "startTime": "2025-01-01 00:00:00",
-  "endTime": "2025-02-01 23:59:59",
-  "sliceMode": "WEEK",
-  "batchNo": "alongside-batch-smoke-202501-v1",
+  "mmsi": "414790000",
+  "startTime": "2026-01-01 00:00:00",
+  "endTime": "2026-12-31 23:59:59",
+  "sliceMode": "DAY",
+  "batchNo": "alongside-single-414790000-2026-v1",
   "resume": true,
   "parallelism": 1,
   "mode": "AUTO"
@@ -852,11 +872,14 @@ ALONGSIDE_BATCH summary batchNo=... ships=... windows=... totalTasks=... process
 - 能按 `mmsiList` 或 `mmsi` 构造船舶列表
 - 不传船舶时能复用 `ais41.recentships`
 - 能按 `DAY/WEEK/MONTH/CUSTOM_DAYS` 生成时间切片
+- 单船长周期推荐 `DAY + parallelism=1`
+- 批量 AUTO 窗口内使用安全分段轨迹读取
 - `resume=true` 时跳过状态为 `DONE` 的窗口
+- 单窗口 OOM 或轨迹点超限时标记 `FAILED`，不打断整个批次
 - 每个窗口复用单船 AUTO 候选召回和 detector
 - 写入 `ship_behavior_event` 和 `ship_behavior_event_detail`
 - 写入或更新 `ship_behavior_alongside_batch_status`
-- 输出 `ALONGSIDE_BATCH start / ship_window / progress / summary`
+- 输出 `ALONGSIDE_BATCH start / ship_window / progress / summary / annual_score`
 
 ### 14.4 单元测试
 
