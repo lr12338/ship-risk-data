@@ -513,6 +513,8 @@ public class AisAnalysisService {
     private Date parseTime(String timeStr) {
         if (timeStr == null || timeStr.trim().isEmpty()) {
             return null;
+        }else if(timeStr.length()<4){
+            return null;
         }
         String normalized = timeStr.trim();
         if (normalized.length() == 16) {
