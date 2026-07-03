@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_alongside_batch_status` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `batch_no` VARCHAR(64) NOT NULL COMMENT '批量计算批次号',
+  `mmsi` VARCHAR(20) NOT NULL COMMENT '船舶MMSI',
+  `window_start_time` DATETIME NOT NULL COMMENT '切片开始时间',
+  `window_end_time` DATETIME NOT NULL COMMENT '切片结束时间',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'DONE' COMMENT 'DONE=已完成, FAILED=失败',
+  `point_count` INT DEFAULT NULL COMMENT '本切片主船轨迹点数量',
+  `low_speed_window_count` INT DEFAULT NULL COMMENT '本切片低速窗口数量',
+  `candidate_target_count` INT DEFAULT NULL COMMENT '本切片候选目标船数量',
+  `replay_query_count` INT DEFAULT NULL COMMENT '区域回放查询次数',
+  `replay_failure_count` INT DEFAULT NULL COMMENT '区域回放失败次数',
+  `event_count` INT DEFAULT NULL COMMENT '本切片产生事件数量',
+  `error_message` VARCHAR(1024) DEFAULT NULL COMMENT '失败原因',
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_batch_mmsi_window` (`batch_no`, `mmsi`, `window_start_time`, `window_end_time`),
+  KEY `idx_batch_status` (`batch_no`, `status`),
+  KEY `idx_mmsi_time` (`mmsi`, `window_start_time`, `window_end_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='船舶搭靠批量计算进度表';

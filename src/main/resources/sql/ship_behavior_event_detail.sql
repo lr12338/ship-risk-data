@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_event_detail` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `behavior_type` VARCHAR(32) NOT NULL COMMENT 'LOITERING=船舶徘徊, ALONGSIDE=船舶搭靠',
+  `mmsi` VARCHAR(20) NOT NULL COMMENT '主船MMSI',
+  `target_mmsi` VARCHAR(20) DEFAULT NULL COMMENT '搭靠目标船MMSI；徘徊为空',
+  `point_role` VARCHAR(16) NOT NULL COMMENT 'OWN=主船点, TARGET=目标船点',
+  `event_start_time` DATETIME NOT NULL COMMENT '事件开始时间',
+  `event_end_time` DATETIME NOT NULL COMMENT '事件结束时间',
+  `point_time` DATETIME NOT NULL COMMENT '轨迹点时间',
+  `point_index` INT NOT NULL COMMENT '事件内轨迹点序号',
+  `lon` DOUBLE DEFAULT NULL COMMENT '经度',
+  `lat` DOUBLE DEFAULT NULL COMMENT '纬度',
+  `speed` DOUBLE DEFAULT NULL COMMENT '航速',
+  `course` DOUBLE DEFAULT NULL COMMENT '航向',
+  `nav_status` VARCHAR(32) DEFAULT NULL COMMENT '航行状态',
+  `batch_no` VARCHAR(64) DEFAULT NULL COMMENT '计算批次',
+  `rule_version` VARCHAR(32) DEFAULT NULL COMMENT '规则版本',
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_behavior_batch` (`behavior_type`, `batch_no`),
+  KEY `idx_event_window` (`mmsi`, `event_start_time`, `event_end_time`),
+  KEY `idx_target_window` (`target_mmsi`, `event_start_time`, `event_end_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='船舶行为事件轨迹快照明细';
