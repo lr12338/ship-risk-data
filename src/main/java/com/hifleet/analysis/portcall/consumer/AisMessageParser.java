@@ -142,6 +142,7 @@ public class AisMessageParser {
             point.setShipName(blankToNull(object.getString("name")));
             point.setCallSign(blankToNull(object.getString("callsign")));
             point.setImoNumber(imoString(toStringValue(object.get("imonumber"))));
+            point.setShipType(toInteger(object.get("ais_shiptype")));
             point.setShipLength(toDouble(object.get("length")));
             point.setShipWidth(toDouble(object.get("width")));
             return point;
@@ -185,6 +186,7 @@ public class AisMessageParser {
             point.setShipName(stringAt(tokens, 15));
             point.setImoNumber(imoString(tokens[16]));
             point.setCallSign(stringAt(tokens, 17));
+            point.setShipType(parseIntegerAt(tokens, 27));
             point.setShipLength(parseDoubleAt(tokens, 20));
             point.setShipWidth(parseDoubleAt(tokens, 21));
             return point;
@@ -316,6 +318,16 @@ public class AisMessageParser {
         return parseDouble(String.valueOf(value));
     }
 
+    private Integer toInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        return parseInteger(String.valueOf(value));
+    }
+
     private Double parseDoubleAt(String[] tokens, int index) {
         if (index >= tokens.length) {
             return null;
@@ -328,6 +340,13 @@ public class AisMessageParser {
             return null;
         }
         return Integer.valueOf(value.trim());
+    }
+
+    private Integer parseIntegerAt(String[] tokens, int index) {
+        if (index >= tokens.length) {
+            return null;
+        }
+        return parseInteger(tokens[index]);
     }
 
     private Instant parseInstant(String value) {

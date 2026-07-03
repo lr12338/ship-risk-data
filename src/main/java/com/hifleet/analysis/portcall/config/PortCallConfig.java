@@ -20,6 +20,8 @@ public class PortCallConfig implements Serializable {
     private String kafkaStopPointTopic;
     private String kafkaGroupId;
     private String kafkaClientId;
+    private String kafkaStartingOffsets;
+    private AlongsideConfig alongsideConfig;
 
     private long reorderMaxLatenessSeconds;
     private int reorderMaxPointsPerVessel;
@@ -28,6 +30,11 @@ public class PortCallConfig implements Serializable {
     private int stateIdleTtlHours;
     private double jumpPointMaxImpliedSpeedKnots;
     private Set<String> acceptedDataStates = Collections.emptySet();
+    private Set<Long> scopeMmsiWhitelist = Collections.emptySet();
+    private Double scopeMinLon;
+    private Double scopeMaxLon;
+    private Double scopeMinLat;
+    private Double scopeMaxLat;
 
     private double stopPointMaxSpeedKnots;
     private double stopPointEndSpeedKnots;
@@ -94,6 +101,8 @@ public class PortCallConfig implements Serializable {
         config.setKafkaStopPointTopic(value(props, "kafka.stop-point.topic"));
         config.setKafkaGroupId(value(props, "kafka.group.id"));
         config.setKafkaClientId(value(props, "kafka.client.id"));
+        config.setKafkaStartingOffsets(value(props, "kafka.starting-offsets"));
+        config.setAlongsideConfig(AlongsideConfig.fromProperties(props));
 
         config.setReorderMaxLatenessSeconds(toLong(value(props, "pipeline.reorder.max-lateness-seconds"), 600L));
         config.setReorderMaxPointsPerVessel(toInt(value(props, "pipeline.reorder.max-points-per-vessel"), 200));
@@ -102,6 +111,11 @@ public class PortCallConfig implements Serializable {
         config.setStateIdleTtlHours(toInt(value(props, "pipeline.state.idle-ttl-hours"), 48));
         config.setJumpPointMaxImpliedSpeedKnots(toDouble(value(props, "pipeline.jump-point.max-implied-speed-knots"), 45.0d));
         config.setAcceptedDataStates(toStringSet(value(props, "pipeline.accepted-data-states")));
+        config.setScopeMmsiWhitelist(toLongSet(value(props, "pipeline.scope.mmsi-whitelist")));
+        config.setScopeMinLon(toNullableDouble(value(props, "pipeline.scope.min-lon")));
+        config.setScopeMaxLon(toNullableDouble(value(props, "pipeline.scope.max-lon")));
+        config.setScopeMinLat(toNullableDouble(value(props, "pipeline.scope.min-lat")));
+        config.setScopeMaxLat(toNullableDouble(value(props, "pipeline.scope.max-lat")));
 
         config.setStopPointMaxSpeedKnots(toDouble(value(props, "stop-point.max-speed-knots"), 1.0d));
         config.setStopPointEndSpeedKnots(toDouble(value(props, "stop-point.end-speed-knots"), 2.0d));
@@ -145,6 +159,8 @@ public class PortCallConfig implements Serializable {
         defaults.setProperty("kafka.stop-point.topic", "RELIABLE_STOP_POINTS");
         defaults.setProperty("kafka.group.id", "portcall-group");
         defaults.setProperty("kafka.client.id", "portcall-consumer-1");
+        defaults.setProperty("kafka.starting-offsets", "committed");
+        AlongsideConfig.addDefaults(defaults);
         defaults.setProperty("pipeline.reorder.max-lateness-seconds", "600");
         defaults.setProperty("pipeline.reorder.max-points-per-vessel", "200");
         defaults.setProperty("pipeline.dedup.cache-size", "1024");
@@ -152,6 +168,11 @@ public class PortCallConfig implements Serializable {
         defaults.setProperty("pipeline.state.idle-ttl-hours", "48");
         defaults.setProperty("pipeline.jump-point.max-implied-speed-knots", "45.0");
         defaults.setProperty("pipeline.accepted-data-states", "normal");
+        defaults.setProperty("pipeline.scope.mmsi-whitelist", "");
+        defaults.setProperty("pipeline.scope.min-lon", "");
+        defaults.setProperty("pipeline.scope.max-lon", "");
+        defaults.setProperty("pipeline.scope.min-lat", "");
+        defaults.setProperty("pipeline.scope.max-lat", "");
         defaults.setProperty("stop-point.max-speed-knots", "1.0");
         defaults.setProperty("stop-point.end-speed-knots", "2.0");
         defaults.setProperty("stop.candidate.min-duration-seconds", "300");
@@ -223,6 +244,17 @@ public class PortCallConfig implements Serializable {
         }
     }
 
+    private static Double toNullableDouble(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.valueOf(value.trim());
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
     private static boolean toBoolean(String value, boolean fallback) {
         if (value == null || value.trim().isEmpty()) {
             return fallback;
@@ -239,6 +271,24 @@ public class PortCallConfig implements Serializable {
         for (String token : tokens) {
             if (token != null && !token.trim().isEmpty()) {
                 values.add(token.trim());
+            }
+        }
+        return values;
+    }
+
+    private static Set<Long> toLongSet(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<Long> values = new HashSet<Long>();
+        String[] tokens = value.split(",");
+        for (String token : tokens) {
+            if (token != null && !token.trim().isEmpty()) {
+                try {
+                    values.add(Long.valueOf(token.trim()));
+                } catch (RuntimeException ignored) {
+                    // skip invalid token
+                }
             }
         }
         return values;
@@ -282,6 +332,22 @@ public class PortCallConfig implements Serializable {
 
     public void setKafkaClientId(String kafkaClientId) {
         this.kafkaClientId = kafkaClientId;
+    }
+
+    public String getKafkaStartingOffsets() {
+        return kafkaStartingOffsets;
+    }
+
+    public void setKafkaStartingOffsets(String kafkaStartingOffsets) {
+        this.kafkaStartingOffsets = kafkaStartingOffsets;
+    }
+
+    public AlongsideConfig getAlongsideConfig() {
+        return alongsideConfig;
+    }
+
+    public void setAlongsideConfig(AlongsideConfig alongsideConfig) {
+        this.alongsideConfig = alongsideConfig;
     }
 
     public long getReorderMaxLatenessSeconds() {
@@ -338,6 +404,46 @@ public class PortCallConfig implements Serializable {
 
     public void setAcceptedDataStates(Set<String> acceptedDataStates) {
         this.acceptedDataStates = acceptedDataStates == null ? Collections.<String>emptySet() : acceptedDataStates;
+    }
+
+    public Set<Long> getScopeMmsiWhitelist() {
+        return scopeMmsiWhitelist;
+    }
+
+    public void setScopeMmsiWhitelist(Set<Long> scopeMmsiWhitelist) {
+        this.scopeMmsiWhitelist = scopeMmsiWhitelist == null ? Collections.<Long>emptySet() : scopeMmsiWhitelist;
+    }
+
+    public Double getScopeMinLon() {
+        return scopeMinLon;
+    }
+
+    public void setScopeMinLon(Double scopeMinLon) {
+        this.scopeMinLon = scopeMinLon;
+    }
+
+    public Double getScopeMaxLon() {
+        return scopeMaxLon;
+    }
+
+    public void setScopeMaxLon(Double scopeMaxLon) {
+        this.scopeMaxLon = scopeMaxLon;
+    }
+
+    public Double getScopeMinLat() {
+        return scopeMinLat;
+    }
+
+    public void setScopeMinLat(Double scopeMinLat) {
+        this.scopeMinLat = scopeMinLat;
+    }
+
+    public Double getScopeMaxLat() {
+        return scopeMaxLat;
+    }
+
+    public void setScopeMaxLat(Double scopeMaxLat) {
+        this.scopeMaxLat = scopeMaxLat;
     }
 
     public double getStopPointMaxSpeedKnots() {

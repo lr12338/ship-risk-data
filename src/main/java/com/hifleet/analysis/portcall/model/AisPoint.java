@@ -28,6 +28,7 @@ public class AisPoint implements Serializable {
     private String shipName;
     private String callSign;
     private String imoNumber;
+    private Integer shipType;
     private Double shipLength;
     private Double shipWidth;
 
@@ -197,6 +198,14 @@ public class AisPoint implements Serializable {
 
     public void setImoNumber(String imoNumber) {
         this.imoNumber = imoNumber;
+    }
+
+    public Integer getShipType() {
+        return shipType;
+    }
+
+    public void setShipType(Integer shipType) {
+        this.shipType = shipType;
     }
 
     public Double getShipLength() {

@@ -14,12 +14,22 @@ public class PortCallConfigTest {
         Assert.assertEquals("flink_aisdata_topic", config.getKafkaTopic());
         Assert.assertEquals("RELIABLE_STOP_POINTS", config.getKafkaStopPointTopic());
         Assert.assertEquals("portcall-consumer-1", config.getKafkaClientId());
+        Assert.assertEquals("committed", config.getKafkaStartingOffsets());
+        Assert.assertFalse(config.getAlongsideConfig().isEnabled());
+        Assert.assertEquals("RELIABLE_ALONGSIDE_EVENTS", config.getAlongsideConfig().getOutputTopic());
+        Assert.assertEquals("ALONGSIDE_V2_INSURANCE", config.getAlongsideConfig().getRuleVersion());
+        Assert.assertEquals(0.15d, config.getAlongsideConfig().getConfirmMaxDistanceNm(), 0.01d);
 
         Assert.assertEquals(600L, config.getReorderMaxLatenessSeconds());
         Assert.assertEquals(200, config.getReorderMaxPointsPerVessel());
         Assert.assertEquals(6, config.getDedupTtlHours());
         Assert.assertEquals(48, config.getStateIdleTtlHours());
         Assert.assertTrue(config.getAcceptedDataStates().contains("normal"));
+        Assert.assertTrue(config.getScopeMmsiWhitelist().isEmpty());
+        Assert.assertNull(config.getScopeMinLon());
+        Assert.assertNull(config.getScopeMaxLon());
+        Assert.assertNull(config.getScopeMinLat());
+        Assert.assertNull(config.getScopeMaxLat());
         Assert.assertEquals(1.0d, config.getStopPointMaxSpeedKnots(), 0.01d);
         Assert.assertEquals(2.0d, config.getStopPointEndSpeedKnots(), 0.01d);
         Assert.assertEquals(300L, config.getStopCandidateMinDurationSeconds());

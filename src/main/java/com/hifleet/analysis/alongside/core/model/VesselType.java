@@ -1,0 +1,32 @@
+package com.hifleet.analysis.alongside.core.model;
+
+public enum VesselType {
+    TANKER,
+    OIL_PRODUCTS,
+    CHEMICAL_TANKER,
+    LNG,
+    LPG,
+    CARGO,
+    BULK_CARRIER,
+    CONTAINER,
+    REEFER,
+    FISH_CARRIER,
+    BUNKER,
+    SUPPLY,
+    OFFSHORE_SUPPLY,
+    FISHING,
+    PASSENGER,
+    TUG,
+    PILOT,
+    PORT_SERVICE,
+    LAW_ENFORCEMENT,
+    SAR,
+    CLEANING,
+    DREDGER,
+    WORKBOAT,
+    PLEASURE_CRAFT,
+    SAILING,
+    LOCAL_PASSENGER,
+    TEST_TARGET,
+    UNKNOWN
+}

@@ -60,7 +60,7 @@ public class AisMessageParserTest {
                 + "\"heading\":88.0,\"imonumber\":1234567,\"callsign\":\"ABC123\","
                 + "\"name\":\"TEST SHIP\",\"eta\":\"2026-03-22 12:00:00\","
                 + "\"width\":30,\"length\":180,\"draught\":8.2,\"destination\":\"CNSHA\","
-                + "\"sourceid\":3,\"updatetime\":\"2026-03-21 00:00:00\","
+                + "\"sourceid\":3,\"ais_shiptype\":70,\"updatetime\":\"2026-03-21 00:00:00\","
                 + "\"servertime\":1774051205000,\"data_state\":\"normal\",\"topic\":\"AISTOPIC\"}"
         );
 
@@ -71,6 +71,7 @@ public class AisMessageParserTest {
         Assert.assertEquals("normal", point.getDataState());
         Assert.assertEquals("TEST SHIP", point.getShipName());
         Assert.assertEquals("1234567", point.getImoNumber());
+        Assert.assertEquals(Integer.valueOf(70), point.getShipType());
     }
 
     @Test
@@ -102,6 +103,7 @@ public class AisMessageParserTest {
         Assert.assertEquals("1", points.get(0).getMessageId());
         Assert.assertEquals("TEST SHIP", points.get(0).getShipName());
         Assert.assertEquals("1234567", points.get(0).getImoNumber());
+        Assert.assertEquals(Integer.valueOf(70), points.get(0).getShipType());
         Assert.assertEquals(Double.valueOf(180.0), points.get(0).getShipLength());
         Assert.assertEquals(Double.valueOf(30.0), points.get(0).getShipWidth());
         Assert.assertEquals("1", points.get(0).getDataState());

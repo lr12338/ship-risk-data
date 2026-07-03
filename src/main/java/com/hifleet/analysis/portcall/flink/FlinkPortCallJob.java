@@ -1,8 +1,15 @@
 package com.hifleet.analysis.portcall.flink;
 
+import com.hifleet.analysis.alongside.core.model.AlongsideEvent;
+import com.hifleet.analysis.alongside.core.model.PairProximityEvidence;
+import com.hifleet.analysis.alongside.flink.AlongsideAisPointFilter;
+import com.hifleet.analysis.alongside.flink.bucket.SpatialBucketedAisPoint;
+import com.hifleet.analysis.portcall.config.AlongsideConfig;
 import com.hifleet.analysis.portcall.config.PortCallConfig;
 import com.hifleet.analysis.portcall.model.AisPoint;
+import com.hifleet.analysis.portcall.model.CleanAisPoint;
 import com.hifleet.analysis.portcall.model.StopPointEvent;
+import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.configuration.CheckpointingOptions;
@@ -47,7 +54,7 @@ public final class FlinkPortCallJob {
             .setTopics(config.getKafkaTopic())
             .setGroupId(config.getKafkaGroupId())
             .setClientIdPrefix(config.getKafkaClientId())
-            .setStartingOffsets(OffsetsInitializer.committedOffsets(OffsetResetStrategy.EARLIEST))
+            .setStartingOffsets(resolveStartingOffsets(config.getKafkaStartingOffsets()))
             .setValueOnlyDeserializer(new SimpleStringSchema())
             .build();
         //System.out.println(config.getKafkaBootstrapServers());
@@ -57,11 +64,19 @@ public final class FlinkPortCallJob {
             .withIdleness(Duration.ofMinutes(1))
             .withTimestampAssigner(new AisPointTimestampAssigner());
 
-        DataStream<StopPointEvent> stopPoints = env.fromSource(source, WatermarkStrategy.noWatermarks(), "ais-kafka-source")
+        DataStream<CleanAisPoint> cleanAisPoints = env.fromSource(source, WatermarkStrategy.noWatermarks(), "ais-kafka-source")
             .flatMap(new FlinkAisParserFlatMap())
             .name("parse-ais-payload")
             .filter(new ValidAisPointFilter(config.getAcceptedDataStates()))
             .name("filter-valid-ais")
+            .filter(new AisScopeFilter(
+                config.getScopeMmsiWhitelist(),
+                config.getScopeMinLon(),
+                config.getScopeMaxLon(),
+                config.getScopeMinLat(),
+                config.getScopeMaxLat()
+            ))
+            .name("filter-ais-scope")
             .assignTimestampsAndWatermarks(watermarkStrategy)
             .name("assign-ais-event-time")
             .keyBy(new AisPointMmsiKeySelector())
@@ -73,7 +88,16 @@ public final class FlinkPortCallJob {
                 config.getReorderMaxPointsPerVessel(),
                 config.getJumpPointMaxImpliedSpeedKnots()
             ))
-            .name("keyed-ais-preprocess")
+            .name("keyed-ais-preprocess");
+
+        if (config.isFlinkDebugPrint()) {
+            cleanAisPoints
+                .map(new CleanAisDebugMapFunction())
+                .name("debug-clean-ais")
+                .print();
+        }
+
+        DataStream<StopPointEvent> stopPoints = cleanAisPoints
             .keyBy(new CleanAisPointMmsiKeySelector())
             .process(new StopPointDetectorProcessFunction(
                 config.getStopPointMaxSpeedKnots(),
@@ -113,7 +137,58 @@ public final class FlinkPortCallJob {
                 .print();
         }
 
+        addAlongsideBranch(cleanAisPoints, config);
+
         env.execute("reliable-stop-point-flink");
+    }
+
+    private static void addAlongsideBranch(DataStream<CleanAisPoint> cleanAisPoints, PortCallConfig config) {
+        AlongsideConfig alongsideConfig = config.getAlongsideConfig();
+        if (alongsideConfig == null || !alongsideConfig.isEnabled()) {
+            return;
+        }
+
+        DataStream<SpatialBucketedAisPoint> alongsideBuckets = cleanAisPoints
+            .filter(new AlongsideAisPointFilter(alongsideConfig))
+            .name("alongside-pre-filter")
+            .flatMap(new com.hifleet.analysis.alongside.flink.bucket.SpatialBucketAssigner(
+                alongsideConfig.getBucketSizeDegrees(),
+                alongsideConfig.getCandidateMaxSpeedKnots()
+            ))
+            .name("alongside-low-speed-spatial-buckets");
+
+        DataStream<PairProximityEvidence> pairEvidence = alongsideBuckets
+            .keyBy(new com.hifleet.analysis.alongside.flink.bucket.SpatialBucketKeySelector())
+            .process(new com.hifleet.analysis.alongside.flink.SpatialCandidateProcessFunction(alongsideConfig))
+            .name("alongside-spatial-candidate-recall");
+
+        if (config.isFlinkDebugPrint()) {
+            pairEvidence
+                .map(new PairEvidenceDebugMapFunction())
+                .name("debug-alongside-pair-evidence")
+                .print();
+        }
+
+        DataStream<AlongsideEvent> alongsideEvents = pairEvidence
+            .keyBy(new com.hifleet.analysis.alongside.flink.PairEvidenceKeySelector())
+            .process(new com.hifleet.analysis.alongside.flink.AlongsidePairDetectorProcessFunction(alongsideConfig))
+            .name("alongside-pair-detection");
+
+        KafkaSink<AlongsideEvent> alongsideSink = KafkaSink.<AlongsideEvent>builder()
+            .setBootstrapServers(config.getKafkaBootstrapServers())
+            .setRecordSerializer(new com.hifleet.analysis.alongside.output.AlongsideKafkaSerializationSchema(alongsideConfig.getOutputTopic()))
+            .build();
+
+        alongsideEvents
+            .sinkTo(alongsideSink)
+            .name("kafka-alongside-event-sink");
+
+        if (config.isFlinkDebugPrint()) {
+            alongsideEvents
+                .map(new AlongsideJsonMapFunction())
+                .name("debug-alongside-event-json")
+                .print();
+        }
     }
 
     private static StreamExecutionEnvironment createExecutionEnvironment(PortCallConfig config) {
@@ -166,10 +241,50 @@ public final class FlinkPortCallJob {
         }
     }
 
+    private static OffsetsInitializer resolveStartingOffsets(String startingOffsets) {
+        if ("earliest".equalsIgnoreCase(startingOffsets)) {
+            return OffsetsInitializer.earliest();
+        }
+        if ("latest".equalsIgnoreCase(startingOffsets)) {
+            return OffsetsInitializer.latest();
+        }
+        return OffsetsInitializer.committedOffsets(OffsetResetStrategy.EARLIEST);
+    }
+
     private static void applyIfConfigured(Configuration configuration, org.apache.flink.configuration.ConfigOption<String> option, String value) {
         if (value == null || value.trim().isEmpty()) {
             return;
         }
         configuration.set(option, value.trim());
+    }
+
+    private static final class CleanAisDebugMapFunction implements MapFunction<CleanAisPoint, String> {
+
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public String map(CleanAisPoint point) {
+            return "[debug-clean-ais] mmsi=" + point.getMmsi()
+                + ", time=" + point.getUpdateTime()
+                + ", lon=" + point.getLon()
+                + ", lat=" + point.getLat()
+                + ", speed=" + point.getSpeed()
+                + ", usable=" + point.isUsable();
+        }
+    }
+
+    private static final class PairEvidenceDebugMapFunction implements MapFunction<PairProximityEvidence, String> {
+
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public String map(PairProximityEvidence evidence) {
+            return "[debug-pair-evidence] pair_id=" + evidence.getPairId()
+                + ", evidence_time=" + evidence.getEvidenceTime()
+                + ", point_a_time=" + evidence.getPointATime()
+                + ", point_b_time=" + evidence.getPointBTime()
+                + ", distance_nm=" + evidence.getDistanceNm()
+                + ", time_gap_seconds=" + evidence.getTimeGapSeconds();
+        }
     }
 }

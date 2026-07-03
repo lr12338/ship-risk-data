@@ -245,6 +245,7 @@ public class FlinkKeyedPreprocessFunction extends KeyedProcessFunction<Long, Ais
         target.setShipName(source.getShipName());
         target.setCallSign(source.getCallSign());
         target.setImoNumber(source.getImoNumber());
+        target.setShipType(source.getShipType());
         target.setShipLength(source.getShipLength());
         target.setShipWidth(source.getShipWidth());
         return target;
