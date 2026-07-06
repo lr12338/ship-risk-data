@@ -1,7 +1,9 @@
 package com.hifleet.hbase;
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Date;
 
 
 import com.hifleet.compress.DPSimplifier01;
@@ -18,12 +20,22 @@ import org.apache.hadoop.hbase.client.Table;
 //import com.hifleet.webapp.admin.compress2.DPSimplifier01;
 
 public class GetTrajectoryFromHbase {
-	
-	
-	private SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-	
 
-	
+	private static final DateTimeFormatter TIME_FORMATTER =
+			DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+	private static final ZoneId DEFAULT_ZONE = ZoneId.systemDefault();
+
+	private static long toEpochSeconds(String time) {
+		return LocalDateTime.parse(time, TIME_FORMATTER)
+				.atZone(DEFAULT_ZONE)
+				.toEpochSecond();
+	}
+
+	private static String formatTimestamp(long epochSeconds) {
+		return LocalDateTime.ofInstant(Instant.ofEpochSecond(epochSeconds), DEFAULT_ZONE)
+				.format(TIME_FORMATTER);
+	}
+
 	public NewOffersForm getVoffersFromHbase(String mmsi,
 											 String startTime, String endTime, int zoom) {
 
@@ -54,11 +66,9 @@ public class GetTrajectoryFromHbase {
 			scan = new Scan();
 			scan.addColumn(HiFleetStringUtils.HBASE_CF_DEFAULT.getBytes(), HiFleetStringUtils.HBASE_QUALIFIER);
 			
-			String start_rowkey = mmsi + "-" + sdf.parse(startTime).getTime()
-					/ 1000;
-			
-			String end_rowkey = mmsi + "-" + sdf.parse(endTime).getTime()
-					/ 1000;
+			String start_rowkey = mmsi + "-" + toEpochSeconds(startTime);
+
+			String end_rowkey = mmsi + "-" + toEpochSeconds(endTime);
 
 			scan.setStartRow(start_rowkey.getBytes());
 			scan.setStopRow(end_rowkey.getBytes());
@@ -70,8 +80,7 @@ public class GetTrajectoryFromHbase {
 			//	datacount++;
 				//System.out.println(rt.getRow());
 				mmsi_timestamp = new String(rt.getRow()).split("-");
-				timestamp = sdf.format(new Date(
-						Long.valueOf(mmsi_timestamp[1]) * 1000));
+				timestamp = formatTimestamp(Long.valueOf(mmsi_timestamp[1]));
 				ais = new String(rt.getValue(HiFleetStringUtils.HBASE_CF_DEFAULT.getBytes(), HiFleetStringUtils.HBASE_QUALIFIER));
 				//System.out.println(ais);
 				String aiss[] = ais.split(";");
@@ -220,11 +229,9 @@ public class GetTrajectoryFromHbase {
 			scan = new Scan();
 			scan.addColumn(HiFleetStringUtils.HBASE_CF_DEFAULT.getBytes(), HiFleetStringUtils.HBASE_QUALIFIER);
 			
-			String start_rowkey = mmsi + "-" + sdf.parse(startTime).getTime()
-					/ 1000;
-			
-			String end_rowkey = mmsi + "-" + sdf.parse(endTime).getTime()
-					/ 1000;
+			String start_rowkey = mmsi + "-" + toEpochSeconds(startTime);
+
+			String end_rowkey = mmsi + "-" + toEpochSeconds(endTime);
 
 			scan.setStartRow(start_rowkey.getBytes());
 			scan.setStopRow(end_rowkey.getBytes());
@@ -235,8 +242,7 @@ public class GetTrajectoryFromHbase {
 			//	datacount++;
 				//System.out.println(rt.getRow());
 				mmsi_timestamp = new String(rt.getRow()).split("-");
-				timestamp = sdf.format(new Date(
-						Long.valueOf(mmsi_timestamp[1]) * 1000));
+				timestamp = formatTimestamp(Long.valueOf(mmsi_timestamp[1]));
 				ais = new String(rt.getValue(HiFleetStringUtils.HBASE_CF_DEFAULT.getBytes(), HiFleetStringUtils.HBASE_QUALIFIER));
 				//System.out.println(ais);
 				String aiss[] = ais.split(";");
@@ -419,11 +425,9 @@ public class GetTrajectoryFromHbase {
 			scan = new Scan();
 			scan.addColumn(HiFleetStringUtils.HBASE_CF_DEFAULT.getBytes(), HiFleetStringUtils.HBASE_QUALIFIER);
 			
-			String start_rowkey = mmsi + "-" + sdf.parse(startTime).getTime()
-					/ 1000;
-			
-			String end_rowkey = mmsi + "-" + sdf.parse(endTime).getTime()
-					/ 1000;
+			String start_rowkey = mmsi + "-" + toEpochSeconds(startTime);
+
+			String end_rowkey = mmsi + "-" + toEpochSeconds(endTime);
 
 			scan.setStartRow(start_rowkey.getBytes());
 			scan.setStopRow(end_rowkey.getBytes());
@@ -434,8 +438,7 @@ public class GetTrajectoryFromHbase {
 			//	datacount++;
 				//System.out.println(rt.getRow());
 				mmsi_timestamp = new String(rt.getRow()).split("-");
-				timestamp = sdf.format(new Date(
-						Long.valueOf(mmsi_timestamp[1]) * 1000));
+				timestamp = formatTimestamp(Long.valueOf(mmsi_timestamp[1]));
 				ais = new String(rt.getValue(HiFleetStringUtils.HBASE_CF_DEFAULT.getBytes(), HiFleetStringUtils.HBASE_QUALIFIER));
 				//System.out.println(ais);
 				String aiss[] = ais.split(";");
