@@ -17,6 +17,7 @@ FLINK_BIN="${FLINK_BIN:-$DEFAULT_FLINK_BIN}"
 KAFKA_JAVA_HOME="${KAFKA_JAVA_HOME:-${JAVA21_HOME:-/opt/homebrew/opt/openjdk@21}}"
 FLINK_JAVA_HOME="${FLINK_JAVA_HOME:-${JAVA8_HOME:-${JAVA_HOME:-/Users/raymondlu/.sdkman/candidates/java/current}}}"
 FLINK_RUN_TARGET="${FLINK_RUN_TARGET:-}"
+FLINK_LOCAL_LIB_CLASSPATH="${FLINK_LOCAL_LIB_CLASSPATH:-/tmp/flink-1.16/flink-1.16.0/lib/*}"
 ALONGSIDE_ENABLED="${ALONGSIDE_ENABLED:-true}"
 
 AIS_TOPIC="${AIS_TOPIC:-AIS_ALONGSIDE_TEST}"
@@ -41,7 +42,9 @@ usage() {
 Usage:
   bash scripts/verify-alongside-local.sh quick
   bash scripts/verify-alongside-local.sh e2e
+  bash scripts/verify-alongside-local.sh e2e-db
   bash scripts/verify-alongside-local.sh e2e-disabled
+  bash scripts/verify-alongside-local.sh e2e-disabled-db
   bash scripts/verify-alongside-local.sh live
   bash scripts/verify-alongside-local.sh live-event
   bash scripts/verify-alongside-local.sh replay
@@ -56,6 +59,7 @@ Environment overrides:
   KAFKA_JAVA_HOME=$KAFKA_JAVA_HOME
   FLINK_JAVA_HOME=$FLINK_JAVA_HOME
   FLINK_RUN_TARGET=$FLINK_RUN_TARGET
+  FLINK_LOCAL_LIB_CLASSPATH=$FLINK_LOCAL_LIB_CLASSPATH
   LOCAL_STATE_BACKEND=$LOCAL_STATE_BACKEND
   LOCAL_CHECKPOINT_INTERVAL_MS=$LOCAL_CHECKPOINT_INTERVAL_MS
   LOCAL_REORDER_LATENESS_SECONDS=$LOCAL_REORDER_LATENESS_SECONDS
@@ -72,6 +76,11 @@ Environment overrides:
   LOCAL_ALONGSIDE_CONFIRM_MIN_DURATION_MINUTES=${LOCAL_ALONGSIDE_CONFIRM_MIN_DURATION_MINUTES:-}
   LOCAL_ALONGSIDE_CONFIRM_MIN_POINTS=${LOCAL_ALONGSIDE_CONFIRM_MIN_POINTS:-}
   ALONGSIDE_ENABLED=${ALONGSIDE_ENABLED:-true}
+  ALONGSIDE_DB_SINK_ENABLED=${ALONGSIDE_DB_SINK_ENABLED:-false}
+  ALONGSIDE_DB_URL=${ALONGSIDE_DB_URL:-}
+  ALONGSIDE_DB_USERNAME=${ALONGSIDE_DB_USERNAME:-}
+  ALONGSIDE_DB_TABLE_EVENT=${ALONGSIDE_DB_TABLE_EVENT:-ship_realtime_alongside_event}
+  ALONGSIDE_DB_TABLE_DETAIL=${ALONGSIDE_DB_TABLE_DETAIL:-ship_realtime_alongside_event_detail}
 EOF
 }
 
@@ -103,6 +112,14 @@ create_output_topics() {
 
 submit_flink_job() {
   mkdir -p /tmp/flink-alongside/checkpoints /tmp/flink-alongside/savepoints /tmp/flink-alongside/rocksdb
+  if [ "$FLINK_RUN_TARGET" = "local-java" ]; then
+    local log_file="$ROOT_DIR/target/alongside-local-java-job.log"
+    flink_env java $(app_jvm_args) -cp "$JOB_JAR:$FLINK_LOCAL_LIB_CLASSPATH" \
+      com.hifleet.analysis.portcall.flink.FlinkPortCallJob > "$log_file" 2>&1 &
+    RUNNING_JOB_ID="pid:$!"
+    echo "Started local Java Flink job pid=${RUNNING_JOB_ID#pid:}, log=$log_file"
+    return
+  fi
   local output
   set +e
   if [ -n "$FLINK_RUN_TARGET" ]; then
@@ -122,11 +139,20 @@ submit_flink_job() {
     exit "$code"
   fi
   RUNNING_JOB_ID="$(printf '%s\n' "$output" | sed -n 's/.*JobID //p' | tail -n 1)"
+  if [ -z "$RUNNING_JOB_ID" ]; then
+    echo "Flink job submission did not return a JobID." >&2
+    exit 1
+  fi
 }
 
 cleanup_flink_job() {
   if [ -n "$RUNNING_JOB_ID" ]; then
-    flink_env "$FLINK_BIN" cancel "$RUNNING_JOB_ID" >/dev/null 2>&1 || true
+    if [[ "$RUNNING_JOB_ID" == pid:* ]]; then
+      kill "${RUNNING_JOB_ID#pid:}" >/dev/null 2>&1 || true
+      wait "${RUNNING_JOB_ID#pid:}" >/dev/null 2>&1 || true
+    else
+      flink_env "$FLINK_BIN" cancel "$RUNNING_JOB_ID" >/dev/null 2>&1 || true
+    fi
   fi
 }
 
@@ -184,6 +210,66 @@ assert_output() {
   echo "Alongside e2e output verified: $OUTPUT_FILE"
 }
 
+parse_jdbc_url() {
+  local raw="${ALONGSIDE_DB_URL#jdbc:mysql://}"
+  raw="${raw%%\?*}"
+  DB_HOST="${raw%%:*}"
+  local rest="${raw#*:}"
+  DB_PORT="${rest%%/*}"
+  DB_NAME="${rest#*/}"
+}
+
+require_db_env() {
+  if [ -z "${ALONGSIDE_DB_URL:-}" ] || [ -z "${ALONGSIDE_DB_USERNAME:-}" ] || [ -z "${ALONGSIDE_DB_PASSWORD:-}" ]; then
+    echo "ALONGSIDE_DB_URL, ALONGSIDE_DB_USERNAME and ALONGSIDE_DB_PASSWORD are required for DB verification." >&2
+    exit 1
+  fi
+  parse_jdbc_url
+}
+
+db_query() {
+  java -cp "$JOB_JAR" com.hifleet.analysis.alongside.output.db.AlongsideDbLocalVerifier query "$1"
+}
+
+db_scalar() {
+  db_query "$1" | awk 'NR==2 {print $1}'
+}
+
+db_execute() {
+  java -cp "$JOB_JAR" com.hifleet.analysis.alongside.output.db.AlongsideDbLocalVerifier execute "$1" >/dev/null
+}
+
+cleanup_alongside_db_rows() {
+  require_db_env
+  db_execute "DELETE FROM ${ALONGSIDE_DB_TABLE_DETAIL:-ship_realtime_alongside_event_detail} WHERE pair_id='413193000-413433610'"
+  db_execute "DELETE FROM ${ALONGSIDE_DB_TABLE_EVENT:-ship_realtime_alongside_event} WHERE pair_id='413193000-413433610'"
+}
+
+assert_db_output() {
+  require_db_env
+  local event_table="${ALONGSIDE_DB_TABLE_EVENT:-ship_realtime_alongside_event}"
+  local detail_table="${ALONGSIDE_DB_TABLE_DETAIL:-ship_realtime_alongside_event_detail}"
+  local cnt weak confirmed duplicate_count json_invalid detail_roles
+  cnt="$(db_scalar "SELECT COUNT(*) AS cnt FROM $event_table WHERE pair_id='413193000-413433610'")"
+  weak="$(db_scalar "SELECT COUNT(*) AS cnt FROM $event_table WHERE pair_id='413193000-413433610' AND event_sub_type='WEAK_ALONGSIDE_CANDIDATE'")"
+  confirmed="$(db_scalar "SELECT COUNT(*) AS cnt FROM $event_table WHERE pair_id='413193000-413433610' AND event_sub_type='ALONGSIDE_CONFIRMED_CANDIDATE'")"
+  duplicate_count="$(db_scalar "SELECT COUNT(*) AS cnt FROM (SELECT event_id FROM $event_table WHERE pair_id='413193000-413433610' GROUP BY event_id HAVING COUNT(*) > 1) t")"
+  json_invalid="$(db_scalar "SELECT COUNT(*) AS cnt FROM $event_table WHERE pair_id='413193000-413433610' AND JSON_VALID(score_detail_json) <> 1")"
+  detail_roles="$(db_scalar "SELECT COUNT(DISTINCT point_role) AS cnt FROM $detail_table WHERE pair_id='413193000-413433610' AND point_role IN ('OWN','TARGET')")"
+  if [ "$cnt" -lt 2 ] || [ "$weak" -lt 1 ] || [ "$confirmed" -lt 1 ] || [ "$duplicate_count" -ne 0 ] || [ "$json_invalid" -ne 0 ]; then
+    echo "Unexpected DB verification result: cnt=$cnt weak=$weak confirmed=$confirmed duplicate=$duplicate_count json_invalid=$json_invalid" >&2
+    exit 1
+  fi
+  if [ "${ALONGSIDE_DB_DETAIL_ENABLED:-true}" = "true" ] && [ "$detail_roles" -lt 2 ]; then
+    echo "Expected OWN and TARGET detail rows, found distinct roles=$detail_roles" >&2
+    exit 1
+  fi
+  echo "Alongside DB output verified: cnt=$cnt weak=$weak confirmed=$confirmed duplicate=$duplicate_count json_invalid=$json_invalid detail_roles=$detail_roles"
+  db_query "SELECT COUNT(*) AS cnt FROM $event_table"
+  db_query "SELECT event_id,pair_id,event_sub_type,rule_version,mmsi_a,mmsi_b,start_time,end_time,duration_minutes,point_count,min_distance_nm,max_distance_nm,avg_relative_speed,heading_parallel_ratio,severity_level,event_score,confidence_level,exclusion_flag,exclusion_reason,JSON_VALID(score_detail_json) AS score_json_valid FROM $event_table ORDER BY created_at DESC LIMIT 10"
+  db_query "SELECT event_id,point_role,COUNT(*) AS point_count FROM $detail_table GROUP BY event_id,point_role ORDER BY event_id,point_role"
+}
+
 e2e() {
   trap cleanup_flink_job EXIT
   require_cmd "$KAFKA_TOPICS_BIN"
@@ -191,6 +277,20 @@ e2e() {
   require_cmd "$KAFKA_CONSUMER_BIN"
   require_cmd "$FLINK_BIN"
   KAFKA_STARTING_OFFSETS="${KAFKA_STARTING_OFFSETS:-earliest}"
+  local suffix
+  suffix="$(date +%Y%m%d%H%M%S)"
+  if [ "$AIS_TOPIC" = "AIS_ALONGSIDE_TEST" ]; then
+    AIS_TOPIC="AIS_ALONGSIDE_TEST_$suffix"
+  fi
+  if [ "$ALONGSIDE_TOPIC" = "RELIABLE_ALONGSIDE_EVENTS_TEST" ]; then
+    ALONGSIDE_TOPIC="RELIABLE_ALONGSIDE_EVENTS_TEST_$suffix"
+  fi
+  if [ "$STOP_TOPIC" = "RELIABLE_STOP_POINTS_TEST" ]; then
+    STOP_TOPIC="RELIABLE_STOP_POINTS_TEST_$suffix"
+  fi
+  if [[ "$GROUP_ID" == alongside-local-group-* ]]; then
+    GROUP_ID="alongside-local-group-$suffix"
+  fi
   quick
   create_topics
   submit_flink_job
@@ -199,6 +299,8 @@ e2e() {
   sleep 10
   consume_alongside_output
   assert_output
+  cleanup_flink_job
+  RUNNING_JOB_ID=""
 }
 
 e2e_disabled() {
@@ -209,6 +311,20 @@ e2e_disabled() {
   require_cmd "$FLINK_BIN"
   KAFKA_STARTING_OFFSETS="${KAFKA_STARTING_OFFSETS:-earliest}"
   ALONGSIDE_ENABLED=false
+  local suffix
+  suffix="$(date +%Y%m%d%H%M%S)"
+  if [ "$AIS_TOPIC" = "AIS_ALONGSIDE_TEST" ]; then
+    AIS_TOPIC="AIS_ALONGSIDE_DISABLED_TEST_$suffix"
+  fi
+  if [ "$ALONGSIDE_TOPIC" = "RELIABLE_ALONGSIDE_EVENTS_TEST" ]; then
+    ALONGSIDE_TOPIC="RELIABLE_ALONGSIDE_EVENTS_DISABLED_TEST_$suffix"
+  fi
+  if [ "$STOP_TOPIC" = "RELIABLE_STOP_POINTS_TEST" ]; then
+    STOP_TOPIC="RELIABLE_STOP_POINTS_DISABLED_TEST_$suffix"
+  fi
+  if [[ "$GROUP_ID" == alongside-local-group-* ]]; then
+    GROUP_ID="alongside-local-disabled-group-$suffix"
+  fi
   quick
   create_topics
   submit_flink_job
@@ -216,6 +332,45 @@ e2e_disabled() {
   produce_sample
   sleep 10
   assert_no_alongside_output
+  cleanup_flink_job
+  RUNNING_JOB_ID=""
+}
+
+e2e_db() {
+  local suffix
+  suffix="$(date +%Y%m%d%H%M%S)"
+  ALONGSIDE_DB_SINK_ENABLED=true
+  AIS_TOPIC="AIS_ALONGSIDE_DB_TEST_$suffix"
+  ALONGSIDE_TOPIC="RELIABLE_ALONGSIDE_EVENTS_DB_TEST_$suffix"
+  STOP_TOPIC="RELIABLE_STOP_POINTS_DB_TEST_$suffix"
+  GROUP_ID="alongside-local-db-group-$suffix"
+  bash "$ROOT_DIR/scripts/verify-alongside-db-local.sh"
+  cleanup_alongside_db_rows
+  e2e
+  assert_db_output
+  e2e
+  assert_db_output
+}
+
+e2e_disabled_db() {
+  local suffix
+  suffix="$(date +%Y%m%d%H%M%S)"
+  ALONGSIDE_DB_SINK_ENABLED=true
+  AIS_TOPIC="AIS_ALONGSIDE_DISABLED_DB_TEST_$suffix"
+  ALONGSIDE_TOPIC="RELIABLE_ALONGSIDE_EVENTS_DISABLED_DB_TEST_$suffix"
+  STOP_TOPIC="RELIABLE_STOP_POINTS_DISABLED_DB_TEST_$suffix"
+  GROUP_ID="alongside-local-disabled-db-group-$suffix"
+  bash "$ROOT_DIR/scripts/verify-alongside-db-local.sh"
+  cleanup_alongside_db_rows
+  e2e_disabled
+  require_db_env
+  local cnt
+  cnt="$(db_scalar "SELECT COUNT(*) AS cnt FROM ${ALONGSIDE_DB_TABLE_EVENT:-ship_realtime_alongside_event} WHERE pair_id='413193000-413433610'")"
+  if [ "$cnt" -ne 0 ]; then
+    echo "Unexpected DB rows while alongside.enabled=false: $cnt" >&2
+    exit 1
+  fi
+  echo "No alongside DB output verified for alongside.enabled=false"
 }
 
 live() {
@@ -390,7 +545,17 @@ app_jvm_args() {
 -Dflink.checkpoint.dir=file:///tmp/flink-alongside/checkpoints \
 -Dflink.savepoint.dir=file:///tmp/flink-alongside/savepoints \
 -Dflink.rocksdb.localdir=/tmp/flink-alongside/rocksdb \
--Dflink.debug.print=true$(optional_alongside_rule_args)"
+-Dflink.debug.print=true \
+-Dalongside.db-sink.enabled=${ALONGSIDE_DB_SINK_ENABLED:-false} \
+-Dalongside.db-sink.url=${ALONGSIDE_DB_URL:-} \
+-Dalongside.db-sink.username=${ALONGSIDE_DB_USERNAME:-} \
+-Dalongside.db-sink.password=${ALONGSIDE_DB_PASSWORD:-} \
+-Dalongside.db-sink.detail-enabled=${ALONGSIDE_DB_DETAIL_ENABLED:-true} \
+-Dalongside.db-sink.batch-size=${ALONGSIDE_DB_BATCH_SIZE:-100} \
+-Dalongside.db-sink.flush-interval-ms=${ALONGSIDE_DB_FLUSH_INTERVAL_MS:-3000} \
+-Dalongside.db-sink.table-event=${ALONGSIDE_DB_TABLE_EVENT:-ship_realtime_alongside_event} \
+-Dalongside.db-sink.table-detail=${ALONGSIDE_DB_TABLE_DETAIL:-ship_realtime_alongside_event_detail} \
+-Dalongside.db-sink.max-detail-points-per-event=${ALONGSIDE_DB_MAX_DETAIL_POINTS_PER_EVENT:-200}$(optional_alongside_rule_args)"
 }
 
 optional_alongside_rule_args() {
@@ -423,8 +588,14 @@ case "$MODE" in
   e2e)
     e2e
     ;;
+  e2e-db)
+    e2e_db
+    ;;
   e2e-disabled)
     e2e_disabled
+    ;;
+  e2e-disabled-db)
+    e2e_disabled_db
     ;;
   live)
     live

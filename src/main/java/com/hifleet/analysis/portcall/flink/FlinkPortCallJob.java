@@ -37,11 +37,11 @@ public final class FlinkPortCallJob {
     /**
      * Starts the Flink streaming job.
      *
-     * @param args unused; configuration is loaded from application.properties and JVM -D overrides
+     * @param args Flink Web UI Program Arguments
      * @throws Exception when Flink job startup fails
      */
     public static void main(String[] args) throws Exception {
-        PortCallConfig config = PortCallConfig.defaultConfig();
+        PortCallConfig config = PortCallConfig.defaultConfig(args);
         int maxRetainedCheckpoints = config.resolveMaxRetainedCheckpoints();
         System.err.println("[FlinkPortCallJob] checkpoint max-retained=" + maxRetainedCheckpoints
             + ", interval-ms=" + config.getFlinkCheckpointIntervalMs()
@@ -182,6 +182,12 @@ public final class FlinkPortCallJob {
         alongsideEvents
             .sinkTo(alongsideSink)
             .name("kafka-alongside-event-sink");
+
+        if (alongsideConfig.getDbSinkConfig() != null && alongsideConfig.getDbSinkConfig().isEnabled()) {
+            alongsideEvents
+                .addSink(new com.hifleet.analysis.alongside.output.db.AlongsideEventJdbcSink(alongsideConfig.getDbSinkConfig()))
+                .name("jdbc-alongside-event-sink");
+        }
 
         if (config.isFlinkDebugPrint()) {
             alongsideEvents

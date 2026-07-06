@@ -19,6 +19,8 @@ public class PortCallConfigTest {
         Assert.assertEquals("RELIABLE_ALONGSIDE_EVENTS", config.getAlongsideConfig().getOutputTopic());
         Assert.assertEquals("ALONGSIDE_V2_INSURANCE", config.getAlongsideConfig().getRuleVersion());
         Assert.assertEquals(0.15d, config.getAlongsideConfig().getConfirmMaxDistanceNm(), 0.01d);
+        Assert.assertFalse(config.getAlongsideConfig().getDbSinkConfig().isEnabled());
+        Assert.assertEquals("ship_realtime_alongside_event", config.getAlongsideConfig().getDbSinkConfig().getEventTable());
 
         Assert.assertEquals(600L, config.getReorderMaxLatenessSeconds());
         Assert.assertEquals(200, config.getReorderMaxPointsPerVessel());

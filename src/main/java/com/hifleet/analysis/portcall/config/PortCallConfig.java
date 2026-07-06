@@ -75,6 +75,16 @@ public class PortCallConfig implements Serializable {
      * @return populated config
      */
     public static PortCallConfig defaultConfig() {
+        return defaultConfig(new String[0]);
+    }
+
+    /**
+     * Loads application.properties, then applies JVM -D, environment, and Program Arguments overrides.
+     *
+     * @param args Flink Web UI Program Arguments
+     * @return populated config
+     */
+    public static PortCallConfig defaultConfig(String[] args) {
         Properties props = buildDefaults();
         InputStream inputStream = Thread.currentThread().getContextClassLoader()
             .getResourceAsStream("application.properties");
@@ -93,7 +103,9 @@ public class PortCallConfig implements Serializable {
                 }
             }
         }
+        applyEnvironmentOverrides(props);
         applySystemOverrides(props);
+        applyArgumentOverrides(props, args);
 
         PortCallConfig config = new PortCallConfig();
         config.setKafkaBootstrapServers(value(props, "kafka.bootstrap.servers"));
@@ -214,6 +226,86 @@ public class PortCallConfig implements Serializable {
                 props.setProperty(key, systemValue.trim());
             }
         }
+    }
+
+    private static void applyEnvironmentOverrides(Properties props) {
+        for (String key : props.stringPropertyNames()) {
+            String envValue = firstEnvValue(key);
+            if (envValue != null && !envValue.trim().isEmpty()) {
+                props.setProperty(key, envValue.trim());
+            }
+        }
+    }
+
+    private static String firstEnvValue(String key) {
+        String alias = dbSinkEnvAlias(key);
+        if (alias != null) {
+            String aliasValue = System.getenv(alias);
+            if (aliasValue != null && !aliasValue.trim().isEmpty()) {
+                return aliasValue;
+            }
+        }
+        return System.getenv(toEnvName(key));
+    }
+
+    private static String dbSinkEnvAlias(String key) {
+        if ("alongside.db-sink.url".equals(key)) {
+            return "ALONGSIDE_DB_URL";
+        }
+        if ("alongside.db-sink.username".equals(key)) {
+            return "ALONGSIDE_DB_USERNAME";
+        }
+        if ("alongside.db-sink.password".equals(key)) {
+            return "ALONGSIDE_DB_PASSWORD";
+        }
+        return null;
+    }
+
+    private static String toEnvName(String key) {
+        return key.toUpperCase().replace('.', '_').replace('-', '_');
+    }
+
+    private static void applyArgumentOverrides(Properties props, String[] args) {
+        Properties argProps = parseProgramArguments(args);
+        for (String key : argProps.stringPropertyNames()) {
+            if (props.containsKey(key)) {
+                props.setProperty(key, argProps.getProperty(key));
+            }
+        }
+    }
+
+    static Properties parseProgramArguments(String[] args) {
+        Properties parsed = new Properties();
+        if (args == null) {
+            return parsed;
+        }
+        for (int i = 0; i < args.length; i++) {
+            String token = args[i];
+            if (token == null || !token.startsWith("--") || token.length() <= 2) {
+                continue;
+            }
+            String keyValue = token.substring(2);
+            int equalsIndex = keyValue.indexOf('=');
+            if (equalsIndex >= 0) {
+                String key = keyValue.substring(0, equalsIndex).trim();
+                String value = keyValue.substring(equalsIndex + 1).trim();
+                if (!key.isEmpty() && !value.isEmpty()) {
+                    parsed.setProperty(key, value);
+                }
+                continue;
+            }
+            if (i + 1 < args.length && args[i + 1] != null && !args[i + 1].startsWith("--")) {
+                parsed.setProperty(keyValue.trim(), args[++i].trim());
+            }
+        }
+        return parsed;
+    }
+
+    public static String safeConfigValue(String key, String value) {
+        if (key != null && key.toLowerCase().contains("password")) {
+            return "<redacted>";
+        }
+        return value;
     }
 
     private static String value(Properties props, String key) {

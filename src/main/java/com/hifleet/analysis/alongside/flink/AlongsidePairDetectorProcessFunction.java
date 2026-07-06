@@ -13,6 +13,7 @@ import com.hifleet.analysis.alongside.core.score.AlongsideRiskScorer;
 import com.hifleet.analysis.alongside.core.score.AlongsideRiskScorerImpl;
 import com.hifleet.analysis.alongside.core.score.AlongsideSceneAdjustmentService;
 import com.hifleet.analysis.alongside.core.score.AlongsideSceneAdjustmentServiceImpl;
+import com.hifleet.analysis.alongside.output.db.AlongsideEventIdGenerator;
 import com.hifleet.analysis.portcall.config.AlongsideConfig;
 import org.apache.flink.api.common.state.StateTtlConfig;
 import org.apache.flink.api.common.state.ValueState;
@@ -28,6 +29,8 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 public class AlongsidePairDetectorProcessFunction
     extends KeyedProcessFunction<String, PairProximityEvidence, AlongsideEvent> {
@@ -182,6 +185,16 @@ public class AlongsidePairDetectorProcessFunction
             }
         }
         state.previousOwnTime = evidence.getPointATime();
+        if (config.getDbSinkConfig() != null && config.getDbSinkConfig().isEnabled()
+            && config.getDbSinkConfig().isDetailEnabled()
+            && config.getDbSinkConfig().getMaxDetailPointsPerEvent() > 0) {
+            if (state.evidencePoints == null) {
+                state.evidencePoints = new ArrayList<PairProximityEvidence>();
+            }
+            if (state.evidencePoints.size() < config.getDbSinkConfig().getMaxDetailPointsPerEvent()) {
+                state.evidencePoints.add(evidence);
+            }
+        }
     }
 
     public static AlongsideEvent buildEventIfReady(PairState state, AlongsideConfig config) {
@@ -216,8 +229,6 @@ public class AlongsidePairDetectorProcessFunction
         AlongsideScoreResult score = riskScorer.score(detection, context);
         AlongsideEvent event = new AlongsideEvent();
         event.setPairId(state.pairId);
-        event.setEventId(state.pairId + "-" + state.startTime.toEpochMilli() + "-"
-            + eventSubType.toLowerCase());
         event.setEventType("ALONGSIDE_CANDIDATE");
         event.setEventSubType(eventSubType);
         event.setSourceMode("REALTIME_AUTO_BUCKET");
@@ -256,6 +267,8 @@ public class AlongsidePairDetectorProcessFunction
         event.setMaxAisGapMinutes(state.maxAisGapMinutes);
         event.setTrackCoverageRatio(window.getTrackCoverageRatio());
         event.setEmitTime(Instant.now());
+        event.setEvidencePoints(copyEvidence(state));
+        AlongsideEventIdGenerator.ensureEventId(event);
         return event;
     }
 
@@ -266,7 +279,6 @@ public class AlongsidePairDetectorProcessFunction
         PairEvidenceWindow window = toWindow(state, config);
         AlongsideEvent event = new AlongsideEvent();
         event.setPairId(state.pairId);
-        event.setEventId(state.pairId + "-" + state.startTime.toEpochMilli() + "-end");
         event.setEventType("ALONGSIDE_CANDIDATE");
         event.setEventSubType(AlongsideRuleEngineImpl.SUB_TYPE_END);
         event.setSourceMode("REALTIME_AUTO_BUCKET");
@@ -305,8 +317,17 @@ public class AlongsidePairDetectorProcessFunction
         event.setMaxAisGapMinutes(state.maxAisGapMinutes);
         event.setTrackCoverageRatio(window.getTrackCoverageRatio());
         event.setEmitTime(Instant.now());
+        event.setEvidencePoints(copyEvidence(state));
+        AlongsideEventIdGenerator.ensureEventId(event);
         state.endEmitted = true;
         return event;
+    }
+
+    private static List<PairProximityEvidence> copyEvidence(PairState state) {
+        if (state.evidencePoints == null || state.evidencePoints.isEmpty()) {
+            return new ArrayList<PairProximityEvidence>();
+        }
+        return new ArrayList<PairProximityEvidence>(state.evidencePoints);
     }
 
     private static String resolveOutputSubType(PairState state, AlongsideDetectionResult detection,
@@ -446,5 +467,6 @@ public class AlongsidePairDetectorProcessFunction
         private com.hifleet.analysis.alongside.core.model.VesselProfile vesselA;
         private com.hifleet.analysis.alongside.core.model.VesselProfile vesselB;
         private com.hifleet.analysis.alongside.core.model.PairPriority pairPriority;
+        private List<PairProximityEvidence> evidencePoints;
     }
 }

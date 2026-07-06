@@ -2,6 +2,8 @@ package com.hifleet.analysis.alongside.core.model;
 
 import java.io.Serializable;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.List;
 
 public class AlongsideEvent implements Serializable {
 
@@ -43,6 +45,7 @@ public class AlongsideEvent implements Serializable {
     private Long maxAisGapMinutes;
     private Double trackCoverageRatio;
     private Instant emitTime;
+    private List<PairProximityEvidence> evidencePoints = Collections.emptyList();
 
     public String getEventId() {
         return eventId;
@@ -330,5 +333,13 @@ public class AlongsideEvent implements Serializable {
 
     public void setEmitTime(Instant emitTime) {
         this.emitTime = emitTime;
+    }
+
+    public List<PairProximityEvidence> getEvidencePoints() {
+        return evidencePoints;
+    }
+
+    public void setEvidencePoints(List<PairProximityEvidence> evidencePoints) {
+        this.evidencePoints = evidencePoints == null ? Collections.<PairProximityEvidence>emptyList() : evidencePoints;
     }
 }

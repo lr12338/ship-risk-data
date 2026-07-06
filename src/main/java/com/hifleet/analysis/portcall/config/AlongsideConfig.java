@@ -8,6 +8,7 @@ import java.util.Set;
 
 import com.hifleet.analysis.alongside.core.model.AlongsideRuleConfig;
 import com.hifleet.analysis.alongside.core.model.VesselType;
+import com.hifleet.analysis.alongside.output.db.AlongsideDbSinkConfig;
 
 /**
  * Runtime configuration for the independent realtime alongside branch.
@@ -56,6 +57,7 @@ public class AlongsideConfig implements Serializable {
     private boolean sceneDataAvailable;
     private boolean counterpartyRiskAvailable;
     private boolean autoL4Enabled;
+    private AlongsideDbSinkConfig dbSinkConfig;
 
     public static AlongsideConfig fromProperties(Properties props) {
         AlongsideConfig config = new AlongsideConfig();
@@ -99,6 +101,7 @@ public class AlongsideConfig implements Serializable {
         config.setNavStatusDowngradeEnabled(toBoolean(value(props, "alongside.scene.nav-status-downgrade.enabled"), true));
         config.setOutputUpdateIntervalMinutes(toLong(value(props, "alongside.output.update-interval-minutes"), 5L));
         config.setMetricsEnabled(toBoolean(value(props, "alongside.metrics.enabled"), true));
+        config.setDbSinkConfig(AlongsideDbSinkConfig.fromProperties(props));
         return config;
     }
 
@@ -150,6 +153,7 @@ public class AlongsideConfig implements Serializable {
         defaults.setProperty("alongside.auto-l4-enabled", "false");
         defaults.setProperty("alongside.output.update-interval-minutes", "5");
         defaults.setProperty("alongside.metrics.enabled", "true");
+        AlongsideDbSinkConfig.addDefaults(defaults);
     }
 
     public AlongsideRuleConfig toRuleConfig() {
@@ -548,5 +552,13 @@ public class AlongsideConfig implements Serializable {
 
     public void setNavStatusDowngradeEnabled(boolean navStatusDowngradeEnabled) {
         this.navStatusDowngradeEnabled = navStatusDowngradeEnabled;
+    }
+
+    public AlongsideDbSinkConfig getDbSinkConfig() {
+        return dbSinkConfig;
+    }
+
+    public void setDbSinkConfig(AlongsideDbSinkConfig dbSinkConfig) {
+        this.dbSinkConfig = dbSinkConfig;
     }
 }

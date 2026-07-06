@@ -32,6 +32,8 @@ public class AlongsidePairDetectorProcessFunctionTest {
         AlongsideEvent update = AlongsidePairDetectorProcessFunction.buildEventIfReady(state, config);
 
         Assert.assertEquals(AlongsideRuleEngineImpl.SUB_TYPE_UPDATE, update.getEventSubType());
+        Assert.assertEquals(32, update.getEventId().length());
+        Assert.assertFalse(update.getEvidencePoints().isEmpty());
     }
 
     @Test
@@ -56,6 +58,7 @@ public class AlongsidePairDetectorProcessFunctionTest {
         Properties props = new Properties();
         AlongsideConfig.addDefaults(props);
         props.setProperty("alongside.output.update-interval-minutes", "5");
+        props.setProperty("alongside.db-sink.enabled", "true");
         return AlongsideConfig.fromProperties(props);
     }
 
