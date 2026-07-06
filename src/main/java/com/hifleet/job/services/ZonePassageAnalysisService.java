@@ -520,6 +520,26 @@ public class ZonePassageAnalysisService {
         return stormWavePassageService.calculateStormPassage(mmsi, trajectoryPoints, stormRegionIndex);
     }
 
+    /**
+     * 质量评估抽样回放：按与 Job 相同逻辑重算事件，不落库。
+     */
+    public List<ZoneCrossingEvent> recalculateEventsForShip(String mmsi, String startTime, String endTime) {
+        Vector<NewShipForm> trajectoryPoints = loadTrajectoryPoints(mmsi, startTime, endTime);
+        if (trajectoryPoints.isEmpty()) {
+            return Collections.emptyList();
+        }
+        ZoneContext zoneContext = loadZoneContext();
+        stormWavePassageService.initPgAvailability();
+        StormRegionIndex stormRegionIndex = stormWavePassageService.loadStormRegions(startTime, endTime);
+        List<ZoneCrossingEvent> allEvents = new ArrayList<ZoneCrossingEvent>();
+        allEvents.addAll(stormWavePassageService.calculateStormPassage(mmsi, trajectoryPoints, stormRegionIndex));
+        allEvents.addAll(multiZoneCrossingDetector.detectEvents(
+                mmsi, trajectoryPoints,
+                zoneContext.getStraitMatcher(), zoneContext.getSeaAreaMatcher(),
+                zoneContext.getBridgeWindFarmMatcher(), zoneContext.getAlertAreaMatcher()));
+        return allEvents;
+    }
+
     private static final class StatusBatchBuffer {
         private final ZonePassageStatusRepository repository;
         private final int batchSize;
