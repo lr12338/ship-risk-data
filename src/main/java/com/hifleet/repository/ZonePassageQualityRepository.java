@@ -140,11 +140,13 @@ public class ZonePassageQualityRepository {
         return c == null ? 0 : c;
     }
 
-    public int countOutOfRangeEvents(String startTime, String endTime) {
-        Integer c = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM dataanalysis.ship_zone_crossing_event "
-                        + "WHERE event_time < ? OR event_time >= ?",
-                new Object[]{startTime, endTime}, Integer.class);
+    public int countOutOfRangeEvents(String batchMonth, String startTime, String endTime) {
+        String sql = "SELECT COUNT(*) FROM dataanalysis.ship_zone_crossing_event e "
+                + "INNER JOIN dataanalysis.ship_zone_passage_status s ON e.mmsi = s.mmsi "
+                + "WHERE s.batch_month = ? AND s.start_time = ? AND s.end_time = ? AND s.status = 'DONE' "
+                + "AND (e.event_time < s.start_time OR e.event_time >= s.end_time)";
+        Integer c = jdbc.queryForObject(sql,
+                new Object[]{batchMonth, startTime, endTime}, Integer.class);
         return c == null ? 0 : c;
     }
 

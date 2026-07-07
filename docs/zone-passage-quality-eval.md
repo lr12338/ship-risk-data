@@ -166,8 +166,9 @@ HAVING s.event_count <> COUNT(e.id);
 
 ### 检查 3：事件时间范围 `EVENT_TIME_RANGE`
 
-- **查什么**：event 是否落在批次时间外
-- **ERROR 条件**：`event_time < start_time OR event_time >= end_time`
+- **查什么**：该批次 DONE 船舶的事件中，是否存在时间落在批次 `[start_time, end_time)` 之外的数据
+- **SQL 逻辑**：`status` 表 JOIN `event` 表，仅统计本批次 DONE 船且 `event_time` 超出该周窗口的记录
+- **ERROR 条件**：存在此类记录
 - **issue 类型**：`OUT_OF_RANGE`
 
 ### 检查 4：必填字段 `REQUIRED_FIELDS`

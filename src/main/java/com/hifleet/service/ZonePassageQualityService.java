@@ -215,7 +215,7 @@ public class ZonePassageQualityService {
         }
 
         // --- 检查项 3：时间范围 ---
-        int outOfRange = repo.countOutOfRangeEvents(startTime, endTime);
+        int outOfRange = repo.countOutOfRangeEvents(batchMonth, startTime, endTime);
         checks.add(new CheckRecord(0, CHK_TIME_RANGE, "事件时间范围",
                 outOfRange == 0 ? SEV_PASS : SEV_ERROR, outOfRange,
                 outOfRange == 0 ? "全部在批次范围内" : "超范围=" + outOfRange));

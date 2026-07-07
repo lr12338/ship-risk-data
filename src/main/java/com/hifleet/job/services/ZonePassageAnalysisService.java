@@ -463,7 +463,8 @@ public class ZonePassageAnalysisService {
                     zoneContext.getBridgeWindFarmMatcher(),
                     zoneContext.getAlertAreaMatcher()));
 
-            zoneCrossingStoreService.saveEvents(allEvents);
+            zoneCrossingStoreService.saveEventsForShip(
+                    mmsi, jobParams.getStartTime(), jobParams.getEndTime(), allEvents);
 
             statusBatchBuffer.markCompleted(jobParams.getBatchMonth(), mmsi,
                     jobParams.getStartTime(), jobParams.getEndTime(), allEvents.size());
