@@ -15,6 +15,7 @@ public class PortCallConfigTest {
         Assert.assertEquals("RELIABLE_STOP_POINTS", config.getKafkaStopPointTopic());
         Assert.assertEquals("portcall-consumer-1", config.getKafkaClientId());
         Assert.assertEquals("committed", config.getKafkaStartingOffsets());
+        Assert.assertTrue(config.isStopPointEnabled());
         Assert.assertFalse(config.getAlongsideConfig().isEnabled());
         Assert.assertEquals("RELIABLE_ALONGSIDE_EVENTS", config.getAlongsideConfig().getOutputTopic());
         Assert.assertEquals("ALONGSIDE_V2_INSURANCE", config.getAlongsideConfig().getRuleVersion());
@@ -54,5 +55,16 @@ public class PortCallConfigTest {
         Assert.assertEquals(60000L, config.getFlinkCheckpointMinPauseMs());
         Assert.assertEquals(300000L, config.getFlinkCheckpointTimeoutMs());
         Assert.assertEquals("DELETE_ON_CANCELLATION", config.getFlinkCheckpointExternalizedCleanup());
+    }
+
+    @Test
+    public void shouldAllowDisablingStopPointBranchFromArguments() {
+        PortCallConfig config = PortCallConfig.defaultConfig(new String[] {
+            "--stop-point.enabled=false",
+            "--alongside.enabled=true"
+        });
+
+        Assert.assertFalse(config.isStopPointEnabled());
+        Assert.assertTrue(config.getAlongsideConfig().isEnabled());
     }
 }

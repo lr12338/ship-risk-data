@@ -39,12 +39,14 @@ public class ProgramArgumentsParserTest {
             "--kafka.group.id", "test-group",
             "--alongside.enabled", "true",
             "--alongside.db-sink.batch-size", "1",
+            "--alongside.db-sink.allowed-severity-levels", "L2",
             "--alongside.candidate.max-speed", "6.0"
         });
 
         Assert.assertEquals("test-group", config.getKafkaGroupId());
         Assert.assertTrue(config.getAlongsideConfig().isEnabled());
         Assert.assertEquals(1, config.getAlongsideConfig().getDbSinkConfig().getBatchSize());
+        Assert.assertTrue(config.getAlongsideConfig().getDbSinkConfig().getAllowedSeverityLevels().contains("L2"));
         Assert.assertEquals(6.0d, config.getAlongsideConfig().getCandidateMaxSpeedKnots(), 0.001d);
     }
 

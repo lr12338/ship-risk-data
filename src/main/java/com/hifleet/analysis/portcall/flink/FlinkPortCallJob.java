@@ -97,6 +97,28 @@ public final class FlinkPortCallJob {
                 .print();
         }
 
+        if (!config.isStopPointEnabled()
+            && (config.getAlongsideConfig() == null || !config.getAlongsideConfig().isEnabled())) {
+            throw new IllegalArgumentException("At least one output branch must be enabled: stop-point.enabled or alongside.enabled");
+        }
+        addStopPointBranch(cleanAisPoints, config);
+        addAlongsideBranch(cleanAisPoints, config);
+
+        env.execute(resolveJobName(config));
+    }
+
+    private static String resolveJobName(PortCallConfig config) {
+        if (config.isStopPointEnabled()) {
+            return "reliable-stop-point-flink";
+        }
+        return "reliable-alongside-flink";
+    }
+
+    private static void addStopPointBranch(DataStream<CleanAisPoint> cleanAisPoints, PortCallConfig config) {
+        if (!config.isStopPointEnabled()) {
+            return;
+        }
+
         DataStream<StopPointEvent> stopPoints = cleanAisPoints
             .keyBy(new CleanAisPointMmsiKeySelector())
             .process(new StopPointDetectorProcessFunction(
@@ -136,10 +158,6 @@ public final class FlinkPortCallJob {
                 .name("debug-stop-point-json")
                 .print();
         }
-
-        addAlongsideBranch(cleanAisPoints, config);
-
-        env.execute("reliable-stop-point-flink");
     }
 
     private static void addAlongsideBranch(DataStream<CleanAisPoint> cleanAisPoints, PortCallConfig config) {

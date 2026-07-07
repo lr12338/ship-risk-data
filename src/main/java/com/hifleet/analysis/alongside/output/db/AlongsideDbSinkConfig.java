@@ -1,7 +1,10 @@
 package com.hifleet.analysis.alongside.output.db;
 
 import java.io.Serializable;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Properties;
+import java.util.Set;
 
 public class AlongsideDbSinkConfig implements Serializable {
 
@@ -19,6 +22,7 @@ public class AlongsideDbSinkConfig implements Serializable {
     private String detailTable;
     private int maxDetailPointsPerEvent;
     private boolean autoCreateTable;
+    private Set<String> allowedSeverityLevels = Collections.emptySet();
 
     public static AlongsideDbSinkConfig fromProperties(Properties props) {
         AlongsideDbSinkConfig config = new AlongsideDbSinkConfig();
@@ -34,6 +38,7 @@ public class AlongsideDbSinkConfig implements Serializable {
         config.setDetailTable(value(props, "alongside.db-sink.table-detail"));
         config.setMaxDetailPointsPerEvent(toInt(value(props, "alongside.db-sink.max-detail-points-per-event"), 200));
         config.setAutoCreateTable(toBoolean(value(props, "alongside.db-sink.auto-create-table"), true));
+        config.setAllowedSeverityLevels(toStringSet(value(props, "alongside.db-sink.allowed-severity-levels")));
         return config;
     }
 
@@ -50,6 +55,7 @@ public class AlongsideDbSinkConfig implements Serializable {
         defaults.setProperty("alongside.db-sink.table-detail", "ship_realtime_alongside_event_detail");
         defaults.setProperty("alongside.db-sink.max-detail-points-per-event", "200");
         defaults.setProperty("alongside.db-sink.auto-create-table", "true");
+        defaults.setProperty("alongside.db-sink.allowed-severity-levels", "");
     }
 
     private static String value(Properties props, String key) {
@@ -77,6 +83,20 @@ public class AlongsideDbSinkConfig implements Serializable {
             return fallback;
         }
         return Boolean.parseBoolean(value.trim());
+    }
+
+    private static Set<String> toStringSet(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<String> values = new HashSet<String>();
+        String[] tokens = value.split(",");
+        for (String token : tokens) {
+            if (token != null && !token.trim().isEmpty()) {
+                values.add(token.trim().toUpperCase());
+            }
+        }
+        return values;
     }
 
     public boolean isEnabled() {
@@ -173,5 +193,14 @@ public class AlongsideDbSinkConfig implements Serializable {
 
     public void setAutoCreateTable(boolean autoCreateTable) {
         this.autoCreateTable = autoCreateTable;
+    }
+
+    public Set<String> getAllowedSeverityLevels() {
+        return allowedSeverityLevels;
+    }
+
+    public void setAllowedSeverityLevels(Set<String> allowedSeverityLevels) {
+        this.allowedSeverityLevels = allowedSeverityLevels == null
+            ? Collections.<String>emptySet() : allowedSeverityLevels;
     }
 }

@@ -54,6 +54,11 @@ public class AlongsideEventJdbcSink extends RichSinkFunction<AlongsideEvent> {
         if (!config.isEnabled() || value == null) {
             return;
         }
+        if (!isAllowedSeverity(value)) {
+            LOG.debug("ALONGSIDE_REALTIME db_sink_skip event_id={} severity_level={} allowed_severity_levels={}",
+                value.getEventId(), value.getSeverityLevel(), config.getAllowedSeverityLevels());
+            return;
+        }
         buffer.add(value);
         long now = System.currentTimeMillis();
         if (buffer.size() >= Math.max(1, config.getBatchSize())
@@ -146,6 +151,14 @@ public class AlongsideEventJdbcSink extends RichSinkFunction<AlongsideEvent> {
 
     private static boolean blank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    boolean isAllowedSeverity(AlongsideEvent event) {
+        if (config.getAllowedSeverityLevels() == null || config.getAllowedSeverityLevels().isEmpty()) {
+            return true;
+        }
+        String severity = event.getSeverityLevel();
+        return severity != null && config.getAllowedSeverityLevels().contains(severity.trim().toUpperCase());
     }
 
     private static void loadJdbcDriver(String url) throws ClassNotFoundException {

@@ -22,6 +22,7 @@ public class PortCallConfig implements Serializable {
     private String kafkaClientId;
     private String kafkaStartingOffsets;
     private AlongsideConfig alongsideConfig;
+    private boolean stopPointEnabled;
 
     private long reorderMaxLatenessSeconds;
     private int reorderMaxPointsPerVessel;
@@ -115,6 +116,7 @@ public class PortCallConfig implements Serializable {
         config.setKafkaClientId(value(props, "kafka.client.id"));
         config.setKafkaStartingOffsets(value(props, "kafka.starting-offsets"));
         config.setAlongsideConfig(AlongsideConfig.fromProperties(props));
+        config.setStopPointEnabled(toBoolean(value(props, "stop-point.enabled"), true));
 
         config.setReorderMaxLatenessSeconds(toLong(value(props, "pipeline.reorder.max-lateness-seconds"), 600L));
         config.setReorderMaxPointsPerVessel(toInt(value(props, "pipeline.reorder.max-points-per-vessel"), 200));
@@ -172,6 +174,7 @@ public class PortCallConfig implements Serializable {
         defaults.setProperty("kafka.group.id", "portcall-group");
         defaults.setProperty("kafka.client.id", "portcall-consumer-1");
         defaults.setProperty("kafka.starting-offsets", "committed");
+        defaults.setProperty("stop-point.enabled", "true");
         AlongsideConfig.addDefaults(defaults);
         defaults.setProperty("pipeline.reorder.max-lateness-seconds", "600");
         defaults.setProperty("pipeline.reorder.max-points-per-vessel", "200");
@@ -440,6 +443,14 @@ public class PortCallConfig implements Serializable {
 
     public void setAlongsideConfig(AlongsideConfig alongsideConfig) {
         this.alongsideConfig = alongsideConfig;
+    }
+
+    public boolean isStopPointEnabled() {
+        return stopPointEnabled;
+    }
+
+    public void setStopPointEnabled(boolean stopPointEnabled) {
+        this.stopPointEnabled = stopPointEnabled;
     }
 
     public long getReorderMaxLatenessSeconds() {
