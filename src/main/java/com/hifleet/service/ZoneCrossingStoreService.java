@@ -42,9 +42,35 @@ public class ZoneCrossingStoreService {
     @Value("${zone.crossing.store.batch-size:200}")
     private int batchSize;
 
+    @Value("${zone.crossing.store.replace-before-save:true}")
+    private boolean replaceBeforeSave;
+
     @Autowired
     @Qualifier("newDataanalysisJdbcTemplate")
     private JdbcTemplate newDataanalysisJdbcTemplate;
+
+    /**
+     * 按船+时间范围落库：默认先删该范围内旧事件再写入，避免 Job 重跑/失败重试产生重复。
+     */
+    public void saveEventsForShip(String mmsi, String startTime, String endTime, List<ZoneCrossingEvent> events) {
+        if (!storeEnabled || StringUtils.isBlank(mmsi)) {
+            return;
+        }
+        if (replaceBeforeSave && StringUtils.isNotBlank(startTime) && StringUtils.isNotBlank(endTime)) {
+            deleteEventsByMmsiAndTimeRange(mmsi, startTime, endTime);
+        }
+        saveEvents(events);
+    }
+
+    public int deleteEventsByMmsiAndTimeRange(String mmsi, String startTime, String endTime) {
+        if (StringUtils.isBlank(mmsi) || StringUtils.isBlank(startTime) || StringUtils.isBlank(endTime)) {
+            return 0;
+        }
+        return newDataanalysisJdbcTemplate.update(
+                "DELETE FROM dataanalysis.ship_zone_crossing_event "
+                        + "WHERE mmsi = ? AND event_time >= ? AND event_time < ?",
+                mmsi, startTime, endTime);
+    }
 
     public void saveEvents(List<ZoneCrossingEvent> events) {
         if (!storeEnabled || events == null || events.isEmpty()) {
