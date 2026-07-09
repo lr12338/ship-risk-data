@@ -25,6 +25,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -116,6 +117,8 @@ public class AisAnalysisService {
         }
         return true;
     }
+
+
 
     /**
      * 读取船舶异常行为数据并写入 dataanalysis.ais_analysis_abnormal。
@@ -246,7 +249,7 @@ public class AisAnalysisService {
     }
 
 
-    public boolean analysisShip(){
+    public boolean analysisShiphistory(){
         ArrayList<ShipForm> ships = (ArrayList<ShipForm>) ais41GeneralQueryRepository.selectRecentShips2();
         ArrayList<Integer> readyMmsi = (ArrayList<Integer>) aisAnalysisRepositiory.getReadyMmsi();
         HashMap<Integer, Integer> readMmsiMap = new HashMap<>();
@@ -282,11 +285,7 @@ public class AisAnalysisService {
                 String queryEndtime = days.get(j+1).plusDays(1).toString() +" 00:00:00";
                 NewOffersForm offersForm = getTrajectoryFromHbase.getVoffersFromHbase(mmsi,queryStarttime,queryEndtime,15);
 
-//                if(offersForm.getOffers().size()>10){
-//                    Map<LocalDate, AisDailySailingResult> dailyStats =
-//                            AnalysisAisDistanceAndTime(offersForm.getOffers());
-//                    saveAisAnalysisResult(Integer.parseInt(mmsi), dailyStats);
-//                }
+
                 if(offersForm.getOffers().size()>10){
                     Map<LocalDate, AisDailySailingResult> dailyStats =
                             AnalysisAisDistanceAndTime(offersForm.getOffers());
@@ -316,6 +315,106 @@ public class AisAnalysisService {
     }
 
 
+    static DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    public static LocalDate compareAfterAddSevenDays(String dateStr) {
+        // 定义日期格式
+
+
+        // 解析传入的日期
+        LocalDate inputDate = LocalDate.parse(dateStr, formatter);
+        // 加7天
+        LocalDate targetDate = inputDate.plusDays(7);
+        // 获取当前日期
+        return targetDate;
+    }
+    public boolean analysisShipRecent(String args){
+
+        ArrayList<ShipForm> ships = (ArrayList<ShipForm>) ais41GeneralQueryRepository.selectRecentShips2();
+        ArrayList<Integer> readyMmsi = (ArrayList<Integer>) aisAnalysisRepositiory.getReadyMmsi();
+        String startday = ais41GeneralQueryRepository.getStartTime();
+        String endday =null;
+        if(startday!=null){
+            LocalDate sevenDays=compareAfterAddSevenDays(startday);
+
+            LocalDate today = LocalDate.now();
+
+            // 比较
+            if (sevenDays.isBefore(today)) {
+               // return "之前";
+                endday = formatter.format(sevenDays);
+            }else{
+                return true;
+            }
+
+        }else{
+            return false;
+        }
+
+        HashMap<Integer, Integer> readMmsiMap = new HashMap<>();
+        for(int i=0;i<readyMmsi.size();i++){
+            int mmsi = readyMmsi.get(i);
+            readMmsiMap.put(mmsi,mmsi);
+        }
+        GetTrajectoryFromHbase getTrajectoryFromHbase = new GetTrajectoryFromHbase();
+        for(int i=0;i<ships.size();i++){
+
+
+            String mmsi = ships.get(i).getMmsi();
+//            if(!mmsi.equals("253242499")){
+//                continue;
+//            }
+
+            logger.info(ships.size()+","+i+","+startday+","+endday);
+            if(readMmsiMap.containsKey(Integer.parseInt(mmsi))){
+
+                continue;
+            }
+
+
+
+          //  ArrayList<LocalDate> days =generateDateList();
+
+          //  for(int j=0;j<days.size()-1;j++){
+
+                String starttime =startday +" 00:00:00";//"2026-05-25 00:00:00";//"2025-06-10 00:00:00";//
+                String endtime =endday+" 00:00:00";;//"2026-05-29 00:00:00";//"2026-06-10 00:00:00";//
+                //NewOffersForm offersForm = getTrajectoryFromHbase.getVoffersFromHbase(mmsi,starttime,endtime,16);
+                String queryStarttime = LocalDate.parse(startday, formatter).minusDays(1).toString() +" 00:00:00";
+                String queryEndtime = LocalDate.parse(endday, formatter).plusDays(1).toString() +" 00:00:00";
+                NewOffersForm offersForm = getTrajectoryFromHbase.getVoffersFromHbase(mmsi,queryStarttime,queryEndtime,15);
+
+
+                if(offersForm.getOffers().size()>10){
+                    Map<LocalDate, AisDailySailingResult> dailyStats =
+                            AnalysisAisDistanceAndTime(offersForm.getOffers());
+                    LocalDate actualStart = LocalDate.parse(startday, formatter);
+                    LocalDate actualEnd = LocalDate.parse(endday, formatter);
+                    Map<LocalDate, AisDailySailingResult> filtered = new TreeMap<>();
+                    for (Map.Entry<LocalDate, AisDailySailingResult> entry : dailyStats.entrySet()) {
+                        LocalDate d = entry.getKey();
+                        if (!d.isBefore(actualStart) && d.isBefore(actualEnd)) {
+                            filtered.put(d, entry.getValue());
+                        }
+                    }
+                    saveAisAnalysisResult(Integer.parseInt(mmsi), filtered);
+                    dailyStats = null;
+                    filtered = null;
+                }
+
+                getAbnormalShip(Integer.parseInt(mmsi),starttime,endtime);
+
+          //  }
+            aisAnalysisRepositiory.insertPortofCall(Integer.parseInt(ships.get(i).getMmsi()));
+        }
+
+
+        //全部生成完 清空状态
+        aisAnalysisRepositiory.removeAisAnalysisStatus();
+        //更新ais_analysis_timerecod
+        aisAnalysisRepositiory.insertIntoEndDay(endday);
+
+        return true;
+    }
 
     public Map<LocalDate, AisDailySailingResult> AnalysisAisDistanceAndTime(Vector<NewShipForm> offers) {
         Map<LocalDate, AisDailySailingResult> result = new TreeMap<>();

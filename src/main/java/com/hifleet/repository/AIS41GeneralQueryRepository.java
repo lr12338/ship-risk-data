@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.*;
 
 import org.springframework.stereotype.Repository;
@@ -73,13 +74,11 @@ public class AIS41GeneralQueryRepository {
 //				"                    AND TYPE!='拖轮' AND TYPE!='专用船' AND TYPE!='其他' AND TYPE!='未知类型船舶'\n" +
 //				"                   AND TYPE!='近海作业船' and dwt>1000 and updatetime>DATE_SUB(CURDATE(), INTERVAL 1 YEAR); ";
 
-		String sql="select * from (\n" +
-				"SELECT mmsi,imonumber,dwt,type FROM ais41.recentships\n" +
-				"    \t\t\t\t                 WHERE TYPE!='渔船' AND TYPE!='-' AND TYPE!='游艇'\n" +
-				"    \t\t\t\t                  AND TYPE!='工程及服务船' AND TYPE!='客船' AND TYPE!='拖带船' \n" +
-				"    \t\t\t\t                    AND TYPE!='拖轮' AND TYPE!='专用船' AND TYPE!='其他' AND TYPE!='未知类型船舶'\n" +
-				"    \t\t\t\t                   AND TYPE!='近海作业船' and length>70 and updatetime>'2025-01-01 00:00:00' order by mmsi desc) as A WHERE mmsi<412411840 \n" +// AND mmsi <457635000
-				"\n";
+		String sql="SELECT mmsi,imonumber,dwt,type FROM ais41.recentships\n" +
+				"                 WHERE TYPE!='渔船' AND TYPE!='-' AND TYPE!='游艇' \n" +
+				"                   AND TYPE!='工程及服务船' AND TYPE!='客船' AND TYPE!='拖带船' \n" +
+				"                    AND TYPE!='拖轮' AND TYPE!='专用船' AND TYPE!='其他' AND TYPE!='未知类型船舶'\n" +
+				"                   AND TYPE!='近海作业船' and length>70 and updatetime>'2025-01-01 00:00:00'; ";
 //mmsi<413827957
 		Object[] params = new Object[]{};
 		return ais41JdbcTemplate.query(sql, params, new RowMapper<ShipForm>() {
@@ -91,5 +90,19 @@ public class AIS41GeneralQueryRepository {
 				return shipForm;
 			}
 		});
+	}
+
+	public String getStartTime() {
+		String sql = "select max(startday) as startday from dataanalysis.`ais_analysis_timerecord`";
+
+		try {
+			return ais41JdbcTemplate.queryForObject(sql, String.class);
+		} catch (EmptyResultDataAccessException e) {
+			// 没有数据时返回null
+			return null;
+		} catch (Exception e) {
+			e.printStackTrace();
+			return null;
+		}
 	}
 }
