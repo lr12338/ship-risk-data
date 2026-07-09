@@ -332,6 +332,7 @@ public class AisAnalysisService {
         ArrayList<ShipForm> ships = (ArrayList<ShipForm>) ais41GeneralQueryRepository.selectRecentShips2();
         ArrayList<Integer> readyMmsi = (ArrayList<Integer>) aisAnalysisRepositiory.getReadyMmsi();
         String startday = ais41GeneralQueryRepository.getStartTime();
+        logger.info("startday="+startday);
         String endday =null;
         if(startday!=null){
             LocalDate sevenDays=compareAfterAddSevenDays(startday);
