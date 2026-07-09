@@ -33,7 +33,9 @@ public class AlongsidePairDetectorProcessFunctionTest {
 
         Assert.assertEquals(AlongsideRuleEngineImpl.SUB_TYPE_UPDATE, update.getEventSubType());
         Assert.assertEquals(32, update.getEventId().length());
-        Assert.assertFalse(update.getEvidencePoints().isEmpty());
+        Assert.assertTrue(update.getEvidencePoints().isEmpty());
+        Assert.assertNotNull(update.getStartLon());
+        Assert.assertNotNull(update.getCenterLon());
     }
 
     @Test
@@ -54,6 +56,93 @@ public class AlongsidePairDetectorProcessFunctionTest {
         Assert.assertEquals("EVENT_ENDED", end.getExclusionFlag());
     }
 
+    @Test
+    public void shouldKeepParsedBeijingTimeOnEventWindow() {
+        AlongsideConfig config = config();
+        AlongsidePairDetectorProcessFunction.PairState state =
+            new AlongsidePairDetectorProcessFunction.PairState();
+        Instant parsedBeijingStart = Instant.parse("2026-07-07T11:10:51Z");
+
+        for (int i = 0; i < 6; i++) {
+            AlongsidePairDetectorProcessFunction.addEvidence(state, evidenceAt(parsedBeijingStart.plusSeconds(i * 360L)), config);
+        }
+
+        AlongsideEvent event = AlongsidePairDetectorProcessFunction.buildEventIfReady(state, config);
+
+        Assert.assertEquals(parsedBeijingStart, event.getStartTime());
+        Assert.assertEquals(parsedBeijingStart.plusSeconds(5 * 360L), event.getEndTime());
+    }
+
+    @Test
+    public void shouldEmitHighMatchCommercialConfirmedEvent() {
+        AlongsideConfig config = highMatchConfig();
+        AlongsidePairDetectorProcessFunction.PairState state =
+            new AlongsidePairDetectorProcessFunction.PairState();
+        Instant start = Instant.parse("2026-06-29T00:00:00Z");
+
+        for (int i = 0; i < 8; i++) {
+            AlongsidePairDetectorProcessFunction.addEvidence(state,
+                evidenceAt(start.plusSeconds(i * 420L), VesselType.TANKER, VesselClass.HIGH_PRIORITY,
+                    VesselType.BUNKER, VesselClass.HIGH_PRIORITY, PairPriority.HIGH), config);
+        }
+
+        AlongsideEvent event = AlongsidePairDetectorProcessFunction.buildEventIfReady(state, config);
+
+        Assert.assertNotNull(event);
+        Assert.assertEquals(AlongsideRuleEngineImpl.SUB_TYPE_CONFIRMED, event.getEventSubType());
+        Assert.assertEquals("HIGH", event.getConfidenceLevel());
+        Assert.assertTrue(event.getTrackCoverageRatio() >= 0.85d);
+        Assert.assertEquals(Integer.valueOf(0), event.getAisGapCount());
+    }
+
+    @Test
+    public void shouldSuppressNormalServicePairInHighMatchMode() {
+        AlongsideConfig config = highMatchConfig();
+        AlongsidePairDetectorProcessFunction.PairState state =
+            new AlongsidePairDetectorProcessFunction.PairState();
+        Instant start = Instant.parse("2026-06-29T00:00:00Z");
+
+        for (int i = 0; i < 8; i++) {
+            AlongsidePairDetectorProcessFunction.addEvidence(state,
+                evidenceAt(start.plusSeconds(i * 420L), VesselType.CARGO, VesselClass.HIGH_PRIORITY,
+                    VesselType.TUG, VesselClass.NORMAL_SERVICE, PairPriority.DOWNGRADED), config);
+        }
+
+        Assert.assertNull(AlongsidePairDetectorProcessFunction.buildEventIfReady(state, config));
+    }
+
+    @Test
+    public void shouldSuppressLowQualityTrackInHighMatchMode() {
+        AlongsideConfig config = highMatchConfig();
+        AlongsidePairDetectorProcessFunction.PairState state =
+            new AlongsidePairDetectorProcessFunction.PairState();
+        Instant start = Instant.parse("2026-06-29T00:00:00Z");
+
+        for (int i = 0; i < 8; i++) {
+            AlongsidePairDetectorProcessFunction.addEvidence(state,
+                evidenceAt(start.plusSeconds(i * 1200L), VesselType.TANKER, VesselClass.HIGH_PRIORITY,
+                    VesselType.TANKER, VesselClass.HIGH_PRIORITY, PairPriority.HIGH), config);
+        }
+
+        Assert.assertNull(AlongsidePairDetectorProcessFunction.buildEventIfReady(state, config));
+    }
+
+    @Test
+    public void shouldSuppressWeakCandidateWhenEmitWeakDisabled() {
+        Properties props = new Properties();
+        AlongsideConfig.addDefaults(props);
+        props.setProperty("alongside.output.emit-weak", "false");
+        AlongsideConfig config = AlongsideConfig.fromProperties(props);
+        AlongsidePairDetectorProcessFunction.PairState state =
+            new AlongsidePairDetectorProcessFunction.PairState();
+
+        for (int i = 0; i < 3; i++) {
+            AlongsidePairDetectorProcessFunction.addEvidence(state, evidence(i * 2), config);
+        }
+
+        Assert.assertNull(AlongsidePairDetectorProcessFunction.buildEventIfReady(state, config));
+    }
+
     private AlongsideConfig config() {
         Properties props = new Properties();
         AlongsideConfig.addDefaults(props);
@@ -62,8 +151,39 @@ public class AlongsidePairDetectorProcessFunctionTest {
         return AlongsideConfig.fromProperties(props);
     }
 
+    private AlongsideConfig highMatchConfig() {
+        Properties props = new Properties();
+        AlongsideConfig.addDefaults(props);
+        props.setProperty("alongside.high-match.enabled", "true");
+        props.setProperty("alongside.output.emit-weak", "false");
+        props.setProperty("alongside.candidate.max-distance-nm", "0.25");
+        props.setProperty("alongside.candidate.max-speed-knots", "3.0");
+        props.setProperty("alongside.candidate.max-time-gap-minutes", "5");
+        props.setProperty("alongside.candidate.min-duration-minutes", "30");
+        props.setProperty("alongside.candidate.min-points", "5");
+        props.setProperty("alongside.confirm.max-distance-nm", "0.08");
+        props.setProperty("alongside.confirm.max-speed-knots", "1.5");
+        props.setProperty("alongside.confirm.max-relative-speed-knots", "0.5");
+        props.setProperty("alongside.confirm.high-confidence-time-gap-minutes", "2");
+        props.setProperty("alongside.confirm.min-duration-minutes", "45");
+        props.setProperty("alongside.confirm.min-points", "8");
+        props.setProperty("alongside.heading.parallel-threshold-degrees", "20");
+        props.setProperty("alongside.ais-gap-minutes", "15");
+        return AlongsideConfig.fromProperties(props);
+    }
+
     private PairProximityEvidence evidence(int index) {
         Instant time = Instant.parse("2026-06-29T00:00:00Z").plusSeconds(index * 360L);
+        return evidenceAt(time);
+    }
+
+    private PairProximityEvidence evidenceAt(Instant time) {
+        return evidenceAt(time, VesselType.TANKER, VesselClass.HIGH_PRIORITY,
+            VesselType.TANKER, VesselClass.HIGH_PRIORITY, PairPriority.HIGH);
+    }
+
+    private PairProximityEvidence evidenceAt(Instant time, VesselType typeA, VesselClass classA,
+                                             VesselType typeB, VesselClass classB, PairPriority priority) {
         PairProximityEvidence evidence = new PairProximityEvidence();
         evidence.setPairId("100-200");
         evidence.setMmsiA(100L);
@@ -83,9 +203,9 @@ public class AlongsidePairDetectorProcessFunctionTest {
         evidence.setTimeGapSeconds(30L);
         evidence.setRelativeSpeedKnots(0.1d);
         evidence.setHeadingParallelDiff(1.0d);
-        evidence.setPairPriority(PairPriority.HIGH);
-        evidence.setVesselA(new VesselProfile(100L, VesselType.TANKER, VesselClass.HIGH_PRIORITY, null));
-        evidence.setVesselB(new VesselProfile(200L, VesselType.TANKER, VesselClass.HIGH_PRIORITY, null));
+        evidence.setPairPriority(priority);
+        evidence.setVesselA(new VesselProfile(100L, typeA, classA, null));
+        evidence.setVesselB(new VesselProfile(200L, typeB, classB, null));
         return evidence;
     }
 }

@@ -20,8 +20,19 @@ public class PortCallConfigTest {
         Assert.assertEquals("RELIABLE_ALONGSIDE_EVENTS", config.getAlongsideConfig().getOutputTopic());
         Assert.assertEquals("ALONGSIDE_V2_INSURANCE", config.getAlongsideConfig().getRuleVersion());
         Assert.assertEquals(0.15d, config.getAlongsideConfig().getConfirmMaxDistanceNm(), 0.01d);
+        Assert.assertFalse(config.getAlongsideConfig().isHighMatchEnabled());
+        Assert.assertTrue(config.getAlongsideConfig().isHighMatchConfirmedOnly());
+        Assert.assertTrue(config.getAlongsideConfig().isOutputEmitWeak());
+        Assert.assertTrue(config.getAlongsideConfig().getHighMatchAllowedPairPriorities()
+            .contains(com.hifleet.analysis.alongside.core.model.PairPriority.HIGH));
+        Assert.assertEquals("HIGH", config.getAlongsideConfig().getHighMatchMinConfidence());
+        Assert.assertEquals(0.85d, config.getAlongsideConfig().getHighMatchMinTrackCoverageRatio(), 0.001d);
+        Assert.assertEquals(0, config.getAlongsideConfig().getHighMatchMaxAisGapCount());
+        Assert.assertEquals(0.85d, config.getAlongsideConfig().getHighMatchMinHeadingParallelRatio(), 0.001d);
         Assert.assertFalse(config.getAlongsideConfig().getDbSinkConfig().isEnabled());
         Assert.assertEquals("ship_realtime_alongside_event", config.getAlongsideConfig().getDbSinkConfig().getEventTable());
+        Assert.assertFalse(config.getAlongsideConfig().getDbSinkConfig().isDetailEnabled());
+        Assert.assertEquals(0, config.getAlongsideConfig().getDbSinkConfig().getMaxDetailPointsPerEvent());
 
         Assert.assertEquals(600L, config.getReorderMaxLatenessSeconds());
         Assert.assertEquals(200, config.getReorderMaxPointsPerVessel());

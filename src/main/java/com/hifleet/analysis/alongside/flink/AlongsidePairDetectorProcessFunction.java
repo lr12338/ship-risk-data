@@ -7,6 +7,9 @@ import com.hifleet.analysis.alongside.core.model.AlongsideScoreResult;
 import com.hifleet.analysis.alongside.core.model.PairEvidenceWindow;
 import com.hifleet.analysis.alongside.core.model.PairProximityEvidence;
 import com.hifleet.analysis.alongside.core.model.SceneAdjustmentResult;
+import com.hifleet.analysis.alongside.core.model.VesselClass;
+import com.hifleet.analysis.alongside.core.model.VesselProfile;
+import com.hifleet.analysis.alongside.core.model.VesselType;
 import com.hifleet.analysis.alongside.core.rule.AlongsideRuleEngine;
 import com.hifleet.analysis.alongside.core.rule.AlongsideRuleEngineImpl;
 import com.hifleet.analysis.alongside.core.score.AlongsideRiskScorer;
@@ -268,6 +271,9 @@ public class AlongsidePairDetectorProcessFunction
         event.setTrackCoverageRatio(window.getTrackCoverageRatio());
         event.setEmitTime(Instant.now());
         event.setEvidencePoints(copyEvidence(state));
+        if (!shouldKeepOutputEvent(event, window, config)) {
+            return null;
+        }
         AlongsideEventIdGenerator.ensureEventId(event);
         return event;
     }
@@ -344,6 +350,9 @@ public class AlongsidePairDetectorProcessFunction
         if (state.weakEmitted) {
             return null;
         }
+        if (!config.isOutputEmitWeak() || (config.isHighMatchEnabled() && config.isHighMatchConfirmedOnly())) {
+            return null;
+        }
         return AlongsideRuleEngineImpl.SUB_TYPE_WEAK;
     }
 
@@ -353,6 +362,82 @@ public class AlongsidePairDetectorProcessFunction
         }
         long gapMinutes = Duration.between(state.lastEmittedEventTime, window.getEndTime()).toMinutes();
         return gapMinutes >= Math.max(1L, config.getOutputUpdateIntervalMinutes());
+    }
+
+    private static boolean shouldKeepOutputEvent(AlongsideEvent event, PairEvidenceWindow window, AlongsideConfig config) {
+        if (!config.isHighMatchEnabled()) {
+            return true;
+        }
+        if (AlongsideRuleEngineImpl.SUB_TYPE_WEAK.equals(event.getEventSubType())) {
+            return false;
+        }
+        if (config.isHighMatchConfirmedOnly() && !isConfirmedLifecycleEvent(event)) {
+            return false;
+        }
+        if (config.getHighMatchAllowedPairPriorities() != null && !config.getHighMatchAllowedPairPriorities().isEmpty()
+            && !config.getHighMatchAllowedPairPriorities().contains(window.getPairPriority())) {
+            return false;
+        }
+        if (config.isHighMatchExcludeUnknownType()
+            && (isUnknownVessel(window.getVesselA()) || isUnknownVessel(window.getVesselB()))) {
+            return false;
+        }
+        if (config.isHighMatchExcludeNormalService()
+            && (isNormalServiceVessel(window.getVesselA()) || isNormalServiceVessel(window.getVesselB()))) {
+            return false;
+        }
+        if (confidenceRank(event.getConfidenceLevel()) < confidenceRank(config.getHighMatchMinConfidence())) {
+            return false;
+        }
+        if (event.getTrackCoverageRatio() == null
+            || event.getTrackCoverageRatio() < config.getHighMatchMinTrackCoverageRatio()) {
+            return false;
+        }
+        if (event.getAisGapCount() == null || event.getAisGapCount() > config.getHighMatchMaxAisGapCount()) {
+            return false;
+        }
+        if (window.getPointCount() <= 0
+            || window.getHighTimeGapPointCount() < Math.ceil(window.getPointCount() * 0.8d)) {
+            return false;
+        }
+        return event.getHeadingParallelRatio() == null
+            || event.getHeadingParallelRatio() >= config.getHighMatchMinHeadingParallelRatio();
+    }
+
+    private static boolean isConfirmedLifecycleEvent(AlongsideEvent event) {
+        return AlongsideRuleEngineImpl.SUB_TYPE_CONFIRMED.equals(event.getEventSubType())
+            || AlongsideRuleEngineImpl.SUB_TYPE_UPDATE.equals(event.getEventSubType());
+    }
+
+    private static boolean isUnknownVessel(VesselProfile profile) {
+        return profile == null || profile.getVesselType() == null || profile.getVesselType() == VesselType.UNKNOWN
+            || profile.getVesselClass() == null || profile.getVesselClass() == VesselClass.UNKNOWN;
+    }
+
+    private static boolean isNormalServiceVessel(VesselProfile profile) {
+        if (profile == null) {
+            return false;
+        }
+        if (profile.getVesselClass() == VesselClass.NORMAL_SERVICE) {
+            return true;
+        }
+        VesselType type = profile.getVesselType();
+        return type == VesselType.TUG || type == VesselType.PILOT || type == VesselType.LAW_ENFORCEMENT
+            || type == VesselType.SAR || type == VesselType.PORT_SERVICE || type == VesselType.DREDGER
+            || type == VesselType.WORKBOAT;
+    }
+
+    private static int confidenceRank(String confidence) {
+        if ("HIGH".equalsIgnoreCase(confidence)) {
+            return 3;
+        }
+        if ("MEDIUM".equalsIgnoreCase(confidence)) {
+            return 2;
+        }
+        if ("LOW".equalsIgnoreCase(confidence)) {
+            return 1;
+        }
+        return 0;
     }
 
     static void markEmitted(PairState state, AlongsideEvent event) {

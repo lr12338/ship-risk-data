@@ -40,7 +40,9 @@ public class ProgramArgumentsParserTest {
             "--alongside.enabled", "true",
             "--alongside.db-sink.batch-size", "1",
             "--alongside.db-sink.allowed-severity-levels", "L2",
-            "--alongside.candidate.max-speed", "6.0"
+            "--alongside.candidate.max-speed", "6.0",
+            "--alongside.high-match.enabled", "true",
+            "--alongside.output.emit-weak", "false"
         });
 
         Assert.assertEquals("test-group", config.getKafkaGroupId());
@@ -48,6 +50,8 @@ public class ProgramArgumentsParserTest {
         Assert.assertEquals(1, config.getAlongsideConfig().getDbSinkConfig().getBatchSize());
         Assert.assertTrue(config.getAlongsideConfig().getDbSinkConfig().getAllowedSeverityLevels().contains("L2"));
         Assert.assertEquals(6.0d, config.getAlongsideConfig().getCandidateMaxSpeedKnots(), 0.001d);
+        Assert.assertTrue(config.getAlongsideConfig().isHighMatchEnabled());
+        Assert.assertFalse(config.getAlongsideConfig().isOutputEmitWeak());
     }
 
     @Test

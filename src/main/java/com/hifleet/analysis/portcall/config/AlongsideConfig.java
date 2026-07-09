@@ -7,6 +7,7 @@ import java.util.Properties;
 import java.util.Set;
 
 import com.hifleet.analysis.alongside.core.model.AlongsideRuleConfig;
+import com.hifleet.analysis.alongside.core.model.PairPriority;
 import com.hifleet.analysis.alongside.core.model.VesselType;
 import com.hifleet.analysis.alongside.output.db.AlongsideDbSinkConfig;
 
@@ -50,6 +51,16 @@ public class AlongsideConfig implements Serializable {
     private long pairTtlMinutes;
     private long endedPairTtlHours;
     private long outputUpdateIntervalMinutes;
+    private boolean outputEmitWeak;
+    private boolean highMatchEnabled;
+    private boolean highMatchConfirmedOnly;
+    private Set<PairPriority> highMatchAllowedPairPriorities = Collections.emptySet();
+    private boolean highMatchExcludeUnknownType;
+    private boolean highMatchExcludeNormalService;
+    private String highMatchMinConfidence;
+    private double highMatchMinTrackCoverageRatio;
+    private int highMatchMaxAisGapCount;
+    private double highMatchMinHeadingParallelRatio;
     private boolean metricsEnabled;
     private boolean navStatusDowngradeEnabled;
     private String ruleVersion;
@@ -100,6 +111,16 @@ public class AlongsideConfig implements Serializable {
         config.setAutoL4Enabled(toBoolean(firstValue(props, "alongside.scene.auto-l4-enabled", "alongside.auto-l4-enabled"), false));
         config.setNavStatusDowngradeEnabled(toBoolean(value(props, "alongside.scene.nav-status-downgrade.enabled"), true));
         config.setOutputUpdateIntervalMinutes(toLong(value(props, "alongside.output.update-interval-minutes"), 5L));
+        config.setOutputEmitWeak(toBoolean(value(props, "alongside.output.emit-weak"), true));
+        config.setHighMatchEnabled(toBoolean(value(props, "alongside.high-match.enabled"), false));
+        config.setHighMatchConfirmedOnly(toBoolean(value(props, "alongside.high-match.confirmed-only"), true));
+        config.setHighMatchAllowedPairPriorities(parsePairPriorities(value(props, "alongside.high-match.allowed-pair-priorities")));
+        config.setHighMatchExcludeUnknownType(toBoolean(value(props, "alongside.high-match.exclude-unknown-type"), true));
+        config.setHighMatchExcludeNormalService(toBoolean(value(props, "alongside.high-match.exclude-normal-service"), true));
+        config.setHighMatchMinConfidence(valueOrDefault(value(props, "alongside.high-match.min-confidence"), "HIGH"));
+        config.setHighMatchMinTrackCoverageRatio(toDouble(value(props, "alongside.high-match.min-track-coverage-ratio"), 0.85d));
+        config.setHighMatchMaxAisGapCount(toInt(value(props, "alongside.high-match.max-ais-gap-count"), 0));
+        config.setHighMatchMinHeadingParallelRatio(toDouble(value(props, "alongside.high-match.min-heading-parallel-ratio"), 0.85d));
         config.setMetricsEnabled(toBoolean(value(props, "alongside.metrics.enabled"), true));
         config.setDbSinkConfig(AlongsideDbSinkConfig.fromProperties(props));
         return config;
@@ -152,6 +173,16 @@ public class AlongsideConfig implements Serializable {
         defaults.setProperty("alongside.counterparty-risk.available", "false");
         defaults.setProperty("alongside.auto-l4-enabled", "false");
         defaults.setProperty("alongside.output.update-interval-minutes", "5");
+        defaults.setProperty("alongside.output.emit-weak", "true");
+        defaults.setProperty("alongside.high-match.enabled", "false");
+        defaults.setProperty("alongside.high-match.confirmed-only", "true");
+        defaults.setProperty("alongside.high-match.allowed-pair-priorities", "HIGH");
+        defaults.setProperty("alongside.high-match.exclude-unknown-type", "true");
+        defaults.setProperty("alongside.high-match.exclude-normal-service", "true");
+        defaults.setProperty("alongside.high-match.min-confidence", "HIGH");
+        defaults.setProperty("alongside.high-match.min-track-coverage-ratio", "0.85");
+        defaults.setProperty("alongside.high-match.max-ais-gap-count", "0");
+        defaults.setProperty("alongside.high-match.min-heading-parallel-ratio", "0.85");
         defaults.setProperty("alongside.metrics.enabled", "true");
         AlongsideDbSinkConfig.addDefaults(defaults);
     }
@@ -201,6 +232,26 @@ public class AlongsideConfig implements Serializable {
             }
         }
         return types;
+    }
+
+    private static Set<PairPriority> parsePairPriorities(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<PairPriority> priorities = new HashSet<PairPriority>();
+        String[] parts = value.split(",");
+        for (String part : parts) {
+            try {
+                priorities.add(PairPriority.valueOf(part.trim()));
+            } catch (RuntimeException ignored) {
+                // Invalid config entries are ignored so one typo does not stop the job.
+            }
+        }
+        return priorities;
+    }
+
+    private static String valueOrDefault(String value, String fallback) {
+        return value == null || value.trim().isEmpty() ? fallback : value.trim();
     }
 
     private static int toInt(String value, int fallback) {
@@ -536,6 +587,87 @@ public class AlongsideConfig implements Serializable {
 
     public void setOutputUpdateIntervalMinutes(long outputUpdateIntervalMinutes) {
         this.outputUpdateIntervalMinutes = outputUpdateIntervalMinutes;
+    }
+
+    public boolean isOutputEmitWeak() {
+        return outputEmitWeak;
+    }
+
+    public void setOutputEmitWeak(boolean outputEmitWeak) {
+        this.outputEmitWeak = outputEmitWeak;
+    }
+
+    public boolean isHighMatchEnabled() {
+        return highMatchEnabled;
+    }
+
+    public void setHighMatchEnabled(boolean highMatchEnabled) {
+        this.highMatchEnabled = highMatchEnabled;
+    }
+
+    public boolean isHighMatchConfirmedOnly() {
+        return highMatchConfirmedOnly;
+    }
+
+    public void setHighMatchConfirmedOnly(boolean highMatchConfirmedOnly) {
+        this.highMatchConfirmedOnly = highMatchConfirmedOnly;
+    }
+
+    public Set<PairPriority> getHighMatchAllowedPairPriorities() {
+        return highMatchAllowedPairPriorities;
+    }
+
+    public void setHighMatchAllowedPairPriorities(Set<PairPriority> highMatchAllowedPairPriorities) {
+        this.highMatchAllowedPairPriorities = highMatchAllowedPairPriorities == null
+            ? Collections.<PairPriority>emptySet() : highMatchAllowedPairPriorities;
+    }
+
+    public boolean isHighMatchExcludeUnknownType() {
+        return highMatchExcludeUnknownType;
+    }
+
+    public void setHighMatchExcludeUnknownType(boolean highMatchExcludeUnknownType) {
+        this.highMatchExcludeUnknownType = highMatchExcludeUnknownType;
+    }
+
+    public boolean isHighMatchExcludeNormalService() {
+        return highMatchExcludeNormalService;
+    }
+
+    public void setHighMatchExcludeNormalService(boolean highMatchExcludeNormalService) {
+        this.highMatchExcludeNormalService = highMatchExcludeNormalService;
+    }
+
+    public String getHighMatchMinConfidence() {
+        return highMatchMinConfidence;
+    }
+
+    public void setHighMatchMinConfidence(String highMatchMinConfidence) {
+        this.highMatchMinConfidence = highMatchMinConfidence;
+    }
+
+    public double getHighMatchMinTrackCoverageRatio() {
+        return highMatchMinTrackCoverageRatio;
+    }
+
+    public void setHighMatchMinTrackCoverageRatio(double highMatchMinTrackCoverageRatio) {
+        this.highMatchMinTrackCoverageRatio = highMatchMinTrackCoverageRatio;
+    }
+
+    public int getHighMatchMaxAisGapCount() {
+        return highMatchMaxAisGapCount;
+    }
+
+    public void setHighMatchMaxAisGapCount(int highMatchMaxAisGapCount) {
+        this.highMatchMaxAisGapCount = highMatchMaxAisGapCount;
+    }
+
+    public double getHighMatchMinHeadingParallelRatio() {
+        return highMatchMinHeadingParallelRatio;
+    }
+
+    public void setHighMatchMinHeadingParallelRatio(double highMatchMinHeadingParallelRatio) {
+        this.highMatchMinHeadingParallelRatio = highMatchMinHeadingParallelRatio;
     }
 
     public boolean isMetricsEnabled() {
