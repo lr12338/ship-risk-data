@@ -19,7 +19,7 @@ public class AlertJob {
     @XxlJob(value = "AisTrajectoryAnalysis")
     public ReturnT<String> AisTrajectoryAnalysis(String params) {
         try {
-            boolean result= aisAnalysisService.analysisShipRecent(params);
+            boolean result= aisAnalysisService.analysisShipRecent();
             if(result) {
                 return ReturnT.SUCCESS;
             }else{

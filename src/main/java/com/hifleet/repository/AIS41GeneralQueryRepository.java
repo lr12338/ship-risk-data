@@ -92,17 +92,4 @@ public class AIS41GeneralQueryRepository {
 		});
 	}
 
-	public String getStartTime() {
-		String sql = "select max(startday) as startday from dataanalysis.`ais_analysis_timerecord`";
-
-		try {
-			return ais41JdbcTemplate.queryForObject(sql, String.class);
-		} catch (EmptyResultDataAccessException e) {
-			// 没有数据时返回null
-			return null;
-		} catch (Exception e) {
-			e.printStackTrace();
-			return null;
-		}
-	}
 }

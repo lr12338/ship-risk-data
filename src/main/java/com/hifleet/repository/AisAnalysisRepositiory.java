@@ -3,6 +3,7 @@ package com.hifleet.repository;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementSetter;
@@ -170,6 +171,23 @@ public class AisAnalysisRepositiory {
                 return rows.size();
             }
         });
+    }
+
+
+
+    public String getStartTime() {
+        String sql = "select max(startday) as startday from dataanalysis.`ais_analysis_timerecord`";
+
+        try {
+            return newDataanalysisJdbcTemplate.queryForObject(sql, String.class);
+        } catch (EmptyResultDataAccessException e) {
+            // 没有数据时返回null
+            e.printStackTrace();
+            return null;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
     }
 
 }

@@ -327,11 +327,11 @@ public class AisAnalysisService {
         // 获取当前日期
         return targetDate;
     }
-    public boolean analysisShipRecent(String args){
-
+    public boolean analysisShipRecent(){
+        logger.info("开始 startday=");
         ArrayList<ShipForm> ships = (ArrayList<ShipForm>) ais41GeneralQueryRepository.selectRecentShips2();
         ArrayList<Integer> readyMmsi = (ArrayList<Integer>) aisAnalysisRepositiory.getReadyMmsi();
-        String startday = ais41GeneralQueryRepository.getStartTime();
+        String startday = aisAnalysisRepositiory.getStartTime();
         logger.info("startday="+startday);
         String endday =null;
         if(startday!=null){
