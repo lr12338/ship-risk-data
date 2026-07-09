@@ -343,6 +343,7 @@ public class AisAnalysisService {
                // return "之前";
                 endday = formatter.format(sevenDays);
             }else{
+                logger.info("未到计算时间"+startday+","+endday);
                 return true;
             }
 
