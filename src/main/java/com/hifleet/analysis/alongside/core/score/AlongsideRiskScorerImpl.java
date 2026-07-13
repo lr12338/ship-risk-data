@@ -64,7 +64,11 @@ public class AlongsideRiskScorerImpl implements AlongsideRiskScorer {
         result.setConfidenceLevel(confidence);
         result.setScoreDetailJson("{\"track_coverage_ratio\":" + window.getTrackCoverageRatio()
             + ",\"heading_parallel_ratio\":" + headingRatio
-            + ",\"ais_gap_count\":" + window.getAisGapCount() + "}");
+            + ",\"ais_gap_count\":" + window.getAisGapCount()
+            + ",\"both_stationary_ratio\":" + window.getBothStationaryRatio()
+            + ",\"anchored_or_moored_ratio\":" + window.getAnchoredOrMooredRatio()
+            + ",\"max_nearby_stationary_vessel_count\":" + window.getMaxNearbyStationaryVesselCount()
+            + "}");
         return result;
     }
 

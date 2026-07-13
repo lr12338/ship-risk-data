@@ -25,7 +25,9 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class SpatialCandidateProcessFunction
     extends KeyedProcessFunction<String, SpatialBucketedAisPoint, PairProximityEvidence> {
@@ -137,11 +139,16 @@ public class SpatialCandidateProcessFunction
         if (point == null || candidates == null) {
             return evidence;
         }
-        for (CleanAisPoint other : candidates) {
+        List<CleanAisPoint> candidateList = new ArrayList<CleanAisPoint>();
+        for (CleanAisPoint candidate : candidates) {
+            candidateList.add(candidate);
+        }
+        for (CleanAisPoint other : candidateList) {
             PairProximityEvidence item = buildEvidence(point, other, config, vesselTypeClassifier, pairPriorityClassifier, metrics);
             if (item == null) {
                 continue;
             }
+            item.setNearbyStationaryVesselCount(nearbyStationaryVesselCount(point, item, candidateList, config));
             PairProximityEvidence previous = findEvidence(evidence, other.getMmsi());
             if (previous == null) {
                 evidence.add(item);
@@ -152,6 +159,41 @@ public class SpatialCandidateProcessFunction
             }
         }
         return evidence;
+    }
+
+    private static int nearbyStationaryVesselCount(CleanAisPoint point, PairProximityEvidence evidence,
+                                                   List<CleanAisPoint> candidates, AlongsideConfig config) {
+        if (point == null || evidence == null || candidates == null || config == null) {
+            return 0;
+        }
+        Double centerLon = midpoint(evidence.getLonA(), evidence.getLonB());
+        Double centerLat = midpoint(evidence.getLatA(), evidence.getLatB());
+        if (centerLon == null || centerLat == null || evidence.getEvidenceTime() == null) {
+            return 0;
+        }
+        Set<Long> mmsis = new HashSet<Long>();
+        addStationaryNearby(mmsis, point, centerLat, centerLon, evidence.getEvidenceTime(), config);
+        for (CleanAisPoint candidate : candidates) {
+            addStationaryNearby(mmsis, candidate, centerLat, centerLon, evidence.getEvidenceTime(), config);
+        }
+        return mmsis.size();
+    }
+
+    private static void addStationaryNearby(Set<Long> mmsis, CleanAisPoint point, double centerLat, double centerLon,
+                                            Instant evidenceTime, AlongsideConfig config) {
+        if (point == null || point.getMmsi() == null || point.getSpeed() == null || point.getUpdateTime() == null
+            || !point.hasValidPosition()
+            || point.getSpeed() > config.getHighMatchStationaryMaxSpeedKnots()) {
+            return;
+        }
+        long gapSeconds = Math.abs(Duration.between(point.getUpdateTime(), evidenceTime).getSeconds());
+        if (gapSeconds > config.getCandidateMaxTimeGapMinutes() * 60L) {
+            return;
+        }
+        if (distanceNm(centerLat, centerLon, point.getLat(), point.getLon())
+            <= config.getHighMatchStationaryClusterRadiusNm()) {
+            mmsis.add(point.getMmsi());
+        }
     }
 
     private static PairProximityEvidence findEvidence(List<PairProximityEvidence> evidence, Long otherMmsi) {
@@ -250,6 +292,13 @@ public class SpatialCandidateProcessFunction
 
     private String pointKey(CleanAisPoint point) {
         return point.getMmsi() + "|" + point.getUpdateTime().toEpochMilli();
+    }
+
+    private static Double midpoint(Double a, Double b) {
+        if (a == null || b == null) {
+            return null;
+        }
+        return (a + b) / 2.0d;
     }
 
     public static Double headingParallelDiff(Double courseA, Double courseB) {

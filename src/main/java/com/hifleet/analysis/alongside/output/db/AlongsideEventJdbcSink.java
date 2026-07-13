@@ -97,28 +97,38 @@ public class AlongsideEventJdbcSink extends RichSinkFunction<AlongsideEvent> {
         if (buffer.isEmpty()) {
             return;
         }
-        try (PreparedStatement eventStatement = connection.prepareStatement(eventMapper.upsertSql(config.getEventTable()));
-             PreparedStatement deleteDetailStatement = connection.prepareStatement(
-                 "DELETE FROM " + config.getDetailTable() + " WHERE event_id = ?");
-             PreparedStatement detailStatement = connection.prepareStatement(detailMapper.insertSql(config.getDetailTable()))) {
+        try (PreparedStatement eventStatement = connection.prepareStatement(eventMapper.upsertSql(config.getEventTable()))) {
             for (AlongsideEvent event : buffer) {
                 eventMapper.bind(eventStatement, event);
                 eventStatement.addBatch();
             }
             eventStatement.executeBatch();
-            if (config.isDetailEnabled()) {
-                for (AlongsideEvent event : buffer) {
-                    deleteDetailStatement.setString(1, AlongsideEventIdGenerator.ensureEventId(event));
-                    deleteDetailStatement.executeUpdate();
-                    addDetailBatch(detailStatement, event);
-                }
-                detailStatement.executeBatch();
-            }
+            writeDetailsIfEnabled();
             connection.commit();
             LOG.info("ALONGSIDE_REALTIME db_sink_flush events={} detail_enabled={}", buffer.size(), config.isDetailEnabled());
             buffer.clear();
             lastFlushMs = System.currentTimeMillis();
         }
+    }
+
+    private void writeDetailsIfEnabled() throws SQLException {
+        if (!shouldWriteDetail()) {
+            return;
+        }
+        try (PreparedStatement deleteDetailStatement = connection.prepareStatement(
+                 "DELETE FROM " + config.getDetailTable() + " WHERE event_id = ?");
+             PreparedStatement detailStatement = connection.prepareStatement(detailMapper.insertSql(config.getDetailTable()))) {
+            for (AlongsideEvent event : buffer) {
+                deleteDetailStatement.setString(1, AlongsideEventIdGenerator.ensureEventId(event));
+                deleteDetailStatement.executeUpdate();
+                addDetailBatch(detailStatement, event);
+            }
+            detailStatement.executeBatch();
+        }
+    }
+
+    boolean shouldWriteDetail() {
+        return config.isDetailEnabled();
     }
 
     private void addDetailBatch(PreparedStatement detailStatement, AlongsideEvent event) throws SQLException {

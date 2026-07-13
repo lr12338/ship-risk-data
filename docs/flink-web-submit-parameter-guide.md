@@ -206,7 +206,7 @@ JDBC URL 中常见的 `?useUnicode=true&characterEncoding=utf8&serverTimezone=As
 | --- | --- | --- |
 | `alongside.spatial.bucket-size-degrees` | `0.02` | 空间网格大小，单位经纬度度。越小候选更少、压力更低，但边界附近可能漏召回；越大候选更多、计算压力更高。 |
 | `alongside.candidate.max-distance-nm` | `0.5` | 候选外圈最大距离，单位海里。超过该距离直接排除。调大提高召回，调小减少误报。 |
-| `alongside.candidate.max-speed` | `4.0` | 构造候选 pair 时双方最大航速，单位 kn。通常与预过滤速度保持一致。 |
+| `alongside.candidate.max-speed` / `alongside.candidate.max-speed-knots` | `4.0` | 构造候选 pair 时双方最大航速，单位 kn。两者为兼容参数，Web 模板会同时赋相同值。 |
 | `alongside.candidate.max-time-gap-minutes` | `10` | 两船 AIS 点最大时间差。调大可适应稀疏 AIS，但会增加错配。 |
 | `alongside.candidate.min-duration-minutes` | `20` | 输出弱候选的最短持续时长。调小可更快看到候选，误报也会增加。 |
 | `alongside.candidate.min-points` | `3` | 输出弱候选的最少证据点数。测试样本稀疏时可临时降到 `2`。 |
@@ -216,8 +216,8 @@ JDBC URL 中常见的 `?useUnicode=true&characterEncoding=utf8&serverTimezone=As
 | 参数 | 默认值 | 含义和配置建议 |
 | --- | --- | --- |
 | `alongside.confirm.max-distance-nm` | `0.15` | 正式候选最大距离，单位海里。越小越严格。 |
-| `alongside.confirm.max-speed` | `2.0` | 正式候选双方最大航速，单位 kn。用于排除仍在明显航行的近距离船舶。 |
-| `alongside.confirm.max-relative-speed` | `1.0` | 两船平均相对速度上限，单位 kn。越小越强调同步低速/静止。 |
+| `alongside.confirm.max-speed` / `alongside.confirm.max-speed-knots` | `2.0` | 正式候选双方最大航速，单位 kn。两者为兼容参数，Web 模板会同时赋相同值。 |
+| `alongside.confirm.max-relative-speed` / `alongside.confirm.max-relative-speed-knots` | `1.0` | 两船平均相对速度上限，单位 kn。两者为兼容参数，Web 模板会同时赋相同值。 |
 | `alongside.confirm.max-time-gap-minutes` | `10` | 正式确认最大时间差配置，当前主要候选阶段已用 `candidate.max-time-gap-minutes` 拦截。建议与候选时间差保持一致。 |
 | `alongside.confirm.high-confidence-time-gap-minutes` | `5` | 高覆盖证据点的时间差阈值。时间差小于该值的点越多，评分越高。 |
 | `alongside.confirm.min-duration-minutes` | `30` | 输出正式候选的最短持续时长。 |
@@ -228,8 +228,7 @@ JDBC URL 中常见的 `?useUnicode=true&characterEncoding=utf8&serverTimezone=As
 | 参数 | 默认值 | 含义和配置建议 |
 | --- | --- | --- |
 | `alongside.heading.enabled` | `true` | 是否启用航向平行约束。AIS course 缺失时不会因为该项直接拒绝。 |
-| `alongside.heading.parallel-threshold-degree` | `30` | 判断平行/反向平行的航向差阈值。两船 course 差接近 `0` 或 `180` 都视为平行，差值在阈值内记为接受。 |
-| `alongside.heading.parallel-threshold-degrees` | `30` | 同上，兼容参数名。建议只填一个，优先使用 `alongside.heading.parallel-threshold-degree`。 |
+| `alongside.heading.parallel-threshold-degree` / `alongside.heading.parallel-threshold-degrees` | `30` | 判断平行/反向平行的航向差阈值。两船 course 差接近 `0` 或 `180` 都视为平行，差值在阈值内记为接受；两者为兼容参数。 |
 
 ### 5.6 状态、合并和 END 事件
 
@@ -272,7 +271,25 @@ JDBC URL 中常见的 `?useUnicode=true&characterEncoding=utf8&serverTimezone=As
 
 高匹配过滤发生在事件构建之后、Kafka/DB 输出之前，因此会同时减少 Kafka 输出和数据库写入压力。未接入港区、泊位、锚地 geofence 前，不能承诺完全排除港内普通靠泊。
 
-### 5.9 场景和风险等级约束
+当前 jar 同时保留了速度和航向阈值的旧键与 `-knots`/复数别名，并按旧键优先读取。为避免只覆盖别名却仍命中旧默认值，本文的高匹配模板会把每一组兼容键同时设置为同一个值；它们不是两套独立规则，不能填写不同数值。
+
+### 5.9 V4 静止停泊过滤
+
+以下参数属于当前未提交的 V4 开发。使用模板 E 前必须上传包含本轮静止停泊过滤、空间邻域静止船统计和新 counter 的 jar；旧 jar 会忽略这些参数，仍按 V3 行为运行。
+
+| 参数 | 默认值 | 含义和配置建议 |
+| --- | --- | --- |
+| `alongside.high-match.stationary-filter.enabled` | `false` | 只在高匹配输出模式下启用静止停泊过滤。生产灰度模板设为 `true`。 |
+| `alongside.high-match.stationary-filter.max-speed-knots` | `0.2` | 单船判定为静止的最大速度，单位 kn。 |
+| `alongside.high-match.stationary-filter.min-both-stationary-ratio` | `0.90` | 仅当双船同时静止的 evidence 比例达到该值时，才执行后续抑制。 |
+| `alongside.high-match.stationary-filter.exclude-anchored-moored` | `true` | 双船近乎全程静止且窗口内出现 AIS nav status `1` 或 `5` 时，不输出该高匹配事件。 |
+| `alongside.high-match.stationary-filter.exclude-multi-ship-cluster` | `true` | 双船近乎全程静止，且邻域静止船数达到阈值时，不输出该高匹配事件。 |
+| `alongside.high-match.stationary-filter.cluster-radius-nm` | `0.15` | 围绕 pair 中心点统计邻域静止船的半径，单位海里。 |
+| `alongside.high-match.stationary-filter.cluster-min-vessels` | `3` | 触发多船静止簇抑制的最小静止船数，包含当前 pair 两船。 |
+
+过滤发生在事件构建后、`out.collect` 前：命中 `STATIONARY_ANCHORED_OR_MOORED` 或 `STATIONARY_MULTI_SHIP_CLUSTER` 时不会产生 Kafka 或 MySQL 事件。它是 AIS 规则的港内普通靠泊抑制，不能代替港区、泊位和锚地 geofence；没有 geofence 时仍应单独统计港内误报。
+
+### 5.10 场景和风险等级约束
 
 | 参数 | 默认值 | 含义和配置建议 |
 | --- | --- | --- |
@@ -341,6 +358,36 @@ md5(rule_version + "|" + pair_id + "|" + event_sub_type + "|" + start_time + "|"
 | `flink.checkpoint.min-pause-ms` | `60000` | 两次 checkpoint 最小间隔。 |
 | `flink.checkpoint.timeout-ms` | `600000` | checkpoint 超时时间。状态较大或 DB 明细开启时建议使用 10 分钟，避免短时高峰导致误超时。 |
 | `flink.checkpoint.externalized-cleanup` | `DELETE_ON_CANCELLATION` | cancel 作业时是否删除外部 checkpoint。 |
+
+### 7.1 事件输出、Kafka 与 MySQL 验收
+
+`alongside-pair-detection -> kafka sink / jdbc sink` 是终端算子链，页面上的 `numRecordsOut` 或 `numRecordsOutPerSecond=0` 只表示没有下游算子，不代表没有写出事件。应进入该 vertex 的 Metrics 页面，按全部 subtask 汇总下列指标：
+
+| 指标 | 含义 | 用途 |
+| --- | --- | --- |
+| `alongside-pair-detection.emittedEventCount` | pair detector 实际 `out.collect` 的事件累计数。 | 最直接的 Flink 侧事件输出数。 |
+| `alongside-pair-detection.confirmedCandidateCount` | 形成正式确认候选的累计数。 | 对比确认事件与最终输出事件，判断高匹配过滤强度。 |
+| `alongside-pair-detection.suppressedStationaryMooringCount` | V4 因双船静止且锚泊/系泊状态被抑制的累计数。 | 只在包含 V4 的 jar 且过滤开启时出现。 |
+| `alongside-pair-detection.suppressedMultiShipClusterCount` | V4 因多船静止簇被抑制的累计数。 | 判断港内或锚地静止簇的抑制量。 |
+| `kafka-alongside-event-sink__Writer.KafkaProducer.record-send-total` | Kafka producer 发起发送的累计记录数。 | 验证 Kafka 分支收到事件。 |
+| `Sink__jdbc-alongside-event-sink.numRecordsIn` | JDBC sink 收到的累计事件数。 | 验证 DB 分支接收到事件；若配置 severity 白名单，它不等同于实际入库行数。 |
+
+MySQL 是最终落库口径，优先按写入时间查询，而不是按 AIS 事件时间查询：
+
+```sql
+SELECT COUNT(*) AS event_count
+FROM ship_realtime_alongside_event
+WHERE rule_version = 'ALONGSIDE_V4_STATIONARY_FILTER'
+  AND updated_at >= NOW() - INTERVAL 30 MINUTE;
+
+SELECT COUNT(*) AS detail_rows
+FROM ship_realtime_alongside_event_detail
+WHERE created_at >= NOW() - INTERVAL 30 MINUTE;
+```
+
+长期高匹配作业的验收目标是：detail 表不增长、checkpoint `Failed=0` 且 `Completed` 持续增长、当前运行 group 的 lag 在 15 到 30 分钟内不持续单调上升，并人工抽样 20 条事件确认至少 80% 可回放为长时间近距离低速/静止、近似平行的商船 pair。服务船/港服事件误报目标为 0；港内普通靠泊在未接入 geofence 前单独统计。
+
+反压、Kafka group 和 checkpoint 的完整巡检请参考 [alongside-backpressure-optimization-runbook.md](alongside-backpressure-optimization-runbook.md)；单次 Job 页面字段解读见 [flink-job-30cebce2a67163d0352b83eaef9d8e7e-status-guide.md](flink-job-30cebce2a67163d0352b83eaef9d8e7e-status-guide.md)。
 
 ## 8. 自主调参方法
 
@@ -461,9 +508,9 @@ md5(rule_version + "|" + pair_id + "|" + event_sub_type + "|" + start_time + "|"
 
 适用场景：先验证摘要表 upsert 和事件数量，不写明细，且只将 `severity_level=L2` 的搭靠事件写入数据库，便于排查。
 
-### 模板 E：推荐，商船高匹配实时灰度 + MySQL 事件表落库
+### 模板 E：推荐，V4 商船高匹配实时灰度 + MySQL 事件表落库
 
-第一轮验证“只识别高匹配度商船搭靠事件”时优先使用该模板。它使用全新 group + `latest`，跳过历史 backlog，只观察作业启动后的实时 AIS；同时开启高匹配输出过滤、关闭弱候选、只写事件表，不写明细表。
+第一轮验证“只识别高匹配度商船搭靠事件”时优先使用该模板。它使用全新 group + `latest`，跳过历史 backlog，只观察作业启动后的实时 AIS；同时开启高匹配输出过滤、V4 静止停泊过滤、关闭弱候选、只写事件表，不写明细表。提交前确认上传的 jar 已包含本轮 V4 改动，否则静止停泊参数不会生效。
 
 ```text
 --kafka.bootstrap.servers=192.168.99.92:9092
@@ -474,7 +521,7 @@ md5(rule_version + "|" + pair_id + "|" + event_sub_type + "|" + start_time + "|"
 --stop-point.enabled=false
 --alongside.enabled=true
 --alongside.output.topic=RELIABLE_ALONGSIDE_EVENTS_TEST
---alongside.rule-version=ALONGSIDE_V3_COMMERCIAL_HIGH_MATCH
+--alongside.rule-version=ALONGSIDE_V4_STATIONARY_FILTER
 --alongside.high-match.enabled=true
 --alongside.high-match.confirmed-only=true
 --alongside.high-match.allowed-pair-priorities=HIGH
@@ -484,20 +531,31 @@ md5(rule_version + "|" + pair_id + "|" + event_sub_type + "|" + start_time + "|"
 --alongside.high-match.min-track-coverage-ratio=0.85
 --alongside.high-match.max-ais-gap-count=0
 --alongside.high-match.min-heading-parallel-ratio=0.85
+--alongside.high-match.stationary-filter.enabled=true
+--alongside.high-match.stationary-filter.max-speed-knots=0.2
+--alongside.high-match.stationary-filter.min-both-stationary-ratio=0.90
+--alongside.high-match.stationary-filter.exclude-anchored-moored=true
+--alongside.high-match.stationary-filter.exclude-multi-ship-cluster=true
+--alongside.high-match.stationary-filter.cluster-radius-nm=0.15
+--alongside.high-match.stationary-filter.cluster-min-vessels=3
 --alongside.output.emit-weak=false
 --alongside.ship-type-filter.enabled=true
 --alongside.candidate.max-distance-nm=0.25
+--alongside.candidate.max-speed=3.0
 --alongside.candidate.max-speed-knots=3.0
 --alongside.candidate.max-time-gap-minutes=5
 --alongside.candidate.min-duration-minutes=30
 --alongside.candidate.min-points=5
 --alongside.confirm.max-distance-nm=0.08
+--alongside.confirm.max-speed=1.5
 --alongside.confirm.max-speed-knots=1.5
+--alongside.confirm.max-relative-speed=0.5
 --alongside.confirm.max-relative-speed-knots=0.5
 --alongside.confirm.high-confidence-time-gap-minutes=2
 --alongside.confirm.min-duration-minutes=45
 --alongside.confirm.min-points=8
 --alongside.heading.enabled=true
+--alongside.heading.parallel-threshold-degree=20
 --alongside.heading.parallel-threshold-degrees=20
 --alongside.ais-gap-minutes=15
 --alongside.output.update-interval-minutes=30
@@ -518,7 +576,7 @@ md5(rule_version + "|" + pair_id + "|" + event_sub_type + "|" + start_time + "|"
 --flink.checkpoint.min-pause-ms=60000
 ```
 
-适用场景：当前最推荐的商船高匹配规则验收。第一轮建议运行 2 到 4 小时，重点观察 `ship_realtime_alongside_event_detail` 不增长、checkpoint 无持续失败、当前 group lag 不持续单调上升，并人工抽样核对事件轨迹。
+适用场景：当前最推荐的 V4 商船高匹配规则验收。第一轮建议运行 2 到 4 小时，重点观察 `ship_realtime_alongside_event_detail` 不增长、checkpoint 无持续失败、当前 group lag 不持续单调上升，并同时观察 `suppressedStationaryMooringCount`、`suppressedMultiShipClusterCount` 是否符合港内静止船分布，再人工抽样核对事件轨迹。
 
 ### 模板 F：继续追历史积压，开启搭靠 Kafka + MySQL 事件表落库
 
@@ -681,6 +739,7 @@ md5(rule_version + "|" + pair_id + "|" + event_sub_type + "|" + start_time + "|"
 之后再做以下调整：
 
 - 若任一船 nav status 为 `1` 或 `5`，表示锚泊/系泊迹象，`event_score` 乘以 `0.5`，并输出 `exclusion_flag=DOWNGRADED_NORMAL_LIKELY`、`exclusion_reason=NAV_STATUS_ANCHORED_OR_MOORED`。
+- V4 高匹配模式启用静止停泊过滤后，双船静止比例达到阈值且命中锚泊/系泊状态或多船静止簇时，事件会在输出前被抑制，不再只是降分。
 - 若置信度为 `LOW`，分数再乘以 `0.6`。
 - 若事件是弱候选，分数最高封顶 `20`，等级固定按弱候选处理为 `L1`，随后仍受无场景数据封顶影响。
 - 最终分数限制在 `0..100`。
@@ -737,6 +796,7 @@ track_coverage_ratio = min(1.0, point_count / expected_points)
 | `duration_minutes` | pair 证据窗口持续时间。 |
 | `point_count` | pair 证据点数量。 |
 | `min_distance_nm` / `max_distance_nm` / `avg_distance_nm` | 两船距离统计，单位海里。 |
+| `avg_speed` | 事件窗口内两船平均单船速度，单位 kn。 |
 | `avg_relative_speed` | 平均相对速度，单位 kn。 |
 | `heading_parallel_ratio` | 航向平行接受比例，无航向数据时为空。 |
 | `ais_gap_count` / `max_ais_gap_minutes` | 事件窗口内 AIS 断点数量和最大断点分钟数，用于判断轨迹复现质量。 |
@@ -802,6 +862,7 @@ fallbackAnchor = midpoint(start_lon/start_lat, end_lon/end_lat)
 - 如果要求只分析当前最新 AIS，必须使用新的 `kafka.group.id` + `kafka.starting-offsets=latest`；不要复用已有 group。
 - 如果要求不丢历史积压，使用已有 group + `committed`，并接受事件创建/更新时间可能滞后当前时间。
 - 如果要求 `created_at` / `updated_at` 使用北京时间，确认 JDBC URL 包含 `connectionTimeZone=Asia/Shanghai` 和 `forceConnectionTimeZoneToSession=true`。
+- 使用模板 E 时确认 jar 已包含 V4 静止停泊过滤；在末端 vertex Metrics 中汇总 `emittedEventCount`、两个 `suppressedStationary*Count`、Kafka producer 发送数和 JDBC sink 输入数，不要仅根据终端 sink 的 `numRecordsOutPerSecond` 判断是否写入。
 - 每次测试使用新的 `kafka.group.id`，不要复用旧测试 group；确认旧 group 已无成员后，可在 Kafka UI 删除其 consumer group offset 元数据，避免旧 lag 干扰排查。
 - 长时间运行不要开启 `flink.debug.print=true`。
 - 如果从 savepoint 恢复，确认 Entry Class、算子链和状态兼容性，再考虑 Savepoint Path。

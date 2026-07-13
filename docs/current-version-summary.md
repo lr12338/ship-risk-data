@@ -38,6 +38,18 @@ Kafka flink_aisdata_topic
 - Kafka key is `mmsi`.
 - Supported events: `STOP_CANDIDATE_START`, `STOP_START`, `STOP_UPDATE`, `STOP_END`, `SAILING_START`, `UNKNOWN`.
 
+## Alongside Branch
+
+The alongside branch is optional and starts only when `alongside.enabled=true`. It reads the same cleaned AIS stream, recalls low-speed nearby pairs through spatial buckets, evaluates pair windows, and outputs alongside candidate events to `alongside.output.topic`.
+
+Current production-oriented defaults:
+
+- MySQL event sink is optional with `alongside.db-sink.enabled`.
+- Long-running jobs write only `ship_realtime_alongside_event`; `alongside.db-sink.detail-enabled=false` and `alongside.db-sink.max-detail-points-per-event=0`.
+- `ship_realtime_alongside_event_detail` is reserved for short evidence-point debugging and should not grow during normal operation.
+- Event rows contain MMSI, time window, start/end/center coordinates, distance/speed/heading statistics, and trajectory quality fields. Frontend trajectory replay should query external AIS history by these anchors instead of relying on detail rows.
+- High-match commercial-vessel alongside rule design is documented in `docs/commercial-alongside-high-match-rule-design.md`.
+
 ## Recovery
 
 Flink checkpointing is the active recovery mechanism for Kafka offsets, keyed preprocessing state, and stop detector state.

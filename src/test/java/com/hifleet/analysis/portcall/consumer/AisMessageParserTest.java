@@ -66,7 +66,7 @@ public class AisMessageParserTest {
 
         Assert.assertNotNull(point);
         Assert.assertEquals(Long.valueOf(413000001L), point.getMmsi());
-        Assert.assertEquals(Instant.parse("2026-03-21T00:00:00Z"), point.getUpdateTime());
+        Assert.assertEquals(Instant.parse("2026-03-20T16:00:00Z"), point.getUpdateTime());
         Assert.assertEquals(Instant.parse("2026-03-21T00:00:05Z"), point.getServerReceiveTime());
         Assert.assertEquals("normal", point.getDataState());
         Assert.assertEquals("TEST SHIP", point.getShipName());
@@ -97,7 +97,7 @@ public class AisMessageParserTest {
 
         Assert.assertEquals(2, points.size());
         Assert.assertEquals(Long.valueOf(413000001L), points.get(0).getMmsi());
-        Assert.assertEquals(Instant.parse("2026-03-21T00:00:00Z"), points.get(0).getUpdateTime());
+        Assert.assertEquals(Instant.parse("2026-03-20T16:00:00Z"), points.get(0).getUpdateTime());
         Assert.assertEquals(Integer.valueOf(5), points.get(0).getNavigationStatus());
         Assert.assertEquals("3", points.get(0).getDataSourceId());
         Assert.assertEquals("1", points.get(0).getMessageId());
@@ -125,7 +125,7 @@ public class AisMessageParserTest {
 
         Assert.assertEquals(2, points.size());
         Assert.assertEquals(Long.valueOf(413000001L), points.get(0).getMmsi());
-        Assert.assertEquals(Instant.parse("2026-03-21T00:00:00Z"), points.get(0).getUpdateTime());
+        Assert.assertEquals(Instant.parse("2026-03-20T16:00:00Z"), points.get(0).getUpdateTime());
         Assert.assertEquals("3", points.get(0).getDataSourceId());
         Assert.assertEquals("1", points.get(0).getMessageId());
         Assert.assertEquals("TEST SHIP", points.get(0).getShipName());
@@ -133,5 +133,31 @@ public class AisMessageParserTest {
         Assert.assertEquals(Double.valueOf(180.0), points.get(0).getShipLength());
         Assert.assertEquals(Double.valueOf(30.0), points.get(0).getShipWidth());
         Assert.assertNull(points.get(1).getImoNumber());
+    }
+
+    @Test
+    public void shouldParseNaiveSqlTimestampAsBeijingTime() {
+        AisMessageParser parser = new AisMessageParser();
+
+        AisPoint point = parser.parse("{\"mmsi\":244150076,\"updatetime\":\"2026-07-07 19:10:51\","
+            + "\"lon\":113.1,\"lat\":22.2,\"speed\":1.0,\"course\":90.0,\"sourceid\":3}");
+
+        Assert.assertNotNull(point);
+        Assert.assertEquals(Instant.parse("2026-07-07T11:10:51Z"), point.getUpdateTime());
+    }
+
+    @Test
+    public void shouldKeepTimestampWithZoneUnchanged() {
+        AisMessageParser parser = new AisMessageParser();
+
+        AisPoint utc = parser.parse("{\"mmsi\":244150076,\"updatetime\":\"2026-07-07T11:10:51Z\","
+            + "\"lon\":113.1,\"lat\":22.2,\"speed\":1.0,\"course\":90.0,\"sourceid\":3}");
+        AisPoint beijing = parser.parse("{\"mmsi\":244150076,\"updatetime\":\"2026-07-07T19:10:51+08:00\","
+            + "\"lon\":113.1,\"lat\":22.2,\"speed\":1.0,\"course\":90.0,\"sourceid\":3}");
+
+        Assert.assertNotNull(utc);
+        Assert.assertNotNull(beijing);
+        Assert.assertEquals(Instant.parse("2026-07-07T11:10:51Z"), utc.getUpdateTime());
+        Assert.assertEquals(Instant.parse("2026-07-07T11:10:51Z"), beijing.getUpdateTime());
     }
 }

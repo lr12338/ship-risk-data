@@ -29,6 +29,13 @@ public class PortCallConfigTest {
         Assert.assertEquals(0.85d, config.getAlongsideConfig().getHighMatchMinTrackCoverageRatio(), 0.001d);
         Assert.assertEquals(0, config.getAlongsideConfig().getHighMatchMaxAisGapCount());
         Assert.assertEquals(0.85d, config.getAlongsideConfig().getHighMatchMinHeadingParallelRatio(), 0.001d);
+        Assert.assertFalse(config.getAlongsideConfig().isHighMatchStationaryFilterEnabled());
+        Assert.assertEquals(0.2d, config.getAlongsideConfig().getHighMatchStationaryMaxSpeedKnots(), 0.001d);
+        Assert.assertEquals(0.90d, config.getAlongsideConfig().getHighMatchStationaryMinBothStationaryRatio(), 0.001d);
+        Assert.assertTrue(config.getAlongsideConfig().isHighMatchStationaryExcludeAnchoredMoored());
+        Assert.assertTrue(config.getAlongsideConfig().isHighMatchStationaryExcludeMultiShipCluster());
+        Assert.assertEquals(0.15d, config.getAlongsideConfig().getHighMatchStationaryClusterRadiusNm(), 0.001d);
+        Assert.assertEquals(3, config.getAlongsideConfig().getHighMatchStationaryClusterMinVessels());
         Assert.assertFalse(config.getAlongsideConfig().getDbSinkConfig().isEnabled());
         Assert.assertEquals("ship_realtime_alongside_event", config.getAlongsideConfig().getDbSinkConfig().getEventTable());
         Assert.assertFalse(config.getAlongsideConfig().getDbSinkConfig().isDetailEnabled());

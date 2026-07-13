@@ -29,6 +29,7 @@ public class AlongsideEvent implements Serializable {
     private Double minDistanceNm;
     private Double maxDistanceNm;
     private Double avgDistanceNm;
+    private Double avgSpeedKnots;
     private Double avgRelativeSpeedKnots;
     private Double headingParallelRatio;
     private Integer pointCount;
@@ -205,6 +206,14 @@ public class AlongsideEvent implements Serializable {
 
     public void setAvgDistanceNm(Double avgDistanceNm) {
         this.avgDistanceNm = avgDistanceNm;
+    }
+
+    public Double getAvgSpeedKnots() {
+        return avgSpeedKnots;
+    }
+
+    public void setAvgSpeedKnots(Double avgSpeedKnots) {
+        this.avgSpeedKnots = avgSpeedKnots;
     }
 
     public Double getAvgRelativeSpeedKnots() {

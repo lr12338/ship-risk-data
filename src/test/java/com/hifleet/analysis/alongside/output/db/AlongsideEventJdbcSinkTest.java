@@ -52,4 +52,13 @@ public class AlongsideEventJdbcSinkTest {
         Assert.assertFalse(sink.isAllowedSeverity(l1));
         Assert.assertTrue(sink.isAllowedSeverity(l2));
     }
+
+    @Test
+    public void shouldDisableDetailWritesWhenConfigured() {
+        AlongsideDbSinkConfig config = new AlongsideDbSinkConfig();
+        config.setDetailEnabled(false);
+        AlongsideEventJdbcSink sink = new AlongsideEventJdbcSink(config);
+
+        Assert.assertFalse(sink.shouldWriteDetail());
+    }
 }

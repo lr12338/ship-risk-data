@@ -89,6 +89,13 @@
 | `alongside.high-match.exclude-unknown-type` | `true` | 未知船型不进入高匹配输出。 |
 | `alongside.high-match.exclude-normal-service` | `true` | 拖轮、引航、执法、港服等常规服务船不进入高匹配输出。 |
 | `alongside.high-match.allowed-pair-priorities` | `HIGH` | 仅允许高优先级船型组合。 |
+| `alongside.high-match.stationary-filter.enabled` | `false` | 是否启用静止停泊过滤；商船高匹配生产灰度建议开启。 |
+| `alongside.high-match.stationary-filter.max-speed-knots` | `0.2` | 判断单船静止的最大速度，单位 kn。 |
+| `alongside.high-match.stationary-filter.min-both-stationary-ratio` | `0.90` | 双船都静止的 evidence 比例达到该值后才应用过滤。 |
+| `alongside.high-match.stationary-filter.exclude-anchored-moored` | `true` | 双船近乎全程静止且出现 nav status `1/5` 时不输出。 |
+| `alongside.high-match.stationary-filter.exclude-multi-ship-cluster` | `true` | 双船近乎全程静止且邻域静止船数达到阈值时不输出。 |
+| `alongside.high-match.stationary-filter.cluster-radius-nm` | `0.15` | 周边静止船舶统计半径，单位海里。 |
+| `alongside.high-match.stationary-filter.cluster-min-vessels` | `3` | 多船静止停泊簇的最小船舶数，包含当前 pair 两船。 |
 | `alongside.output.emit-weak` | `true` | 控制是否输出弱候选；高匹配 profile 建议显式设为 `false`。 |
 | `alongside.geo.exclude-port-berth-enabled` | `false` | 有泊位/码头 geofence 时，排除普通靠泊。 |
 | `alongside.geo.exclude-anchorage-enabled` | `false` | 有锚地 geofence 时，排除常规锚泊并排。 |
@@ -106,7 +113,7 @@
 --stop-point.enabled=false
 --alongside.enabled=true
 --alongside.output.topic=RELIABLE_ALONGSIDE_EVENTS_TEST
---alongside.rule-version=ALONGSIDE_V3_COMMERCIAL_HIGH_MATCH
+--alongside.rule-version=ALONGSIDE_V4_STATIONARY_FILTER
 --alongside.high-match.enabled=true
 --alongside.high-match.confirmed-only=true
 --alongside.high-match.allowed-pair-priorities=HIGH
@@ -116,6 +123,13 @@
 --alongside.high-match.min-track-coverage-ratio=0.85
 --alongside.high-match.max-ais-gap-count=0
 --alongside.high-match.min-heading-parallel-ratio=0.85
+--alongside.high-match.stationary-filter.enabled=true
+--alongside.high-match.stationary-filter.max-speed-knots=0.2
+--alongside.high-match.stationary-filter.min-both-stationary-ratio=0.90
+--alongside.high-match.stationary-filter.exclude-anchored-moored=true
+--alongside.high-match.stationary-filter.exclude-multi-ship-cluster=true
+--alongside.high-match.stationary-filter.cluster-radius-nm=0.15
+--alongside.high-match.stationary-filter.cluster-min-vessels=3
 --alongside.output.emit-weak=false
 --alongside.ship-type-filter.enabled=true
 --alongside.candidate.max-distance-nm=0.25

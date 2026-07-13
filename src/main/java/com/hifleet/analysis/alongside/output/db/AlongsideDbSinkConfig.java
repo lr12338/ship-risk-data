@@ -27,7 +27,7 @@ public class AlongsideDbSinkConfig implements Serializable {
     public static AlongsideDbSinkConfig fromProperties(Properties props) {
         AlongsideDbSinkConfig config = new AlongsideDbSinkConfig();
         config.setEnabled(toBoolean(value(props, "alongside.db-sink.enabled"), false));
-        config.setDetailEnabled(toBoolean(value(props, "alongside.db-sink.detail-enabled"), true));
+        config.setDetailEnabled(toBoolean(value(props, "alongside.db-sink.detail-enabled"), false));
         config.setUrl(value(props, "alongside.db-sink.url"));
         config.setUsername(value(props, "alongside.db-sink.username"));
         config.setPassword(value(props, "alongside.db-sink.password"));
@@ -36,7 +36,7 @@ public class AlongsideDbSinkConfig implements Serializable {
         config.setMaxRetries(toInt(value(props, "alongside.db-sink.max-retries"), 3));
         config.setEventTable(value(props, "alongside.db-sink.table-event"));
         config.setDetailTable(value(props, "alongside.db-sink.table-detail"));
-        config.setMaxDetailPointsPerEvent(toInt(value(props, "alongside.db-sink.max-detail-points-per-event"), 200));
+        config.setMaxDetailPointsPerEvent(toInt(value(props, "alongside.db-sink.max-detail-points-per-event"), 0));
         config.setAutoCreateTable(toBoolean(value(props, "alongside.db-sink.auto-create-table"), true));
         config.setAllowedSeverityLevels(toStringSet(value(props, "alongside.db-sink.allowed-severity-levels")));
         return config;
@@ -44,7 +44,7 @@ public class AlongsideDbSinkConfig implements Serializable {
 
     public static void addDefaults(Properties defaults) {
         defaults.setProperty("alongside.db-sink.enabled", "false");
-        defaults.setProperty("alongside.db-sink.detail-enabled", "true");
+        defaults.setProperty("alongside.db-sink.detail-enabled", "false");
         defaults.setProperty("alongside.db-sink.url", "");
         defaults.setProperty("alongside.db-sink.username", "");
         defaults.setProperty("alongside.db-sink.password", "");
@@ -53,7 +53,7 @@ public class AlongsideDbSinkConfig implements Serializable {
         defaults.setProperty("alongside.db-sink.max-retries", "3");
         defaults.setProperty("alongside.db-sink.table-event", "ship_realtime_alongside_event");
         defaults.setProperty("alongside.db-sink.table-detail", "ship_realtime_alongside_event_detail");
-        defaults.setProperty("alongside.db-sink.max-detail-points-per-event", "200");
+        defaults.setProperty("alongside.db-sink.max-detail-points-per-event", "0");
         defaults.setProperty("alongside.db-sink.auto-create-table", "true");
         defaults.setProperty("alongside.db-sink.allowed-severity-levels", "");
     }

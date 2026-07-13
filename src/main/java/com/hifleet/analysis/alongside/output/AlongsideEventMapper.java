@@ -30,6 +30,7 @@ public class AlongsideEventMapper implements AlongsideEventSinkMapper {
         appendNumber(builder, "min_distance_nm", event.getMinDistanceNm()).append(',');
         appendNumber(builder, "max_distance_nm", event.getMaxDistanceNm()).append(',');
         appendNumber(builder, "avg_distance_nm", event.getAvgDistanceNm()).append(',');
+        appendNumber(builder, "avg_speed", event.getAvgSpeedKnots()).append(',');
         appendNumber(builder, "avg_relative_speed", event.getAvgRelativeSpeedKnots()).append(',');
         appendNumber(builder, "heading_parallel_ratio", event.getHeadingParallelRatio()).append(',');
         appendString(builder, "pair_priority", event.getPairPriority()).append(',');

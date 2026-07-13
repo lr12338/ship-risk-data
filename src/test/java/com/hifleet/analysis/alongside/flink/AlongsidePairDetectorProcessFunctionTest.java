@@ -128,6 +128,99 @@ public class AlongsidePairDetectorProcessFunctionTest {
     }
 
     @Test
+    public void shouldKeepStationaryCommercialPairWithoutMooringOrCluster() {
+        AlongsideConfig config = highMatchStationaryConfig();
+        AlongsidePairDetectorProcessFunction.PairState state =
+            new AlongsidePairDetectorProcessFunction.PairState();
+        Instant start = Instant.parse("2026-06-29T00:00:00Z");
+
+        for (int i = 0; i < 8; i++) {
+            PairProximityEvidence evidence = evidenceAt(start.plusSeconds(i * 420L), VesselType.TANKER,
+                VesselClass.HIGH_PRIORITY, VesselType.BUNKER, VesselClass.HIGH_PRIORITY, PairPriority.HIGH);
+            evidence.setSpeedA(0.0d);
+            evidence.setSpeedB(0.0d);
+            evidence.setRelativeSpeedKnots(0.0d);
+            evidence.setNavigationStatusA(0);
+            evidence.setNavigationStatusB(0);
+            evidence.setNearbyStationaryVesselCount(2);
+            AlongsidePairDetectorProcessFunction.addEvidence(state, evidence, config);
+        }
+
+        AlongsideEvent event = AlongsidePairDetectorProcessFunction.buildEventIfReady(state, config);
+
+        Assert.assertNotNull(event);
+        Assert.assertEquals(Double.valueOf(0.0d), event.getAvgSpeedKnots());
+        Assert.assertTrue(event.getScoreDetailJson().contains("\"both_stationary_ratio\":1.0"));
+        Assert.assertTrue(event.getScoreDetailJson().contains("\"max_nearby_stationary_vessel_count\":2"));
+    }
+
+    @Test
+    public void shouldSuppressAnchoredOrMooredStationaryHighMatchEvent() {
+        AlongsideConfig config = highMatchStationaryConfig();
+        AlongsidePairDetectorProcessFunction.PairState state =
+            new AlongsidePairDetectorProcessFunction.PairState();
+        Instant start = Instant.parse("2026-06-29T00:00:00Z");
+
+        for (int i = 0; i < 8; i++) {
+            PairProximityEvidence evidence = evidenceAt(start.plusSeconds(i * 420L), VesselType.TANKER,
+                VesselClass.HIGH_PRIORITY, VesselType.TANKER, VesselClass.HIGH_PRIORITY, PairPriority.HIGH);
+            evidence.setSpeedA(0.0d);
+            evidence.setSpeedB(0.0d);
+            evidence.setRelativeSpeedKnots(0.0d);
+            evidence.setNavigationStatusA(5);
+            evidence.setNavigationStatusB(0);
+            evidence.setNearbyStationaryVesselCount(2);
+            AlongsidePairDetectorProcessFunction.addEvidence(state, evidence, config);
+        }
+
+        Assert.assertNull(AlongsidePairDetectorProcessFunction.buildEventIfReady(state, config));
+    }
+
+    @Test
+    public void shouldSuppressStationaryMultiShipClusterHighMatchEvent() {
+        AlongsideConfig config = highMatchStationaryConfig();
+        AlongsidePairDetectorProcessFunction.PairState state =
+            new AlongsidePairDetectorProcessFunction.PairState();
+        Instant start = Instant.parse("2026-06-29T00:00:00Z");
+
+        for (int i = 0; i < 8; i++) {
+            PairProximityEvidence evidence = evidenceAt(start.plusSeconds(i * 420L), VesselType.CARGO,
+                VesselClass.HIGH_PRIORITY, VesselType.TANKER, VesselClass.HIGH_PRIORITY, PairPriority.HIGH);
+            evidence.setSpeedA(0.0d);
+            evidence.setSpeedB(0.0d);
+            evidence.setRelativeSpeedKnots(0.0d);
+            evidence.setNavigationStatusA(0);
+            evidence.setNavigationStatusB(0);
+            evidence.setNearbyStationaryVesselCount(3);
+            AlongsidePairDetectorProcessFunction.addEvidence(state, evidence, config);
+        }
+
+        Assert.assertNull(AlongsidePairDetectorProcessFunction.buildEventIfReady(state, config));
+    }
+
+    @Test
+    public void shouldKeepAnchoredHighMatchEventWhenStationaryFilterDisabled() {
+        AlongsideConfig config = highMatchConfig();
+        AlongsidePairDetectorProcessFunction.PairState state =
+            new AlongsidePairDetectorProcessFunction.PairState();
+        Instant start = Instant.parse("2026-06-29T00:00:00Z");
+
+        for (int i = 0; i < 8; i++) {
+            PairProximityEvidence evidence = evidenceAt(start.plusSeconds(i * 420L), VesselType.TANKER,
+                VesselClass.HIGH_PRIORITY, VesselType.TANKER, VesselClass.HIGH_PRIORITY, PairPriority.HIGH);
+            evidence.setSpeedA(0.0d);
+            evidence.setSpeedB(0.0d);
+            evidence.setRelativeSpeedKnots(0.0d);
+            evidence.setNavigationStatusA(1);
+            evidence.setNavigationStatusB(0);
+            evidence.setNearbyStationaryVesselCount(3);
+            AlongsidePairDetectorProcessFunction.addEvidence(state, evidence, config);
+        }
+
+        Assert.assertNotNull(AlongsidePairDetectorProcessFunction.buildEventIfReady(state, config));
+    }
+
+    @Test
     public void shouldSuppressWeakCandidateWhenEmitWeakDisabled() {
         Properties props = new Properties();
         AlongsideConfig.addDefaults(props);
@@ -155,6 +248,28 @@ public class AlongsidePairDetectorProcessFunctionTest {
         Properties props = new Properties();
         AlongsideConfig.addDefaults(props);
         props.setProperty("alongside.high-match.enabled", "true");
+        props.setProperty("alongside.output.emit-weak", "false");
+        props.setProperty("alongside.candidate.max-distance-nm", "0.25");
+        props.setProperty("alongside.candidate.max-speed-knots", "3.0");
+        props.setProperty("alongside.candidate.max-time-gap-minutes", "5");
+        props.setProperty("alongside.candidate.min-duration-minutes", "30");
+        props.setProperty("alongside.candidate.min-points", "5");
+        props.setProperty("alongside.confirm.max-distance-nm", "0.08");
+        props.setProperty("alongside.confirm.max-speed-knots", "1.5");
+        props.setProperty("alongside.confirm.max-relative-speed-knots", "0.5");
+        props.setProperty("alongside.confirm.high-confidence-time-gap-minutes", "2");
+        props.setProperty("alongside.confirm.min-duration-minutes", "45");
+        props.setProperty("alongside.confirm.min-points", "8");
+        props.setProperty("alongside.heading.parallel-threshold-degrees", "20");
+        props.setProperty("alongside.ais-gap-minutes", "15");
+        return AlongsideConfig.fromProperties(props);
+    }
+
+    private AlongsideConfig highMatchStationaryConfig() {
+        Properties props = new Properties();
+        AlongsideConfig.addDefaults(props);
+        props.setProperty("alongside.high-match.enabled", "true");
+        props.setProperty("alongside.high-match.stationary-filter.enabled", "true");
         props.setProperty("alongside.output.emit-weak", "false");
         props.setProperty("alongside.candidate.max-distance-nm", "0.25");
         props.setProperty("alongside.candidate.max-speed-knots", "3.0");

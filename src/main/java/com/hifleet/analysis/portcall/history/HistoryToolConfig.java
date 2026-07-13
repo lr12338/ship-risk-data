@@ -5,7 +5,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Properties;
@@ -17,6 +18,7 @@ public class HistoryToolConfig {
 
     private static final DateTimeFormatter SQL_TIMESTAMP_FORMATTER =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final ZoneId DEFAULT_TIME_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final Properties props;
 
@@ -216,8 +218,14 @@ public class HistoryToolConfig {
         try {
             return Instant.parse(trimmed);
         } catch (DateTimeParseException ignored) {
+            try {
+                return OffsetDateTime.parse(trimmed).toInstant();
+            } catch (DateTimeParseException ignoredOffset) {
+                // fall back to archive SQL timestamps without an explicit zone
+            }
             return LocalDateTime.parse(trimmed.substring(0, Math.min(19, trimmed.length())), SQL_TIMESTAMP_FORMATTER)
-                .toInstant(ZoneOffset.UTC);
+                .atZone(DEFAULT_TIME_ZONE)
+                .toInstant();
         }
     }
 }

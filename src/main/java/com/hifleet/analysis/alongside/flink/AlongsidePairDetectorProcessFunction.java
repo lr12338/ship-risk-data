@@ -51,6 +51,8 @@ public class AlongsidePairDetectorProcessFunction
     private transient Counter confirmedCandidateCount;
     private transient Counter downgradedNormalLikelyCount;
     private transient Counter emittedEventCount;
+    private transient Counter suppressedStationaryMooringCount;
+    private transient Counter suppressedMultiShipClusterCount;
 
     public AlongsidePairDetectorProcessFunction(AlongsideConfig config) {
         this.config = config;
@@ -77,6 +79,8 @@ public class AlongsidePairDetectorProcessFunction
         confirmedCandidateCount = getRuntimeContext().getMetricGroup().counter("confirmedCandidateCount");
         downgradedNormalLikelyCount = getRuntimeContext().getMetricGroup().counter("downgradedNormalLikelyCount");
         emittedEventCount = getRuntimeContext().getMetricGroup().counter("emittedEventCount");
+        suppressedStationaryMooringCount = getRuntimeContext().getMetricGroup().counter("suppressedStationaryMooringCount");
+        suppressedMultiShipClusterCount = getRuntimeContext().getMetricGroup().counter("suppressedMultiShipClusterCount");
     }
 
     @Override
@@ -101,7 +105,8 @@ public class AlongsidePairDetectorProcessFunction
             state = new PairState();
         }
         addEvidence(state, evidence, config);
-        AlongsideEvent event = buildEventIfReady(state, config, ruleEngine, sceneAdjustmentService, riskScorer);
+        AlongsideEvent event = buildEventIfReady(state, config, ruleEngine, sceneAdjustmentService, riskScorer,
+            new SuppressionMetrics(suppressedStationaryMooringCount, suppressedMultiShipClusterCount));
         if (event != null) {
             out.collect(event);
             emittedEventCount.inc();
@@ -159,6 +164,7 @@ public class AlongsidePairDetectorProcessFunction
         state.lastEvidenceTime = evidence.getEvidenceTime();
         state.pointCount++;
         state.sumDistanceNm += safe(evidence.getDistanceNm());
+        state.sumSpeedKnots += (safe(evidence.getSpeedA()) + safe(evidence.getSpeedB())) / 2.0d;
         state.sumRelativeSpeedKnots += safe(evidence.getRelativeSpeedKnots());
         state.sumCenterLon += safe(midpoint(evidence.getLonA(), evidence.getLonB()));
         state.sumCenterLat += safe(midpoint(evidence.getLatA(), evidence.getLatB()));
@@ -179,7 +185,14 @@ public class AlongsidePairDetectorProcessFunction
         if (hasAnchoredOrMooredStatus(evidence.getNavigationStatusA())
             || hasAnchoredOrMooredStatus(evidence.getNavigationStatusB())) {
             state.anchoredOrMooredSeen = true;
+            state.anchoredOrMooredPointCount++;
         }
+        if (safe(evidence.getSpeedA()) <= config.getHighMatchStationaryMaxSpeedKnots()
+            && safe(evidence.getSpeedB()) <= config.getHighMatchStationaryMaxSpeedKnots()) {
+            state.bothStationaryPointCount++;
+        }
+        state.maxNearbyStationaryVesselCount = Math.max(state.maxNearbyStationaryVesselCount,
+            evidence.getNearbyStationaryVesselCount() == null ? 0 : evidence.getNearbyStationaryVesselCount());
         if (state.previousOwnTime != null && evidence.getPointATime() != null) {
             long gap = Math.abs(Duration.between(state.previousOwnTime, evidence.getPointATime()).toMinutes());
             if (gap > config.getAisGapMinutes()) {
@@ -203,7 +216,8 @@ public class AlongsidePairDetectorProcessFunction
     public static AlongsideEvent buildEventIfReady(PairState state, AlongsideConfig config) {
         return buildEventIfReady(state, config, new AlongsideRuleEngineImpl(),
             new AlongsideSceneAdjustmentServiceImpl(),
-            new AlongsideRiskScorerImpl(config.getSeverityCapNoSceneDataMaxLevel(), config.isAutoL4Enabled()));
+            new AlongsideRiskScorerImpl(config.getSeverityCapNoSceneDataMaxLevel(), config.isAutoL4Enabled()),
+            null);
     }
 
     static AlongsideEvent buildEventIfReady(
@@ -212,6 +226,17 @@ public class AlongsidePairDetectorProcessFunction
         AlongsideRuleEngine ruleEngine,
         AlongsideSceneAdjustmentService sceneAdjustmentService,
         AlongsideRiskScorer riskScorer
+    ) {
+        return buildEventIfReady(state, config, ruleEngine, sceneAdjustmentService, riskScorer, null);
+    }
+
+    static AlongsideEvent buildEventIfReady(
+        PairState state,
+        AlongsideConfig config,
+        AlongsideRuleEngine ruleEngine,
+        AlongsideSceneAdjustmentService sceneAdjustmentService,
+        AlongsideRiskScorer riskScorer,
+        SuppressionMetrics suppressionMetrics
     ) {
         PairEvidenceWindow window = toWindow(state, config);
         AlongsideDetectionResult detection = ruleEngine.evaluate(window, config.toRuleConfig());
@@ -250,6 +275,7 @@ public class AlongsidePairDetectorProcessFunction
         event.setMinDistanceNm(window.getMinDistanceNm());
         event.setMaxDistanceNm(window.getMaxDistanceNm());
         event.setAvgDistanceNm(window.getAvgDistanceNm());
+        event.setAvgSpeedKnots(window.getAvgSpeedKnots());
         event.setAvgRelativeSpeedKnots(window.getAvgRelativeSpeedKnots());
         event.setHeadingParallelRatio(window.getHeadingKnownCount() == 0
             ? null
@@ -271,7 +297,7 @@ public class AlongsidePairDetectorProcessFunction
         event.setTrackCoverageRatio(window.getTrackCoverageRatio());
         event.setEmitTime(Instant.now());
         event.setEvidencePoints(copyEvidence(state));
-        if (!shouldKeepOutputEvent(event, window, config)) {
+        if (!shouldKeepOutputEvent(event, window, config, suppressionMetrics)) {
             return null;
         }
         AlongsideEventIdGenerator.ensureEventId(event);
@@ -303,6 +329,7 @@ public class AlongsidePairDetectorProcessFunction
         event.setMinDistanceNm(window.getMinDistanceNm());
         event.setMaxDistanceNm(window.getMaxDistanceNm());
         event.setAvgDistanceNm(window.getAvgDistanceNm());
+        event.setAvgSpeedKnots(window.getAvgSpeedKnots());
         event.setAvgRelativeSpeedKnots(window.getAvgRelativeSpeedKnots());
         event.setHeadingParallelRatio(window.getHeadingKnownCount() == 0
             ? null
@@ -364,7 +391,8 @@ public class AlongsidePairDetectorProcessFunction
         return gapMinutes >= Math.max(1L, config.getOutputUpdateIntervalMinutes());
     }
 
-    private static boolean shouldKeepOutputEvent(AlongsideEvent event, PairEvidenceWindow window, AlongsideConfig config) {
+    private static boolean shouldKeepOutputEvent(AlongsideEvent event, PairEvidenceWindow window, AlongsideConfig config,
+                                                 SuppressionMetrics suppressionMetrics) {
         if (!config.isHighMatchEnabled()) {
             return true;
         }
@@ -400,8 +428,46 @@ public class AlongsidePairDetectorProcessFunction
             || window.getHighTimeGapPointCount() < Math.ceil(window.getPointCount() * 0.8d)) {
             return false;
         }
-        return event.getHeadingParallelRatio() == null
-            || event.getHeadingParallelRatio() >= config.getHighMatchMinHeadingParallelRatio();
+        if (event.getHeadingParallelRatio() != null
+            && event.getHeadingParallelRatio() < config.getHighMatchMinHeadingParallelRatio()) {
+            return false;
+        }
+        String stationarySuppressionReason = stationarySuppressionReason(window, config);
+        if (stationarySuppressionReason != null) {
+            incSuppressionMetric(stationarySuppressionReason, suppressionMetrics);
+            LOG.info("ALONGSIDE_REALTIME suppress_high_match pair_id={} reason={} both_stationary_ratio={} "
+                    + "anchored_or_moored_ratio={} max_nearby_stationary_vessel_count={}",
+                event.getPairId(), stationarySuppressionReason, window.getBothStationaryRatio(),
+                window.getAnchoredOrMooredRatio(), window.getMaxNearbyStationaryVesselCount());
+            return false;
+        }
+        return true;
+    }
+
+    private static String stationarySuppressionReason(PairEvidenceWindow window, AlongsideConfig config) {
+        if (!config.isHighMatchStationaryFilterEnabled()
+            || window.getBothStationaryRatio() < config.getHighMatchStationaryMinBothStationaryRatio()) {
+            return null;
+        }
+        if (config.isHighMatchStationaryExcludeAnchoredMoored() && window.isAnchoredOrMooredSeen()) {
+            return "STATIONARY_ANCHORED_OR_MOORED";
+        }
+        if (config.isHighMatchStationaryExcludeMultiShipCluster()
+            && window.getMaxNearbyStationaryVesselCount() >= config.getHighMatchStationaryClusterMinVessels()) {
+            return "STATIONARY_MULTI_SHIP_CLUSTER";
+        }
+        return null;
+    }
+
+    private static void incSuppressionMetric(String reason, SuppressionMetrics metrics) {
+        if (metrics == null) {
+            return;
+        }
+        if ("STATIONARY_ANCHORED_OR_MOORED".equals(reason) && metrics.stationaryMooringCounter != null) {
+            metrics.stationaryMooringCounter.inc();
+        } else if ("STATIONARY_MULTI_SHIP_CLUSTER".equals(reason) && metrics.multiShipClusterCounter != null) {
+            metrics.multiShipClusterCounter.inc();
+        }
     }
 
     private static boolean isConfirmedLifecycleEvent(AlongsideEvent event) {
@@ -467,6 +533,7 @@ public class AlongsidePairDetectorProcessFunction
         window.setMinDistanceNm(state.minDistanceNm);
         window.setMaxDistanceNm(state.maxDistanceNm);
         window.setAvgDistanceNm(state.sumDistanceNm / Math.max(1, state.pointCount));
+        window.setAvgSpeedKnots(state.sumSpeedKnots / Math.max(1, state.pointCount));
         window.setAvgRelativeSpeedKnots(state.sumRelativeSpeedKnots / Math.max(1, state.pointCount));
         window.setMaxSpeedKnots(state.maxSpeedKnots);
         window.setDurationMinutes(durationMinutes(state));
@@ -478,6 +545,9 @@ public class AlongsidePairDetectorProcessFunction
         window.setMaxAisGapMinutes(state.maxAisGapMinutes);
         window.setTrackCoverageRatio(calculateCoverage(window.getDurationMinutes(), state.pointCount, config.getAisGapMinutes()));
         window.setAnchoredOrMooredSeen(state.anchoredOrMooredSeen);
+        window.setBothStationaryRatio(state.bothStationaryPointCount / (double) Math.max(1, state.pointCount));
+        window.setAnchoredOrMooredRatio(state.anchoredOrMooredPointCount / (double) Math.max(1, state.pointCount));
+        window.setMaxNearbyStationaryVesselCount(state.maxNearbyStationaryVesselCount);
         window.setVesselA(state.vesselA);
         window.setVesselB(state.vesselB);
         window.setPairPriority(state.pairPriority);
@@ -535,6 +605,7 @@ public class AlongsidePairDetectorProcessFunction
         private double maxDistanceNm;
         private double maxSpeedKnots;
         private double sumDistanceNm;
+        private double sumSpeedKnots;
         private double sumRelativeSpeedKnots;
         private double sumCenterLon;
         private double sumCenterLat;
@@ -545,6 +616,9 @@ public class AlongsidePairDetectorProcessFunction
         private int aisGapCount;
         private long maxAisGapMinutes;
         private boolean anchoredOrMooredSeen;
+        private int anchoredOrMooredPointCount;
+        private int bothStationaryPointCount;
+        private int maxNearbyStationaryVesselCount;
         private boolean weakEmitted;
         private boolean formalEmitted;
         private boolean endEmitted;
@@ -553,5 +627,15 @@ public class AlongsidePairDetectorProcessFunction
         private com.hifleet.analysis.alongside.core.model.VesselProfile vesselB;
         private com.hifleet.analysis.alongside.core.model.PairPriority pairPriority;
         private List<PairProximityEvidence> evidencePoints;
+    }
+
+    static class SuppressionMetrics {
+        private final Counter stationaryMooringCounter;
+        private final Counter multiShipClusterCounter;
+
+        SuppressionMetrics(Counter stationaryMooringCounter, Counter multiShipClusterCounter) {
+            this.stationaryMooringCounter = stationaryMooringCounter;
+            this.multiShipClusterCounter = multiShipClusterCounter;
+        }
     }
 }

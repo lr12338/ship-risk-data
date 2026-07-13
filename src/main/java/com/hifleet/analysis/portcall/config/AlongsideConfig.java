@@ -61,6 +61,13 @@ public class AlongsideConfig implements Serializable {
     private double highMatchMinTrackCoverageRatio;
     private int highMatchMaxAisGapCount;
     private double highMatchMinHeadingParallelRatio;
+    private boolean highMatchStationaryFilterEnabled;
+    private double highMatchStationaryMaxSpeedKnots;
+    private double highMatchStationaryMinBothStationaryRatio;
+    private boolean highMatchStationaryExcludeAnchoredMoored;
+    private boolean highMatchStationaryExcludeMultiShipCluster;
+    private double highMatchStationaryClusterRadiusNm;
+    private int highMatchStationaryClusterMinVessels;
     private boolean metricsEnabled;
     private boolean navStatusDowngradeEnabled;
     private String ruleVersion;
@@ -121,6 +128,13 @@ public class AlongsideConfig implements Serializable {
         config.setHighMatchMinTrackCoverageRatio(toDouble(value(props, "alongside.high-match.min-track-coverage-ratio"), 0.85d));
         config.setHighMatchMaxAisGapCount(toInt(value(props, "alongside.high-match.max-ais-gap-count"), 0));
         config.setHighMatchMinHeadingParallelRatio(toDouble(value(props, "alongside.high-match.min-heading-parallel-ratio"), 0.85d));
+        config.setHighMatchStationaryFilterEnabled(toBoolean(value(props, "alongside.high-match.stationary-filter.enabled"), false));
+        config.setHighMatchStationaryMaxSpeedKnots(toDouble(value(props, "alongside.high-match.stationary-filter.max-speed-knots"), 0.2d));
+        config.setHighMatchStationaryMinBothStationaryRatio(toDouble(value(props, "alongside.high-match.stationary-filter.min-both-stationary-ratio"), 0.90d));
+        config.setHighMatchStationaryExcludeAnchoredMoored(toBoolean(value(props, "alongside.high-match.stationary-filter.exclude-anchored-moored"), true));
+        config.setHighMatchStationaryExcludeMultiShipCluster(toBoolean(value(props, "alongside.high-match.stationary-filter.exclude-multi-ship-cluster"), true));
+        config.setHighMatchStationaryClusterRadiusNm(toDouble(value(props, "alongside.high-match.stationary-filter.cluster-radius-nm"), 0.15d));
+        config.setHighMatchStationaryClusterMinVessels(toInt(value(props, "alongside.high-match.stationary-filter.cluster-min-vessels"), 3));
         config.setMetricsEnabled(toBoolean(value(props, "alongside.metrics.enabled"), true));
         config.setDbSinkConfig(AlongsideDbSinkConfig.fromProperties(props));
         return config;
@@ -183,6 +197,13 @@ public class AlongsideConfig implements Serializable {
         defaults.setProperty("alongside.high-match.min-track-coverage-ratio", "0.85");
         defaults.setProperty("alongside.high-match.max-ais-gap-count", "0");
         defaults.setProperty("alongside.high-match.min-heading-parallel-ratio", "0.85");
+        defaults.setProperty("alongside.high-match.stationary-filter.enabled", "false");
+        defaults.setProperty("alongside.high-match.stationary-filter.max-speed-knots", "0.2");
+        defaults.setProperty("alongside.high-match.stationary-filter.min-both-stationary-ratio", "0.90");
+        defaults.setProperty("alongside.high-match.stationary-filter.exclude-anchored-moored", "true");
+        defaults.setProperty("alongside.high-match.stationary-filter.exclude-multi-ship-cluster", "true");
+        defaults.setProperty("alongside.high-match.stationary-filter.cluster-radius-nm", "0.15");
+        defaults.setProperty("alongside.high-match.stationary-filter.cluster-min-vessels", "3");
         defaults.setProperty("alongside.metrics.enabled", "true");
         AlongsideDbSinkConfig.addDefaults(defaults);
     }
@@ -668,6 +689,62 @@ public class AlongsideConfig implements Serializable {
 
     public void setHighMatchMinHeadingParallelRatio(double highMatchMinHeadingParallelRatio) {
         this.highMatchMinHeadingParallelRatio = highMatchMinHeadingParallelRatio;
+    }
+
+    public boolean isHighMatchStationaryFilterEnabled() {
+        return highMatchStationaryFilterEnabled;
+    }
+
+    public void setHighMatchStationaryFilterEnabled(boolean highMatchStationaryFilterEnabled) {
+        this.highMatchStationaryFilterEnabled = highMatchStationaryFilterEnabled;
+    }
+
+    public double getHighMatchStationaryMaxSpeedKnots() {
+        return highMatchStationaryMaxSpeedKnots;
+    }
+
+    public void setHighMatchStationaryMaxSpeedKnots(double highMatchStationaryMaxSpeedKnots) {
+        this.highMatchStationaryMaxSpeedKnots = highMatchStationaryMaxSpeedKnots;
+    }
+
+    public double getHighMatchStationaryMinBothStationaryRatio() {
+        return highMatchStationaryMinBothStationaryRatio;
+    }
+
+    public void setHighMatchStationaryMinBothStationaryRatio(double highMatchStationaryMinBothStationaryRatio) {
+        this.highMatchStationaryMinBothStationaryRatio = highMatchStationaryMinBothStationaryRatio;
+    }
+
+    public boolean isHighMatchStationaryExcludeAnchoredMoored() {
+        return highMatchStationaryExcludeAnchoredMoored;
+    }
+
+    public void setHighMatchStationaryExcludeAnchoredMoored(boolean highMatchStationaryExcludeAnchoredMoored) {
+        this.highMatchStationaryExcludeAnchoredMoored = highMatchStationaryExcludeAnchoredMoored;
+    }
+
+    public boolean isHighMatchStationaryExcludeMultiShipCluster() {
+        return highMatchStationaryExcludeMultiShipCluster;
+    }
+
+    public void setHighMatchStationaryExcludeMultiShipCluster(boolean highMatchStationaryExcludeMultiShipCluster) {
+        this.highMatchStationaryExcludeMultiShipCluster = highMatchStationaryExcludeMultiShipCluster;
+    }
+
+    public double getHighMatchStationaryClusterRadiusNm() {
+        return highMatchStationaryClusterRadiusNm;
+    }
+
+    public void setHighMatchStationaryClusterRadiusNm(double highMatchStationaryClusterRadiusNm) {
+        this.highMatchStationaryClusterRadiusNm = highMatchStationaryClusterRadiusNm;
+    }
+
+    public int getHighMatchStationaryClusterMinVessels() {
+        return highMatchStationaryClusterMinVessels;
+    }
+
+    public void setHighMatchStationaryClusterMinVessels(int highMatchStationaryClusterMinVessels) {
+        this.highMatchStationaryClusterMinVessels = highMatchStationaryClusterMinVessels;
     }
 
     public boolean isMetricsEnabled() {

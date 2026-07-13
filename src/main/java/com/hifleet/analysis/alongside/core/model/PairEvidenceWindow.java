@@ -20,6 +20,7 @@ public class PairEvidenceWindow implements Serializable {
     private double minDistanceNm;
     private double maxDistanceNm;
     private double avgDistanceNm;
+    private double avgSpeedKnots;
     private double avgRelativeSpeedKnots;
     private double maxSpeedKnots;
     private long durationMinutes;
@@ -31,6 +32,9 @@ public class PairEvidenceWindow implements Serializable {
     private long maxAisGapMinutes;
     private double trackCoverageRatio;
     private boolean anchoredOrMooredSeen;
+    private double bothStationaryRatio;
+    private double anchoredOrMooredRatio;
+    private int maxNearbyStationaryVesselCount;
     private VesselProfile vesselA;
     private VesselProfile vesselB;
     private PairPriority pairPriority;
@@ -139,6 +143,14 @@ public class PairEvidenceWindow implements Serializable {
         this.avgDistanceNm = avgDistanceNm;
     }
 
+    public double getAvgSpeedKnots() {
+        return avgSpeedKnots;
+    }
+
+    public void setAvgSpeedKnots(double avgSpeedKnots) {
+        this.avgSpeedKnots = avgSpeedKnots;
+    }
+
     public double getAvgRelativeSpeedKnots() {
         return avgRelativeSpeedKnots;
     }
@@ -225,6 +237,30 @@ public class PairEvidenceWindow implements Serializable {
 
     public void setAnchoredOrMooredSeen(boolean anchoredOrMooredSeen) {
         this.anchoredOrMooredSeen = anchoredOrMooredSeen;
+    }
+
+    public double getBothStationaryRatio() {
+        return bothStationaryRatio;
+    }
+
+    public void setBothStationaryRatio(double bothStationaryRatio) {
+        this.bothStationaryRatio = bothStationaryRatio;
+    }
+
+    public double getAnchoredOrMooredRatio() {
+        return anchoredOrMooredRatio;
+    }
+
+    public void setAnchoredOrMooredRatio(double anchoredOrMooredRatio) {
+        this.anchoredOrMooredRatio = anchoredOrMooredRatio;
+    }
+
+    public int getMaxNearbyStationaryVesselCount() {
+        return maxNearbyStationaryVesselCount;
+    }
+
+    public void setMaxNearbyStationaryVesselCount(int maxNearbyStationaryVesselCount) {
+        this.maxNearbyStationaryVesselCount = maxNearbyStationaryVesselCount;
     }
 
     public VesselProfile getVesselA() {

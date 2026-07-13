@@ -42,6 +42,8 @@ public class ProgramArgumentsParserTest {
             "--alongside.db-sink.allowed-severity-levels", "L2",
             "--alongside.candidate.max-speed", "6.0",
             "--alongside.high-match.enabled", "true",
+            "--alongside.high-match.stationary-filter.enabled", "true",
+            "--alongside.high-match.stationary-filter.cluster-min-vessels", "4",
             "--alongside.output.emit-weak", "false"
         });
 
@@ -51,6 +53,8 @@ public class ProgramArgumentsParserTest {
         Assert.assertTrue(config.getAlongsideConfig().getDbSinkConfig().getAllowedSeverityLevels().contains("L2"));
         Assert.assertEquals(6.0d, config.getAlongsideConfig().getCandidateMaxSpeedKnots(), 0.001d);
         Assert.assertTrue(config.getAlongsideConfig().isHighMatchEnabled());
+        Assert.assertTrue(config.getAlongsideConfig().isHighMatchStationaryFilterEnabled());
+        Assert.assertEquals(4, config.getAlongsideConfig().getHighMatchStationaryClusterMinVessels());
         Assert.assertFalse(config.getAlongsideConfig().isOutputEmitWeak());
     }
 

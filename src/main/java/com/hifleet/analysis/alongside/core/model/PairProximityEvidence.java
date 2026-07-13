@@ -27,6 +27,7 @@ public class PairProximityEvidence implements Serializable {
     private Long timeGapSeconds;
     private Double relativeSpeedKnots;
     private Double headingParallelDiff;
+    private Integer nearbyStationaryVesselCount;
     private VesselProfile vesselA;
     private VesselProfile vesselB;
     private PairPriority pairPriority;
@@ -195,6 +196,14 @@ public class PairProximityEvidence implements Serializable {
 
     public void setHeadingParallelDiff(Double headingParallelDiff) {
         this.headingParallelDiff = headingParallelDiff;
+    }
+
+    public Integer getNearbyStationaryVesselCount() {
+        return nearbyStationaryVesselCount;
+    }
+
+    public void setNearbyStationaryVesselCount(Integer nearbyStationaryVesselCount) {
+        this.nearbyStationaryVesselCount = nearbyStationaryVesselCount;
     }
 
     public VesselProfile getVesselA() {

@@ -9,7 +9,10 @@ public class AlongsideDbTableInitializer {
     public void initialize(Connection connection, AlongsideDbSinkConfig config) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             statement.execute(eventTableDdl(config.getEventTable()));
-            statement.execute(detailTableDdl(config.getDetailTable()));
+            ensureEventTableColumns(statement, config.getEventTable());
+            if (config.isDetailEnabled()) {
+                statement.execute(detailTableDdl(config.getDetailTable()));
+            }
         }
     }
 
@@ -29,6 +32,12 @@ public class AlongsideDbTableInitializer {
             + "target_mmsi VARCHAR(32),"
             + "start_time DATETIME NOT NULL,"
             + "end_time DATETIME NOT NULL,"
+            + "start_lon DOUBLE,"
+            + "start_lat DOUBLE,"
+            + "end_lon DOUBLE,"
+            + "end_lat DOUBLE,"
+            + "center_lon DOUBLE,"
+            + "center_lat DOUBLE,"
             + "duration_minutes INT,"
             + "point_count INT,"
             + "min_distance_nm DOUBLE,"
@@ -46,6 +55,9 @@ public class AlongsideDbTableInitializer {
             + "exclusion_flag VARCHAR(64),"
             + "exclusion_reason VARCHAR(255),"
             + "score_detail_json JSON,"
+            + "ais_gap_count INT,"
+            + "max_ais_gap_minutes BIGINT,"
+            + "track_coverage_ratio DOUBLE,"
             + "kafka_topic VARCHAR(128),"
             + "kafka_partition_id INT,"
             + "kafka_offset BIGINT,"
@@ -55,9 +67,39 @@ public class AlongsideDbTableInitializer {
             + "KEY idx_pair_time (pair_id, start_time, end_time),"
             + "KEY idx_mmsi_a_time (mmsi_a, start_time),"
             + "KEY idx_mmsi_b_time (mmsi_b, start_time),"
+            + "KEY idx_center (center_lon, center_lat),"
             + "KEY idx_event_sub_type (event_sub_type),"
             + "KEY idx_severity (severity_level)"
             + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+    }
+
+    private void ensureEventTableColumns(Statement statement, String tableName) throws SQLException {
+        executeIgnoreExisting(statement, "ALTER TABLE " + tableName + " ADD COLUMN start_lon DOUBLE");
+        executeIgnoreExisting(statement, "ALTER TABLE " + tableName + " ADD COLUMN start_lat DOUBLE");
+        executeIgnoreExisting(statement, "ALTER TABLE " + tableName + " ADD COLUMN end_lon DOUBLE");
+        executeIgnoreExisting(statement, "ALTER TABLE " + tableName + " ADD COLUMN end_lat DOUBLE");
+        executeIgnoreExisting(statement, "ALTER TABLE " + tableName + " ADD COLUMN center_lon DOUBLE");
+        executeIgnoreExisting(statement, "ALTER TABLE " + tableName + " ADD COLUMN center_lat DOUBLE");
+        executeIgnoreExisting(statement, "ALTER TABLE " + tableName + " ADD COLUMN ais_gap_count INT");
+        executeIgnoreExisting(statement, "ALTER TABLE " + tableName + " ADD COLUMN max_ais_gap_minutes BIGINT");
+        executeIgnoreExisting(statement, "ALTER TABLE " + tableName + " ADD COLUMN track_coverage_ratio DOUBLE");
+    }
+
+    private void executeIgnoreExisting(Statement statement, String sql) throws SQLException {
+        try {
+            statement.execute(sql);
+        } catch (SQLException ex) {
+            if (!isAlreadyExists(ex)) {
+                throw ex;
+            }
+        }
+    }
+
+    private boolean isAlreadyExists(SQLException ex) {
+        int errorCode = ex.getErrorCode();
+        String message = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
+        return errorCode == 1060 || errorCode == 1061
+            || message.contains("duplicate column") || message.contains("duplicate key");
     }
 
     public String detailTableDdl(String tableName) {
