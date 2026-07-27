@@ -477,6 +477,8 @@ LOITERING_V2 summary mmsi=413193000 points=115 cleanPoints=115 segments=23 candi
 - AUTO 候选召回链路为 `ShipAlongsideReplayCandidateProvider -> SpatialAisReplayClient -> ReplayAisPointParser -> ShipAlongsideDetector`
 - AUTO 会输出 `low_speed_summary`、`replay_query`、`candidate_summary` 和时间窗年度指标日志
 - 如果 replay 接口返回空结果或没有目标船满足预过滤规则，`candidateTargets=0` 是正常结果，但不再是固定空候选
+- `getRecentAis` 成功响应按 `status=1,msg=OK,data={...}` 判定，客户端日志会输出 `httpStatus/responseStatus/responseMsg/error`
+- 排查 AUTO 未命中时，应先确认 `replay_query` 是否为 `responseStatus=1,responseMsg=OK,success=true`，再判断是接口空结果、候选预过滤未通过，还是 detector 确认规则未通过
 
 ## 10. 开发人员接手建议
 

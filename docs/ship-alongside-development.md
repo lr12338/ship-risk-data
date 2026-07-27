@@ -189,6 +189,42 @@ ShipAlongsideReplayCandidateProvider
 - 与主船低速窗口点存在 `distance <= candidate.max-distance-nm`
 - 候选匹配持续时间 >= `candidate.min-duration-minutes`
 
+### 5.0.1 getRecentAis 接口契约与能力边界
+
+AUTO 候选召回依赖 `ship.behavior.alongside.replay.url` 配置的区域回放接口：
+
+```properties
+ship.behavior.alongside.replay.url=https://gm.hifleet.com/spatialais/getRecentAis
+```
+
+当前客户端使用 bbox 查询参数：
+
+```text
+starttime=yyyy-MM-dd HH:mm:ss
+endtime=yyyy-MM-dd HH:mm:ss
+devSize=50000
+minlat=...
+maxlat=...
+minlon=...
+maxlon=...
+```
+
+注意事项：
+
+- 参数名必须是 `starttime`，不是 `startime`
+- 接口成功响应形态为 `status=1,msg=OK,data={...}`
+- `data` 按 MMSI 分组，值为分号分隔 AIS 字符串数组
+- 客户端由 `SpatialAisReplayClient` 负责 HTTP 查询和响应判定
+- `ReplayAisPointParser` 负责解析分号 AIS 字符串前 6 个核心字段：`mmsi,time,lon,lat,course,speed`
+- `responseStatus=1,responseMsg=OK,returnedVessels>0,rawPoints>0` 表示接口成功返回并被客户端装载
+
+历史排障中已确认过两个容易导致 AUTO 空候选的问题：
+
+- 请求参数误写为 `startime` 时，接口会返回业务失败，目标船不会进入候选召回
+- 客户端如果把 `status=1` 误判为失败，日志可能表现为 `success=true` 但 `returnedVessels=0`
+
+当前代码已修复上述问题，并在 replay 日志中输出 `httpStatus`、`responseStatus`、`responseMsg` 和 `error`，用于区分“接口真实空结果”和“客户端解析失败”。
+
 ## 5.1 批量 AUTO 模式
 
 批量搭靠用于船队和多时间窗自动运行，固定复用单船 AUTO 链路，不支持 `targetMmsi` 批量 PAIR。已知两船复核仍使用 `shipAlongsideJobHandler`。
@@ -745,8 +781,26 @@ ALONGSIDE_V2 low_speed_summary mmsi=xxx points=... cleanPoints=... lowSpeedWindo
 区域回放查询：
 
 ```text
-ALONGSIDE_V2 replay_query[1] start=... end=... minlon=... maxlon=... minlat=... maxlat=... returnedVessels=... rawPoints=... validPoints=... parseErrors=... elapsedMs=... truncated=false success=true batchNo=...
+ALONGSIDE_V2 replay_query[1] start=... end=... minlon=... maxlon=... minlat=... maxlat=... httpStatus=... responseStatus=... responseMsg=... returnedVessels=... rawPoints=... validPoints=... parseErrors=... elapsedMs=... truncated=false success=true error=... batchNo=...
 ```
+
+字段判读：
+
+- `httpStatus=200`：HTTP 层成功
+- `responseStatus=1,responseMsg=OK`：getRecentAis 业务层成功
+- `success=true`：客户端已成功解析业务响应
+- `returnedVessels/rawPoints/validPoints`：接口返回船舶数、原始点数和有效解析点数
+- `parseErrors>0`：接口有原始 AIS 字符串无法解析
+- `error` 非 `-`：HTTP 或业务响应失败原因
+- `truncated=true`：返回点数达到 `devSize`，该窗口可能存在候选召回不完整风险
+
+常见现象：
+
+- `success=false,error=STATUS_0_...`：接口业务失败，优先检查 `starttime/endtime` 和 bbox 参数
+- `success=true,returnedVessels=0,rawPoints=0`：接口成功但该 bbox/time 没有返回船舶
+- `success=true,returnedVessels>0,prefilteredTargets=0`：接口有船舶返回，但没有目标船满足低速、距离、时间差和持续时间预过滤
+- `success=true,prefilteredTargets>0,candidateTargets=0`：候选去重或聚合后为空，应检查 candidate key 和目标点合并逻辑
+- `candidateTargets>0,rawEvents=0`：候选已进入 detector，但未满足确认距离、确认速度、相对速度、点数或持续时间规则
 
 候选统计：
 
@@ -895,21 +949,60 @@ ALONGSIDE_BATCH annual_score mmsi=... eventCount=... validEventCount=... highRis
 - 短暂会遇不成正式搭靠
 - 相邻事件合并
 - AUTO 低速窗口提取
+- getRecentAis 请求参数名 `starttime`
+- replay 接口 `status=1,msg=OK` 成功响应解析
+- replay 接口 `status=0` 失败响应不误标成功
 - replay AIS 字符串解析容错
 - replay 候选目标船预过滤
+- 批量安全轨迹读取分段和点数上限
 
 由于 `pom.xml` 中 surefire 配置了 `<skip>true</skip>`，普通 `mvn test` 会跳过测试。当前可用以下命令直接执行新增测试：
 
 ```bash
 mvn -DskipTests compile test-compile
-mvn -q dependency:build-classpath -Dmdep.outputFile=target/test-classpath.txt
-java -cp "target/classes:target/test-classes:$(cat target/test-classpath.txt)" org.junit.runner.JUnitCore com.hifleet.service.ShipAlongsideDetectorTest com.hifleet.service.ReplayAisPointParserTest com.hifleet.service.ShipAlongsideReplayCandidateProviderTest
+mvn -q dependency:build-classpath -Dmdep.outputFile=target/test-classpath.txt -Dmdep.scope=test
+java -cp "target/classes:target/test-classes:$(cat target/test-classpath.txt)" org.junit.runner.JUnitCore \
+  com.hifleet.service.SpatialAisReplayClientTest \
+  com.hifleet.service.ShipAlongsideReplayCandidateProviderTest \
+  com.hifleet.service.ShipAlongsideDetectorTest \
+  com.hifleet.service.ReplayAisPointParserTest \
+  com.hifleet.trajectory.TrajectoryLoaderServiceTest
 ```
 
 期望输出：
 
 ```text
-OK (9 tests)
+OK (14 tests)
+```
+
+### 14.5 AUTO 召回排障样例
+
+若 PAIR 模式可命中 `413433610 + 413193000`，但 AUTO 没命中，应按以下顺序看日志：
+
+1. 看 `low_speed_summary`：`lowSpeedWindows=0` 表示主船没有进入候选召回阶段。
+2. 看 `replay_query`：确认 `responseStatus=1,responseMsg=OK,success=true`。
+3. 看 `returnedVessels/rawPoints/validPoints`：如果全为 0，说明接口成功但 bbox/time 没有召回船舶。
+4. 看 `prefilteredTargets`：如果返回船舶大于 0 但该值为 0，说明候选预过滤未通过。
+5. 看 `candidateTargets`：如果大于 0 但 `rawEvents=0`，说明 detector 确认规则未通过。
+
+已知成功接口响应示例：
+
+```json
+{
+  "status": "1",
+  "msg": "OK",
+  "data": {
+    "413193000": [
+      "413193000;2026-06-28 18:43:06;122.2104;29.88851;35.6;0.1;..."
+    ]
+  }
+}
+```
+
+该响应应被解析为：
+
+```text
+responseStatus=1 responseMsg=OK success=true returnedVessels>=1 rawPoints>=1 validPoints>=1
 ```
 
 ## 15. 推荐查询 SQL
