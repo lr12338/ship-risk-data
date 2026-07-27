@@ -70,6 +70,32 @@ public class AIS41GeneralQueryRepository {
 		});
 	}
 
+	public List<ShipForm> selectRecentShipsPage(String lastMmsi, int limit) {
+		long cursor;
+		try {
+			cursor = Long.parseLong(lastMmsi);
+		} catch (NumberFormatException ex) {
+			throw new IllegalArgumentException("lastMmsi must be numeric", ex);
+		}
+		if (limit < 1) {
+			throw new IllegalArgumentException("limit must be greater than zero");
+		}
+		String sql = "SELECT mmsi,imonumber,dwt,type FROM ais41.recentships\n" +
+				"                 WHERE TYPE!='渔船' AND TYPE!='-' AND TYPE!='游艇' \n" +
+				"                   AND TYPE!='工程及服务船' AND TYPE!='客船' AND TYPE!='拖带船' \n" +
+				"                    AND TYPE!='拖轮' AND TYPE!='专用船' AND TYPE!='其他' AND TYPE!='未知类型船舶'\n" +
+				"                   AND TYPE!='近海作业船' and length>70 and updatetime>'2025-01-01 00:00:00'\n" +
+				"                   AND mmsi > ? ORDER BY mmsi LIMIT ?";
+		return ais41JdbcTemplate.query(sql, new Object[]{cursor, limit}, new RowMapper<ShipForm>() {
+			@Override
+			public ShipForm mapRow(ResultSet rs, int rowNum) throws SQLException {
+				ShipForm shipForm = new ShipForm();
+				shipForm.setMmsi(rs.getString("mmsi"));
+				return shipForm;
+			}
+		});
+	}
+
 	public List<ShipForm> selectRecentShips2() {
 
 //		String sql="SELECT mmsi,imonumber,dwt,type FROM ais41.recentships\n" +

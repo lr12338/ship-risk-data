@@ -79,6 +79,14 @@ public class ShipBehaviorEventRepository {
                 (rs, rowNum) -> mapEvent(rs));
     }
 
+    public void deleteAlongsideWindow(String batchNo, String mmsi, String startTime, String endTime) {
+        String sql = "DELETE FROM dataanalysis.ship_behavior_event "
+                + "WHERE behavior_type = ? AND batch_no = ? AND mmsi = ? "
+                + "AND start_time >= ? AND end_time <= ?";
+        newDataanalysisJdbcTemplate.update(sql, ShipBehaviorEvent.TYPE_ALONGSIDE,
+                batchNo, mmsi, parseTime(startTime), parseTime(endTime));
+    }
+
     public AlongsideDailyStats findAlongsideDailyStats(String batchNo, String startTime, String endTime) {
         shipBehaviorTableInitializer.ensureTableReady();
         Timestamp start = parseTime(startTime);

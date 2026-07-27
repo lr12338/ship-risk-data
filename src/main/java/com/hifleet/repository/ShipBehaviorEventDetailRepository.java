@@ -1,6 +1,7 @@
 package com.hifleet.repository;
 
 import com.hifleet.domain.ShipBehaviorEventDetail;
+import com.hifleet.domain.ShipBehaviorEvent;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -51,6 +52,14 @@ public class ShipBehaviorEventDetailRepository {
             int end = Math.min(offset + effectiveBatchSize, validDetails.size());
             saveBatch(validDetails.subList(offset, end));
         }
+    }
+
+    public void deleteAlongsideWindow(String batchNo, String mmsi, String startTime, String endTime) {
+        String sql = "DELETE FROM dataanalysis.ship_behavior_event_detail "
+                + "WHERE behavior_type = ? AND batch_no = ? AND mmsi = ? "
+                + "AND event_start_time >= ? AND event_end_time <= ?";
+        newDataanalysisJdbcTemplate.update(sql, ShipBehaviorEvent.TYPE_ALONGSIDE,
+                batchNo, mmsi, parseTime(startTime), parseTime(endTime));
     }
 
     private List<ShipBehaviorEventDetail> filterValid(List<ShipBehaviorEventDetail> details) {

@@ -543,6 +543,17 @@ public class ShipBehaviorAnalysisService {
         return analysisAlongsidePair(jobParams, rule);
     }
 
+    public AlongsideWindowResult analysisAlongsideHistoryWindow(
+            String mmsi, String startTime, String endTime, String batchNo, boolean enableInsert) {
+        JobParams jobParams = new JobParams();
+        jobParams.setMmsi(mmsi);
+        jobParams.setStartTime(startTime);
+        jobParams.setEndTime(endTime);
+        jobParams.setBatchNo(batchNo);
+        jobParams.setMode("AUTO");
+        return analysisAlongsideOneWindow(jobParams, buildAlongsideRule(), true, enableInsert, true);
+    }
+
     private AnalysisResult analysisAlongsidePair(JobParams jobParams, ShipAlongsideDetector.AlongsideRule rule) {
         if (StringUtils.isBlank(jobParams.getTargetMmsi())) {
             XxlJobLogger.log("ALONGSIDE_V3 pair mode requires targetMmsi, mmsi=" + jobParams.getMmsi()
@@ -611,12 +622,20 @@ public class ShipBehaviorAnalysisService {
 
     private AlongsideWindowResult analysisAlongsideOneWindow(JobParams jobParams,
                                                              ShipAlongsideDetector.AlongsideRule rule) {
-        return analysisAlongsideOneWindow(jobParams, rule, false);
+        return analysisAlongsideOneWindow(jobParams, rule, false, true, false);
     }
 
     private AlongsideWindowResult analysisAlongsideOneWindow(JobParams jobParams,
                                                              ShipAlongsideDetector.AlongsideRule rule,
                                                              boolean safeLoad) {
+        return analysisAlongsideOneWindow(jobParams, rule, safeLoad, true, false);
+    }
+
+    private AlongsideWindowResult analysisAlongsideOneWindow(JobParams jobParams,
+                                                             ShipAlongsideDetector.AlongsideRule rule,
+                                                             boolean safeLoad,
+                                                             boolean enableInsert,
+                                                             boolean replaceExisting) {
         List<TrajectoryPoint> ownPoints = safeLoad
                 ? trajectoryLoaderService.loadSafely(jobParams.getMmsi(), jobParams.getStartTime(),
                 jobParams.getEndTime(), trajectorySimplifyZoom, alongsideBatchTrajectoryLoadSliceHours,
@@ -689,8 +708,20 @@ public class ShipBehaviorAnalysisService {
         }
         List<ShipBehaviorEvent> detected = extractEvents(allTraces);
         tagBatch(detected, jobParams);
-        shipBehaviorEventRepository.saveEvents(detected);
-        shipBehaviorEventDetailRepository.saveDetails(toDetails(allTraces, jobParams));
+        boolean completeHistoryWindow = failed == 0 && replaySearchResult.getReplayFailures() == 0;
+        boolean shouldInsert = enableInsert && (!replaceExisting || completeHistoryWindow);
+        if (shouldInsert) {
+            if (replaceExisting) {
+                shipBehaviorEventDetailRepository.deleteAlongsideWindow(
+                        jobParams.getBatchNo(), jobParams.getMmsi(),
+                        jobParams.getStartTime(), jobParams.getEndTime());
+                shipBehaviorEventRepository.deleteAlongsideWindow(
+                        jobParams.getBatchNo(), jobParams.getMmsi(),
+                        jobParams.getStartTime(), jobParams.getEndTime());
+            }
+            shipBehaviorEventRepository.saveEvents(detected);
+            shipBehaviorEventDetailRepository.saveDetails(toDetails(allTraces, jobParams));
+        }
         logEventSummaries(allTraces);
         AlongsideAnnualScore annualScore = calculateAlongsideAnnualScore(jobParams, detected);
         XxlJobLogger.log("ALONGSIDE_V3 annual_score mmsi=" + jobParams.getMmsi()
@@ -708,16 +739,21 @@ public class ShipBehaviorAnalysisService {
                 + " lowSpeedWindows=" + windows.size()
                 + " candidateTargets=" + candidateTargetCount
                 + " rawEvents=" + detected.size()
+                + " confirmedEvents=" + countConfirmedAlongsideEvents(detected)
                 + " mergedEvents=" + detected.size()
-                + " savedEvents=" + detected.size()
+                + " savedEvents=" + (shouldInsert ? detected.size() : 0)
+                + " enableInsert=" + enableInsert
+                + " completeHistoryWindow=" + completeHistoryWindow
                 + " failed=" + failed
                 + " replayQueries=" + replaySearchResult.getReplayQueryCount()
                 + " replayElapsedMs=" + replaySearchResult.getElapsedMs()
                 + " safeLoad=" + safeLoad
                 + " batchNo=" + jobParams.getBatchNo());
         return new AlongsideWindowResult(ownPoints.size(), windows.size(), candidateTargetCount,
-                replaySearchResult.getReplayQueryCount(), replaySearchResult.getReplayFailures(),
-                detected.size(), failed);
+                candidates.size(), replaySearchResult.getReplayQueryCount(),
+                replaySearchResult.getReplayFailures(), detected.size(),
+                countConfirmedAlongsideEvents(detected),
+                annualScore.getHighRiskEventCount(), failed);
     }
 
     public AnalysisResult analysisAlongsideBatch(String params) {
@@ -1048,6 +1084,18 @@ public class ShipBehaviorAnalysisService {
             }
         }
         return targets.size();
+    }
+
+    private int countConfirmedAlongsideEvents(List<ShipBehaviorEvent> events) {
+        int count = 0;
+        for (ShipBehaviorEvent event : events) {
+            if (event != null
+                    && !ShipAlongsideDetector.SUB_TYPE_WEAK.equals(event.getEventSubType())
+                    && !ShipAlongsideDetector.EXCLUDED_NORMAL.equals(event.getExclusionFlag())) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private Map<String, List<TrajectoryPoint>> collectOwnPointsByWindow(
@@ -1650,51 +1698,70 @@ public class ShipBehaviorAnalysisService {
         }
     }
 
-    private static class AlongsideWindowResult {
+    public static class AlongsideWindowResult {
         private final int points;
         private final int lowSpeedWindows;
         private final int candidateTargets;
+        private final int candidatePairs;
         private final int replayQueries;
         private final int replayFailures;
         private final int events;
+        private final int confirmedEvents;
+        private final int highRiskEvents;
         private final int failed;
 
-        AlongsideWindowResult(int points, int lowSpeedWindows, int candidateTargets,
-                              int replayQueries, int replayFailures, int events, int failed) {
+        public AlongsideWindowResult(int points, int lowSpeedWindows, int candidateTargets,
+                                     int candidatePairs, int replayQueries, int replayFailures,
+                                     int events, int confirmedEvents, int highRiskEvents, int failed) {
             this.points = points;
             this.lowSpeedWindows = lowSpeedWindows;
             this.candidateTargets = candidateTargets;
+            this.candidatePairs = candidatePairs;
             this.replayQueries = replayQueries;
             this.replayFailures = replayFailures;
             this.events = events;
+            this.confirmedEvents = confirmedEvents;
+            this.highRiskEvents = highRiskEvents;
             this.failed = failed;
         }
 
-        int getPoints() {
+        public int getPoints() {
             return points;
         }
 
-        int getLowSpeedWindows() {
+        public int getLowSpeedWindows() {
             return lowSpeedWindows;
         }
 
-        int getCandidateTargets() {
+        public int getCandidateTargets() {
             return candidateTargets;
         }
 
-        int getReplayQueries() {
+        public int getCandidatePairs() {
+            return candidatePairs;
+        }
+
+        public int getReplayQueries() {
             return replayQueries;
         }
 
-        int getReplayFailures() {
+        public int getReplayFailures() {
             return replayFailures;
         }
 
-        int getEvents() {
+        public int getEvents() {
             return events;
         }
 
-        int getFailed() {
+        public int getConfirmedEvents() {
+            return confirmedEvents;
+        }
+
+        public int getHighRiskEvents() {
+            return highRiskEvents;
+        }
+
+        public int getFailed() {
             return failed;
         }
     }
