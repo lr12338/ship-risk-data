@@ -515,8 +515,8 @@ WHERE created_at >= NOW() - INTERVAL 30 MINUTE;
 ```text
 --kafka.bootstrap.servers=192.168.99.92:9092
 --kafka.topic=LIVE_RECENTSHIPS_DATA
---kafka.group.id=alongside-commercial-highmatch-<RUN_ID>
---kafka.client.id=alongside-commercial-highmatch-<RUN_ID>
+--kafka.group.id=flink-alongside
+--kafka.client.id=alonside-ceshi
 --kafka.starting-offsets=latest
 --stop-point.enabled=false
 --alongside.enabled=true
