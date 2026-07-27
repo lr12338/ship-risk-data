@@ -1,5 +1,6 @@
 package com.hifleet.xxljob;
 
+import com.hifleet.domain.AlongsideDailyStats;
 import com.hifleet.job.services.ShipBehaviorAnalysisService;
 import com.hifleet.job.services.ShipBehaviorAnalysisService.AnalysisResult;
 import com.xxl.job.core.biz.model.ReturnT;
@@ -68,6 +69,17 @@ public class ShipBehaviorJob {
         } catch (Exception ex) {
             log.error("ship alongside batch job failed", ex);
             XxlJobLogger.log(ex);
+            return new ReturnT<String>(ReturnT.FAIL_CODE, ex.getMessage());
+        }
+    }
+
+    @XxlJob("shipAlongsideDailyStatsJobHandler")
+    public ReturnT<String> shipAlongsideDailyStatsJobHandler(String params) {
+        try {
+            AlongsideDailyStats stats = shipBehaviorAnalysisService.analysisAlongsideDailyStats(params);
+            return ReturnT.SUCCESS;
+        } catch (Exception ex) {
+            log.error("ship alongside daily stats job failed", ex);
             return new ReturnT<String>(ReturnT.FAIL_CODE, ex.getMessage());
         }
     }

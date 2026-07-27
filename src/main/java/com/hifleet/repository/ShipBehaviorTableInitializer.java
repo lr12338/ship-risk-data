@@ -228,6 +228,26 @@ public class ShipBehaviorTableInitializer {
                 "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN radius_nm DOUBLE DEFAULT NULL COMMENT '事件活动半径，海里'"));
         migrations.add(new ColumnMigration("score_detail_json",
                 "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN score_detail_json TEXT DEFAULT NULL COMMENT '评分明细JSON'"));
+        migrations.add(new ColumnMigration("avg_distance_nm",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN avg_distance_nm DOUBLE DEFAULT NULL COMMENT '搭靠期间平均两船距离，海里'"));
+        migrations.add(new ColumnMigration("distance_variance_nm2",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN distance_variance_nm2 DOUBLE DEFAULT NULL COMMENT '搭靠期间距离方差，平方海里'"));
+        migrations.add(new ColumnMigration("course_difference_degree",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN course_difference_degree DOUBLE DEFAULT NULL COMMENT '平均同向航向差，度'"));
+        migrations.add(new ColumnMigration("speed_difference_knots",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN speed_difference_knots DOUBLE DEFAULT NULL COMMENT '平均速度差，节'"));
+        migrations.add(new ColumnMigration("parallel_ratio",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN parallel_ratio DOUBLE DEFAULT NULL COMMENT '同向并行匹配点比例'"));
+        migrations.add(new ColumnMigration("near_port",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN near_port TINYINT(1) DEFAULT NULL COMMENT '是否港口区域'"));
+        migrations.add(new ColumnMigration("near_anchor",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN near_anchor TINYINT(1) DEFAULT NULL COMMENT '是否锚地区域'"));
+        migrations.add(new ColumnMigration("open_sea",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN open_sea TINYINT(1) DEFAULT NULL COMMENT '是否开放海域'"));
+        migrations.add(new ColumnMigration("own_ship_type",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN own_ship_type VARCHAR(64) DEFAULT NULL COMMENT '主船类型'"));
+        migrations.add(new ColumnMigration("target_ship_type",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN target_ship_type VARCHAR(64) DEFAULT NULL COMMENT '目标船类型'"));
         return Collections.unmodifiableList(migrations);
     }
 

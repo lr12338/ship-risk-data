@@ -93,6 +93,105 @@ public class ShipAlongsideDetectorTest {
         assertEquals("413433610", windows.get(0).getMmsi());
     }
 
+    @Test
+    public void v3LowSpeedWindowExcludesStationaryTrack() {
+        List<ShipAlongsideDetector.LowSpeedWindow> windows = detector.extractLowSpeedWindows(
+                "413433610", points("413433610", 0.0, 0.0, 13, 5, 0.5, 90.0, null),
+                1.0, 3.0, 30, 30);
+
+        assertTrue(windows.isEmpty());
+    }
+
+    @Test
+    public void v3OpenSeaMerchantPairProducesBehaviorFeaturesAndHighRisk() {
+        ShipAlongsideDetector.AlongsideContext context = ShipAlongsideDetector.AlongsideContext.merchantPair(
+                "油轮", "散货船", false, false, true, 2);
+
+        ShipBehaviorEvent event = detector.detectWithTrace("413433610",
+                points("413433610", 0.0, 0.0, 13, 5, 1.8, 90.0, null),
+                "413193000",
+                points("413193000", 0.001, 0.001, 13, 5, 1.7, 94.0, null),
+                v3Rule(), context).get(0).getEvent();
+
+        assertEquals("ALONGSIDE_V3_INSURANCE", event.getRuleVersion());
+        assertTrue(event.getEventScore() > 50.0);
+        assertTrue(event.getOpenSea());
+        assertFalse(event.getNearPort());
+        assertFalse(event.getNearAnchor());
+        assertTrue(event.getParallelRatio() >= 0.8);
+        assertTrue(event.getDistanceVarianceNm2() >= 0.0);
+        assertTrue(event.getScoreDetailJson().contains("\"openSea\":true"));
+    }
+
+    @Test
+    public void v3RejectsOppositeDirectionEncounter() {
+        List<ShipBehaviorTrace> traces = detector.detectWithTrace("413433610",
+                points("413433610", 0.0, 0.0, 13, 5, 1.8, 0.0, null),
+                "413193000",
+                points("413193000", 0.001, 0.001, 13, 5, 1.8, 180.0, null),
+                v3Rule(), ShipAlongsideDetector.AlongsideContext.merchantPair(
+                        "油轮", "集装箱船", false, false, true, 2));
+
+        assertTrue(traces.isEmpty());
+    }
+
+    @Test
+    public void v3MissingCourseCannotBecomeHighRisk() {
+        ShipBehaviorEvent event = detector.detectWithTrace("413433610",
+                points("413433610", 0.0, 0.0, 13, 5, 1.8, -1.0, null),
+                "413193000",
+                points("413193000", 0.001, 0.001, 13, 5, 1.7, -1.0, null),
+                v3Rule(), ShipAlongsideDetector.AlongsideContext.merchantPair(
+                        "油轮", "集装箱船", false, false, true, 2)).get(0).getEvent();
+
+        assertEquals("MEDIUM", event.getConfidenceLevel());
+        assertTrue(severityRank(event.getSeverityLevel()) <= 2);
+        assertTrue(event.getScoreDetailJson().contains("\"courseDifferenceDegree\":-1"));
+        assertTrue(event.getScoreDetailJson().contains("\"weakCandidate\":true"));
+    }
+
+    @Test
+    public void v3RejectsSpeedBelowBehaviorBand() {
+        List<ShipBehaviorTrace> traces = detector.detectWithTrace("413433610",
+                points("413433610", 0.0, 0.0, 13, 5, 0.5, 90.0, null),
+                "413193000",
+                points("413193000", 0.001, 0.001, 13, 5, 0.5, 92.0, null),
+                v3Rule(), ShipAlongsideDetector.AlongsideContext.merchantPair(
+                        "油轮", "集装箱船", false, false, true, 2));
+
+        assertTrue(traces.isEmpty());
+    }
+
+    @Test
+    public void v3ExcludesCrowdedPortQueueAndDowngradesAnchorage() {
+        List<TrajectoryPoint> own = points("413433610", 0.0, 0.0, 13, 5, 1.5, 90.0, null);
+        List<TrajectoryPoint> target = points("413193000", 0.001, 0.001, 13, 5, 1.4, 92.0, null);
+
+        ShipBehaviorEvent portEvent = detector.detectWithTrace("413433610", own, "413193000", target,
+                v3Rule(), ShipAlongsideDetector.AlongsideContext.merchantPair(
+                        "油轮", "集装箱船", true, false, false, 8)).get(0).getEvent();
+        ShipBehaviorEvent anchorEvent = detector.detectWithTrace("413433610", own, "413193000", target,
+                v3Rule(), ShipAlongsideDetector.AlongsideContext.merchantPair(
+                        "油轮", "集装箱船", false, true, false, 8)).get(0).getEvent();
+
+        assertEquals("EXCLUDED_NORMAL", portEvent.getExclusionFlag());
+        assertEquals("PORT_QUEUE_LIKELY", portEvent.getExclusionReason());
+        assertEquals("DOWNGRADED_NORMAL_LIKELY", anchorEvent.getExclusionFlag());
+        assertEquals("ANCHORAGE_WAITING_LIKELY", anchorEvent.getExclusionReason());
+        assertTrue(portEvent.getEventScore() < anchorEvent.getEventScore());
+    }
+
+    @Test
+    public void v3RejectsNonMerchantPair() {
+        List<ShipBehaviorTrace> traces = detector.detectWithTrace("413433610",
+                points("413433610", 0.0, 0.0, 13, 5, 1.8, 90.0, null),
+                "413193000",
+                points("413193000", 0.001, 0.001, 13, 5, 1.7, 92.0, null),
+                v3Rule(), ShipAlongsideDetector.AlongsideContext.nonMerchantPair("油轮", "渔船"));
+
+        assertTrue(traces.isEmpty());
+    }
+
     private ShipAlongsideDetector.AlongsideRule rule() {
         ShipAlongsideDetector.AlongsideRule rule = ShipAlongsideDetector.AlongsideRule.defaultRule();
         rule.setRuleVersion("ALONGSIDE_V2_INSURANCE");
@@ -109,6 +208,17 @@ public class ShipAlongsideDetectorTest {
         rule.setMergeMaxGapMinutes(30);
         rule.setSceneDataAvailable(false);
         rule.setCounterpartyRiskAvailable(false);
+        return rule;
+    }
+
+    private ShipAlongsideDetector.AlongsideRule v3Rule() {
+        ShipAlongsideDetector.AlongsideRule rule = rule();
+        rule.setRuleVersion("ALONGSIDE_V3_INSURANCE");
+        rule.setConfirmMaxDistanceNm(0.27);
+        rule.setConfirmMinSpeed(1.0);
+        rule.setConfirmMaxSpeed(3.0);
+        rule.setMinParallelRatio(0.8);
+        rule.setSceneDataAvailable(true);
         return rule;
     }
 

@@ -76,6 +76,13 @@ public class ZoneLoaderService {
         return zones;
     }
 
+    public List<ZoneDefinition> loadAnchorZones() {
+        String sql = "SELECT oid AS id, name, AsText(`bound`) AS geom_wkt "
+                + "FROM ais41.alertzones WHERE bound IS NOT NULL "
+                + "AND (LOWER(name) LIKE '%anchor%' OR name LIKE '%锚地%' OR name LIKE '%锚泊%')";
+        return queryZones(ais41JdbcTemplate, sql, new Object[0], "anchorzones");
+    }
+
     /**
      * 步骤2：加载海峡范围。
      * 数据表：ais41.alertzones（文档 2.6 节）

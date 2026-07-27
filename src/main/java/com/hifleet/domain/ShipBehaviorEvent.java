@@ -20,6 +20,16 @@ public class ShipBehaviorEvent {
     private Double endLat;
     private Double minDistanceNm;
     private Double maxDistanceNm;
+    private Double avgDistanceNm;
+    private Double distanceVarianceNm2;
+    private Double courseDifferenceDegree;
+    private Double speedDifferenceKnots;
+    private Double parallelRatio;
+    private Boolean nearPort;
+    private Boolean nearAnchor;
+    private Boolean openSea;
+    private String ownShipType;
+    private String targetShipType;
     private Double avgSpeed;
     private Integer pointCount;
     private String ruleVersion;
@@ -135,6 +145,86 @@ public class ShipBehaviorEvent {
 
     public void setMaxDistanceNm(Double maxDistanceNm) {
         this.maxDistanceNm = maxDistanceNm;
+    }
+
+    public Double getAvgDistanceNm() {
+        return avgDistanceNm;
+    }
+
+    public void setAvgDistanceNm(Double avgDistanceNm) {
+        this.avgDistanceNm = avgDistanceNm;
+    }
+
+    public Double getDistanceVarianceNm2() {
+        return distanceVarianceNm2;
+    }
+
+    public void setDistanceVarianceNm2(Double distanceVarianceNm2) {
+        this.distanceVarianceNm2 = distanceVarianceNm2;
+    }
+
+    public Double getCourseDifferenceDegree() {
+        return courseDifferenceDegree;
+    }
+
+    public void setCourseDifferenceDegree(Double courseDifferenceDegree) {
+        this.courseDifferenceDegree = courseDifferenceDegree;
+    }
+
+    public Double getSpeedDifferenceKnots() {
+        return speedDifferenceKnots;
+    }
+
+    public void setSpeedDifferenceKnots(Double speedDifferenceKnots) {
+        this.speedDifferenceKnots = speedDifferenceKnots;
+    }
+
+    public Double getParallelRatio() {
+        return parallelRatio;
+    }
+
+    public void setParallelRatio(Double parallelRatio) {
+        this.parallelRatio = parallelRatio;
+    }
+
+    public Boolean getNearPort() {
+        return nearPort;
+    }
+
+    public void setNearPort(Boolean nearPort) {
+        this.nearPort = nearPort;
+    }
+
+    public Boolean getNearAnchor() {
+        return nearAnchor;
+    }
+
+    public void setNearAnchor(Boolean nearAnchor) {
+        this.nearAnchor = nearAnchor;
+    }
+
+    public Boolean getOpenSea() {
+        return openSea;
+    }
+
+    public void setOpenSea(Boolean openSea) {
+        this.openSea = openSea;
+    }
+
+    public String getOwnShipType() {
+        return ownShipType;
+    }
+
+    public void setOwnShipType(String ownShipType) {
+        this.ownShipType = ownShipType;
+    }
+
+    public String getTargetShipType() {
+        return targetShipType;
+    }
+
+    public void setTargetShipType(String targetShipType) {
+        this.targetShipType = targetShipType;
     }
 
     public Double getAvgSpeed() {

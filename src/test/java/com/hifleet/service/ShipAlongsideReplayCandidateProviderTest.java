@@ -4,6 +4,7 @@ import com.hifleet.domain.AlongsideCandidateTarget;
 import com.hifleet.domain.AlongsideReplaySearchResult;
 import com.hifleet.domain.ReplayQueryRequest;
 import com.hifleet.domain.ReplayQueryResult;
+import com.hifleet.repository.AIS41GeneralQueryRepository;
 import com.hifleet.trajectory.TrajectoryPoint;
 import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -13,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 
@@ -39,7 +41,7 @@ public class ShipAlongsideReplayCandidateProviderTest {
         assertEquals("413193000", candidate.getTargetMmsi());
         assertEquals(7, candidate.getTargetPoints().size());
         assertEquals(1, result.getReplayQueryCount());
-        assertEquals(4, result.getReturnedVessels());
+        assertEquals(5, result.getReturnedVessels());
         assertEquals(1, result.getPrefilteredTargets());
     }
 
@@ -53,6 +55,9 @@ public class ShipAlongsideReplayCandidateProviderTest {
         ReflectionTestUtils.setField(provider, "candidateMaxTimeGapMinutes", 10L);
         ReflectionTestUtils.setField(provider, "candidateMinPoints", 3);
         ReflectionTestUtils.setField(provider, "candidateMinDurationMinutes", 20L);
+        ReflectionTestUtils.setField(provider, "merchantFilterEnabled", true);
+        ReflectionTestUtils.setField(provider, "shipTypeClassifier", new ShipTypeClassifier());
+        ReflectionTestUtils.setField(provider, "ais41GeneralQueryRepository", new FakeShipTypeRepository());
     }
 
     private List<TrajectoryPoint> points(String mmsi, int startMinute, int count, int stepMinutes,
@@ -77,10 +82,21 @@ public class ShipAlongsideReplayCandidateProviderTest {
             tracks.put("413193000", points("413193000", 0, 7, 5, 0.0005, 0.0005, 0.6));
             tracks.put("999000001", points("999000001", 0, 7, 5, 1.0, 1.0, 0.6));
             tracks.put("999000002", points("999000002", 0, 2, 5, 0.0005, 0.0005, 0.6));
+            tracks.put("999000003", points("999000003", 0, 7, 5, 0.0005, 0.0005, 0.6));
             result.setTracksByMmsi(tracks);
-            result.setRawVesselCount(4);
-            result.setRawPointCount(23);
-            result.setValidPointCount(23);
+            result.setRawVesselCount(5);
+            result.setRawPointCount(30);
+            result.setValidPointCount(30);
+            return result;
+        }
+    }
+
+    private class FakeShipTypeRepository extends AIS41GeneralQueryRepository {
+        @Override
+        public Map<String, String> selectShipTypes(Set<String> mmsis) {
+            Map<String, String> result = new HashMap<String, String>();
+            result.put("413193000", "油轮");
+            result.put("999000003", "渔船");
             return result;
         }
     }

@@ -17,7 +17,11 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 
 /**
@@ -90,6 +94,29 @@ public class AIS41GeneralQueryRepository {
 				return shipForm;
 			}
 		});
+	}
+
+	public Map<String, String> selectShipTypes(Set<String> mmsis) {
+		if (mmsis == null || mmsis.isEmpty()) {
+			return Collections.emptyMap();
+		}
+		StringBuilder placeholders = new StringBuilder();
+		for (int i = 0; i < mmsis.size(); i++) {
+			if (i > 0) {
+				placeholders.append(',');
+			}
+			placeholders.append('?');
+		}
+		String sql = "SELECT mmsi, `type` FROM ais41.recentships WHERE mmsi IN ("
+				+ placeholders + ")";
+		List<Map.Entry<String, String>> rows = ais41JdbcTemplate.query(sql, mmsis.toArray(),
+				(rs, rowNum) -> new java.util.AbstractMap.SimpleEntry<String, String>(
+						rs.getString("mmsi"), rs.getString("type")));
+		Map<String, String> result = new HashMap<String, String>();
+		for (Map.Entry<String, String> row : rows) {
+			result.put(row.getKey(), row.getValue());
+		}
+		return result;
 	}
 
 }

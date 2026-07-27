@@ -4,6 +4,7 @@ import com.hifleet.domain.AlongsideCandidateTarget;
 import com.hifleet.domain.AlongsideReplaySearchResult;
 import com.hifleet.domain.ReplayQueryRequest;
 import com.hifleet.domain.ReplayQueryResult;
+import com.hifleet.repository.AIS41GeneralQueryRepository;
 import com.hifleet.trajectory.TrajectoryPoint;
 import com.hifleet.trajectory.TrajectoryUtils;
 import com.xxl.job.core.log.XxlJobLogger;
@@ -41,17 +42,20 @@ public class ShipAlongsideReplayCandidateProvider {
     @Value("${ship.behavior.alongside.replay.window-minutes:30}")
     private long replayWindowMinutes;
 
-    @Value("${ship.behavior.alongside.replay.bbox-buffer-nm:0.5}")
+    @Value("${ship.behavior.alongside.replay.bbox-buffer-nm:10.0}")
     private double replayBboxBufferNm;
 
     @Value("${ship.behavior.alongside.replay.default-radius-nm:0.5}")
     private double replayDefaultRadiusNm;
 
-    @Value("${ship.behavior.alongside.candidate.max-distance-nm:0.5}")
+    @Value("${ship.behavior.alongside.candidate.max-distance-nm:0.27}")
     private double candidateMaxDistanceNm;
 
-    @Value("${ship.behavior.alongside.candidate.max-speed:4.0}")
+    @Value("${ship.behavior.alongside.candidate.max-speed:3.0}")
     private double candidateMaxSpeed;
+
+    @Value("${ship.behavior.alongside.candidate.min-speed:1.0}")
+    private double candidateMinSpeed;
 
     @Value("${ship.behavior.alongside.candidate.max-time-gap-minutes:10}")
     private long candidateMaxTimeGapMinutes;
@@ -62,8 +66,17 @@ public class ShipAlongsideReplayCandidateProvider {
     @Value("${ship.behavior.alongside.candidate.min-duration-minutes:20}")
     private long candidateMinDurationMinutes;
 
+    @Value("${ship.behavior.alongside.candidate.merchant-filter-enabled:true}")
+    private boolean merchantFilterEnabled;
+
     @Autowired
     private SpatialAisReplayClient spatialAisReplayClient;
+
+    @Autowired
+    private AIS41GeneralQueryRepository ais41GeneralQueryRepository;
+
+    @Autowired
+    private ShipTypeClassifier shipTypeClassifier;
 
     void setSpatialAisReplayClient(SpatialAisReplayClient spatialAisReplayClient) {
         this.spatialAisReplayClient = spatialAisReplayClient;
@@ -158,9 +171,14 @@ public class ShipAlongsideReplayCandidateProvider {
                                    List<TrajectoryPoint> ownWindowPoints, ReplayQueryResult queryResult,
                                    Map<String, AlongsideCandidateTarget> candidatesByTargetAndWindow,
                                    AlongsideReplaySearchResult searchResult) {
+        Map<String, String> shipTypes = loadShipTypes(queryResult.getTracksByMmsi().keySet());
         for (Map.Entry<String, List<TrajectoryPoint>> entry : queryResult.getTracksByMmsi().entrySet()) {
             String targetMmsi = entry.getKey();
             if (StringUtils.isBlank(targetMmsi) || targetMmsi.equals(ownMmsi)) {
+                continue;
+            }
+            if (merchantFilterEnabled && shipTypeClassifier != null
+                    && Boolean.FALSE.equals(shipTypeClassifier.isMerchant(shipTypes.get(targetMmsi)))) {
                 continue;
             }
             List<TrajectoryPoint> targetPoints = cleanAndSort(entry.getValue());
@@ -188,6 +206,17 @@ public class ShipAlongsideReplayCandidateProvider {
                     ? stats.getMinDistanceNm() : Math.min(candidate.getMinDistanceNm(), stats.getMinDistanceNm()));
             candidate.setMaxDistanceNm(Math.max(candidate.getMaxDistanceNm(), stats.getMaxDistanceNm()));
             candidate.setAvgDistanceNm(stats.getAvgDistanceNm());
+        }
+    }
+
+    private Map<String, String> loadShipTypes(Set<String> mmsis) {
+        if (!merchantFilterEnabled || ais41GeneralQueryRepository == null || shipTypeClassifier == null) {
+            return Collections.emptyMap();
+        }
+        try {
+            return ais41GeneralQueryRepository.selectShipTypes(mmsis);
+        } catch (Exception ex) {
+            return Collections.emptyMap();
         }
     }
 
@@ -229,7 +258,7 @@ public class ShipAlongsideReplayCandidateProvider {
 
     private boolean hasLowSpeedPoint(List<TrajectoryPoint> points) {
         for (TrajectoryPoint point : points) {
-            if (point.getSpeed() <= candidateMaxSpeed) {
+            if (point.getSpeed() >= candidateMinSpeed && point.getSpeed() <= candidateMaxSpeed) {
                 return true;
             }
         }
@@ -288,7 +317,7 @@ public class ShipAlongsideReplayCandidateProvider {
     }
 
     private void logReplayQuery(int index, ReplayQueryRequest request, ReplayQueryResult result, String batchNo) {
-        XxlJobLogger.log("ALONGSIDE_V2 replay_query[" + index + "]"
+        XxlJobLogger.log("ALONGSIDE_V3 replay_query[" + index + "]"
                 + " start=" + request.getStartTime()
                 + " end=" + request.getEndTime()
                 + " minlon=" + request.getMinLon()
