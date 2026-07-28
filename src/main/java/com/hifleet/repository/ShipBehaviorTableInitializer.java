@@ -26,6 +26,7 @@ public class ShipBehaviorTableInitializer {
     private static final String DETAIL_TABLE_NAME = "ship_behavior_event_detail";
     private static final String LOITERING_BATCH_STATUS_TABLE_NAME = "ship_behavior_loitering_batch_status";
     private static final String ALONGSIDE_BATCH_STATUS_TABLE_NAME = "ship_behavior_alongside_batch_status";
+    private static final String TARGET_SHIP_TABLE_NAME = "ship_behavior_target_ship";
     private static final String CHECK_SQL = "SELECT COUNT(*) FROM information_schema.tables " +
             "WHERE table_schema = ? AND table_name = ?";
     private static final String CHECK_COLUMN_SQL = "SELECT COUNT(*) FROM information_schema.columns " +
@@ -40,6 +41,7 @@ public class ShipBehaviorTableInitializer {
     private volatile boolean detailTableReady;
     private volatile boolean loiteringBatchStatusTableReady;
     private volatile boolean alongsideBatchStatusTableReady;
+    private volatile boolean targetShipTableReady;
 
     @Autowired
     @Qualifier("newDataanalysisJdbcTemplate")
@@ -51,6 +53,7 @@ public class ShipBehaviorTableInitializer {
         ensureDetailTableReady();
         ensureLoiteringBatchStatusTableReady();
         ensureAlongsideBatchStatusTableReady();
+        ensureTargetShipTableReady();
     }
 
     public void ensureTableReady() {
@@ -69,6 +72,11 @@ public class ShipBehaviorTableInitializer {
     public void ensureAlongsideBatchStatusTableReady() {
         alongsideBatchStatusTableReady = ensureReady(alongsideBatchStatusTableReady,
                 ALONGSIDE_BATCH_STATUS_TABLE_NAME, "sql/ship_behavior_alongside_batch_status.sql", false);
+    }
+
+    public void ensureTargetShipTableReady() {
+        targetShipTableReady = ensureReady(targetShipTableReady,
+                TARGET_SHIP_TABLE_NAME, "sql/ship_behavior_target_ship.sql", false);
     }
 
     private boolean ensureReady(boolean ready, String tableName, String ddlPath, boolean ensureColumns) {
@@ -101,6 +109,9 @@ public class ShipBehaviorTableInitializer {
         }
         if (ALONGSIDE_BATCH_STATUS_TABLE_NAME.equals(tableName)) {
             return alongsideBatchStatusTableReady;
+        }
+        if (TARGET_SHIP_TABLE_NAME.equals(tableName)) {
+            return targetShipTableReady;
         }
         return false;
     }
