@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyList;
+import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
@@ -62,6 +63,85 @@ public class LoiteringProductionTestServiceTest {
                 eq("2026-07-01 00:00:00"), anyList(),
                 traces.capture(), eq(false));
         assertEquals(2, traces.getValue().size());
+    }
+
+    @Test
+    public void storesOnlyValidNonWeakV2AndFinalV3Events() {
+        Fixture fixture = fixture();
+        when(fixture.loader.loadSafely(
+                anyString(), anyString(), anyString(),
+                anyInt(), anyInt(), anyInt()))
+                .thenReturn(Arrays.asList(point(0), point(10)));
+        when(fixture.analysis.analysisLoiteringV2Production(
+                anyString(), anyList(), anyString())).thenReturn(Arrays.asList(
+                trace("LOITERING_V2_INSURANCE", "SLOW_LOITERING",
+                        "VALID_RISK_EVENT", null),
+                trace("LOITERING_V2_INSURANCE", "WEAK_LOITERING_CANDIDATE",
+                        "VALID_RISK_EVENT", null),
+                trace("LOITERING_V2_INSURANCE", "SLOW_LOITERING",
+                        "DOWNGRADED_NORMAL_LIKELY", null)));
+        when(fixture.v3.analyzeV3Production(
+                org.mockito.Matchers.any(ShipLoiteringV3BatchService.TargetShipAdapter.class),
+                anyList(), anyString(), anyInt())).thenReturn(Arrays.asList(
+                trace("LOITERING_V3_PROD_TEST_2026H1", "AREA_LOITERING",
+                        "REVIEW_REQUIRED", "REVIEW"),
+                trace("LOITERING_V3_PROD_TEST_2026H1", "AREA_LOITERING",
+                        "VALID_RISK_EVENT", "FINAL")));
+
+        fixture.service.run(params(false));
+
+        ArgumentCaptor<List> traces = ArgumentCaptor.forClass(List.class);
+        verify(fixture.store).replace(
+                eq(ShipBehaviorEvent.TYPE_LOITERING), eq("loiter-batch"),
+                eq("413000001"), eq("2026-01-01 00:00:00"),
+                eq("2026-07-01 00:00:00"), anyList(),
+                traces.capture(), eq(false));
+        assertEquals(2, traces.getValue().size());
+        for (Object value : traces.getValue()) {
+            ShipBehaviorTrace trace = (ShipBehaviorTrace) value;
+            assertEquals("VALID_NON_WEAK",
+                    com.hifleet.service.TraceRecipeService.parseRecipe(
+                            trace.getEvent().getScoreDetailJson())
+                            .getString("persistPolicy"));
+        }
+        verify(fixture.status).markDone(
+                eq("loiter-batch"), eq("413000001"),
+                eq("2026-01-01 00:00:00"), eq("2026-07-01 00:00:00"),
+                eq(2), eq(5), eq(1), eq(1), eq(3), eq(2),
+                eq(ShipBehaviorLoiteringBatchStatusRepository.RESULT_SUCCESS),
+                anyLong());
+    }
+
+    @Test
+    public void recordsNoDataAsCompletedWithoutCallingDetectors() {
+        Fixture fixture = fixture();
+        when(fixture.loader.loadSafely(
+                anyString(), anyString(), anyString(),
+                anyInt(), anyInt(), anyInt()))
+                .thenReturn(Collections.<TrajectoryPoint>emptyList());
+
+        LoiteringProductionTestService.Result result =
+                fixture.service.run(params(false));
+
+        assertTrue(result.summary().contains("noDataShips=1"));
+        verify(fixture.analysis, never()).analysisLoiteringV2Production(
+                anyString(), anyList(), anyString());
+        verify(fixture.v3, never()).analyzeV3Production(
+                org.mockito.Matchers.any(ShipLoiteringV3BatchService.TargetShipAdapter.class),
+                anyList(), anyString(), anyInt());
+        ArgumentCaptor<List> traces = ArgumentCaptor.forClass(List.class);
+        verify(fixture.store).replace(
+                eq(ShipBehaviorEvent.TYPE_LOITERING), eq("loiter-batch"),
+                eq("413000001"), eq("2026-01-01 00:00:00"),
+                eq("2026-07-01 00:00:00"), anyList(),
+                traces.capture(), eq(false));
+        assertTrue(traces.getValue().isEmpty());
+        verify(fixture.status).markDone(
+                eq("loiter-batch"), eq("413000001"),
+                eq("2026-01-01 00:00:00"), eq("2026-07-01 00:00:00"),
+                eq(0), eq(0), eq(0), eq(0), eq(0), eq(0),
+                eq(ShipBehaviorLoiteringBatchStatusRepository.RESULT_NO_DATA),
+                anyLong());
     }
 
     @Test
@@ -122,15 +202,37 @@ public class LoiteringProductionTestServiceTest {
                 + "\"endTime\":\"2026-07-01 00:00:00\","
                 + "\"engines\":[\"V2\",\"V3\"],"
                 + "\"trajectorySliceHours\":6,\"resume\":true,\"retryCount\":0,"
+                + "\"eventFilterMode\":\"VALID_NON_WEAK\","
                 + "\"storeDetails\":" + storeDetails + ","
                 + "\"batchNo\":\"loiter-batch\"}";
     }
 
     private ShipBehaviorTrace trace(String ruleVersion) {
+        return trace(ruleVersion, "SLOW_LOITERING",
+                "VALID_RISK_EVENT",
+                "LOITERING_V3_PROD_TEST_2026H1".equals(ruleVersion)
+                        ? "FINAL" : null);
+    }
+
+    private ShipBehaviorTrace trace(String ruleVersion, String eventSubType,
+                                    String exclusionFlag,
+                                    String decisionStatus) {
         ShipBehaviorEvent event = new ShipBehaviorEvent();
         event.setBehaviorType(ShipBehaviorEvent.TYPE_LOITERING);
         event.setMmsi("413000001");
         event.setRuleVersion(ruleVersion);
+        event.setEventSubType(eventSubType);
+        event.setExclusionFlag(exclusionFlag);
+        com.alibaba.fastjson.JSONObject score =
+                new com.alibaba.fastjson.JSONObject(true);
+        if (decisionStatus != null) {
+            score.put("decisionStatus", decisionStatus);
+        }
+        com.alibaba.fastjson.JSONObject recipe =
+                new com.alibaba.fastjson.JSONObject(true);
+        recipe.put("engine", ruleVersion.contains("_V3_") ? "V3" : "V2");
+        score.put("traceRecipe", recipe);
+        event.setScoreDetailJson(score.toJSONString());
         return new ShipBehaviorTrace(
                 event, Collections.emptyList(), Collections.emptyList());
     }

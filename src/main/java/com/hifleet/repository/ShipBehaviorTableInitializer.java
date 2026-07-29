@@ -36,6 +36,8 @@ public class ShipBehaviorTableInitializer {
     private static final int BATCH_NO_MIN_LENGTH = 64;
 
     private static final List<ColumnMigration> EVENT_TABLE_MIGRATIONS = buildEventTableMigrations();
+    private static final List<ColumnMigration> LOITERING_STATUS_TABLE_MIGRATIONS =
+            buildLoiteringStatusTableMigrations();
 
     private volatile boolean eventTableReady;
     private volatile boolean detailTableReady;
@@ -67,6 +69,8 @@ public class ShipBehaviorTableInitializer {
     public void ensureLoiteringBatchStatusTableReady() {
         loiteringBatchStatusTableReady = ensureReady(loiteringBatchStatusTableReady,
                 LOITERING_BATCH_STATUS_TABLE_NAME, "sql/ship_behavior_loitering_batch_status.sql", false);
+        ensureColumnsReady(LOITERING_BATCH_STATUS_TABLE_NAME,
+                LOITERING_STATUS_TABLE_MIGRATIONS);
     }
 
     public void ensureAlongsideBatchStatusTableReady() {
@@ -151,24 +155,30 @@ public class ShipBehaviorTableInitializer {
     }
 
     private void ensureEventTableColumnsReady() {
-        for (ColumnMigration migration : EVENT_TABLE_MIGRATIONS) {
-            if (columnExists(EVENT_TABLE_NAME, migration.getColumnName())) {
-                log.info("{} column ready: {}", EVENT_TABLE_NAME, migration.getColumnName());
+        ensureColumnsReady(EVENT_TABLE_NAME, EVENT_TABLE_MIGRATIONS);
+    }
+
+    private void ensureColumnsReady(String tableName,
+                                    List<ColumnMigration> migrations) {
+        for (ColumnMigration migration : migrations) {
+            if (columnExists(tableName, migration.getColumnName())) {
+                log.info("{} column ready: {}", tableName, migration.getColumnName());
                 continue;
             }
-            log.info("{} column missing, applying migration: {}", EVENT_TABLE_NAME, migration.getColumnName());
+            log.info("{} column missing, applying migration: {}",
+                    tableName, migration.getColumnName());
             try {
                 newDataanalysisJdbcTemplate.execute(migration.getAlterSql());
             } catch (Exception ex) {
                 throw new IllegalStateException("ensure column failed for "
-                        + TABLE_SCHEMA + "." + EVENT_TABLE_NAME + "." + migration.getColumnName()
+                        + TABLE_SCHEMA + "." + tableName + "." + migration.getColumnName()
                         + ", sql=" + migration.getAlterSql(), ex);
             }
-            if (!columnExists(EVENT_TABLE_NAME, migration.getColumnName())) {
+            if (!columnExists(tableName, migration.getColumnName())) {
                 throw new IllegalStateException("column still missing after migration: "
-                        + TABLE_SCHEMA + "." + EVENT_TABLE_NAME + "." + migration.getColumnName());
+                        + TABLE_SCHEMA + "." + tableName + "." + migration.getColumnName());
             }
-            log.info("{} column ready: {}", EVENT_TABLE_NAME, migration.getColumnName());
+            log.info("{} column ready: {}", tableName, migration.getColumnName());
         }
     }
 
@@ -259,6 +269,32 @@ public class ShipBehaviorTableInitializer {
                 "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN own_ship_type VARCHAR(64) DEFAULT NULL COMMENT '主船类型'"));
         migrations.add(new ColumnMigration("target_ship_type",
                 "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN target_ship_type VARCHAR(64) DEFAULT NULL COMMENT '目标船类型'"));
+        return Collections.unmodifiableList(migrations);
+    }
+
+    static List<ColumnMigration> buildLoiteringStatusTableMigrations() {
+        List<ColumnMigration> migrations = new ArrayList<ColumnMigration>();
+        migrations.add(new ColumnMigration("candidate_count",
+                "ALTER TABLE dataanalysis.ship_behavior_loitering_batch_status "
+                        + "ADD COLUMN candidate_count INT DEFAULT NULL COMMENT '过滤前候选事件数量'"));
+        migrations.add(new ColumnMigration("weak_count",
+                "ALTER TABLE dataanalysis.ship_behavior_loitering_batch_status "
+                        + "ADD COLUMN weak_count INT DEFAULT NULL COMMENT '弱候选数量'"));
+        migrations.add(new ColumnMigration("downgraded_count",
+                "ALTER TABLE dataanalysis.ship_behavior_loitering_batch_status "
+                        + "ADD COLUMN downgraded_count INT DEFAULT NULL COMMENT '正常场景降级候选数量'"));
+        migrations.add(new ColumnMigration("valid_count",
+                "ALTER TABLE dataanalysis.ship_behavior_loitering_batch_status "
+                        + "ADD COLUMN valid_count INT DEFAULT NULL COMMENT 'VALID_RISK_EVENT候选数量'"));
+        migrations.add(new ColumnMigration("stored_event_count",
+                "ALTER TABLE dataanalysis.ship_behavior_loitering_batch_status "
+                        + "ADD COLUMN stored_event_count INT DEFAULT NULL COMMENT '实际落库事件数量'"));
+        migrations.add(new ColumnMigration("result_code",
+                "ALTER TABLE dataanalysis.ship_behavior_loitering_batch_status "
+                        + "ADD COLUMN result_code VARCHAR(20) DEFAULT NULL COMMENT 'SUCCESS/NO_DATA'"));
+        migrations.add(new ColumnMigration("elapsed_ms",
+                "ALTER TABLE dataanalysis.ship_behavior_loitering_batch_status "
+                        + "ADD COLUMN elapsed_ms BIGINT DEFAULT NULL COMMENT '单船计算耗时毫秒'"));
         return Collections.unmodifiableList(migrations);
     }
 

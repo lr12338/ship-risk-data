@@ -51,4 +51,50 @@ public class ProductionTestParamsTest {
 
         params.validateAlongside();
     }
+
+    @Test
+    public void loiteringRequiresValidNonWeakFilter() {
+        ProductionTestParams params = ProductionTestParams.parse("{"
+                + "\"mode\":\"production_test\","
+                + "\"listBatchNo\":\"list\","
+                + "\"expectedShipCount\":1,\"shipLimit\":1,"
+                + "\"startTime\":\"2026-01-01 00:00:00\","
+                + "\"endTime\":\"2026-07-01 00:00:00\","
+                + "\"eventFilterMode\":\"VALID_NON_WEAK\","
+                + "\"storeDetails\":false,"
+                + "\"batchNo\":\"batch\"}");
+
+        params.validateLoitering();
+
+        assertEquals(ProductionTestParams.EVENT_FILTER_VALID_NON_WEAK,
+                params.getEventFilterMode());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void loiteringRejectsMissingProductionFilter() {
+        ProductionTestParams params = ProductionTestParams.parse("{"
+                + "\"mode\":\"production_test\","
+                + "\"listBatchNo\":\"list\","
+                + "\"expectedShipCount\":1,\"shipLimit\":1,"
+                + "\"startTime\":\"2026-01-01 00:00:00\","
+                + "\"endTime\":\"2026-07-01 00:00:00\","
+                + "\"batchNo\":\"batch\"}");
+
+        params.validateLoitering();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void loiteringRejectsDetailStorage() {
+        ProductionTestParams params = ProductionTestParams.parse("{"
+                + "\"mode\":\"production_test\","
+                + "\"listBatchNo\":\"list\","
+                + "\"expectedShipCount\":1,\"shipLimit\":1,"
+                + "\"startTime\":\"2026-01-01 00:00:00\","
+                + "\"endTime\":\"2026-07-01 00:00:00\","
+                + "\"eventFilterMode\":\"VALID_NON_WEAK\","
+                + "\"storeDetails\":true,"
+                + "\"batchNo\":\"batch\"}");
+
+        params.validateLoitering();
+    }
 }

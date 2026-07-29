@@ -1,5 +1,9 @@
 # Alongside V3 历史回放测试任务
 
+> 归档说明：这是旧 `shipAlongsideV3TestJobHandler` 历史测试文档，不适用于
+> 当前固定名单 event-only 生产任务。当前参数和状态见
+> [生产测试状态跟踪](../../ship-behavior-production-test-status.md)。
+
 ## 1. 测试目的
 
 该任务用于验证 Alongside V3 从历史 AIS 轨迹到行为风险数据表的完整生产链，重点是分页选船、时间切片、失败隔离、断点续跑、事件及轨迹明细入库，而不是单纯追求事件数量。

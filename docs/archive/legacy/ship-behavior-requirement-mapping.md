@@ -1,5 +1,9 @@
 # 船舶行为模块接入与实现总览
 
+> 归档说明：本文描述早期接入状态，尚未覆盖固定名单和两个 production-test
+> JobHandler。当前导航见[项目文档索引](../../README.md)，生产进度见
+> [生产测试状态跟踪](../../ship-behavior-production-test-status.md)。
+
 ## 1. 文档目的
 
 本文档面向后续接手 `ship-risk-data` 项目的开发人员，目标是快速说明：

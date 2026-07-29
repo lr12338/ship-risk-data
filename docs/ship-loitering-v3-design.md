@@ -6,7 +6,10 @@
 - 审计日期：2026-07-27
 - 当前状态：设计完成；Analyzer、纯业务内核和未抽稀 HBase 轨迹适配器已实现，场景/船型适配、定时入口与落库尚未实现
 - 适用范围：船舶徘徊事件，不修改船舶搭靠事件规则
-- 配套验证文档：`docs/ship-loitering-v3-validation-report.md`
+- 历史配套验证报告：
+  [2026-07-27 V3 验证报告](archive/production/ship-loitering-v3-validation-report.md)
+- 当前生产状态：
+  [搭靠与徘徊 5 万船生产测试状态跟踪](ship-behavior-production-test-status.md)
 
 本文给出 Loitering V3 的业务定义、规则、类结构、数据库字段和运行服务方案。
 所有数值阈值都是 shadow 阶段的首版标定值，必须经过真实样本评估后才能升级为保险生产口径。

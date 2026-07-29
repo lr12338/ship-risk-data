@@ -12,6 +12,7 @@ import java.util.List;
 
 public class ProductionTestParams {
 
+    public static final String EVENT_FILTER_VALID_NON_WEAK = "VALID_NON_WEAK";
     private static final String FIXED_START = "2026-01-01 00:00:00";
     private static final String FIXED_END = "2026-07-01 00:00:00";
     private static final DateTimeFormatter TIME_FORMATTER =
@@ -32,6 +33,7 @@ public class ProductionTestParams {
     private boolean storeDetails;
     private int windowDays;
     private int trajectorySliceHours;
+    private String eventFilterMode;
     private final List<String> engines = new ArrayList<String>();
 
     public static ProductionTestParams parse(String raw) {
@@ -62,6 +64,10 @@ public class ProductionTestParams {
                 && json.getBooleanValue("storeDetails");
         params.windowDays = positive(json, "windowDays", 30);
         params.trajectorySliceHours = positive(json, "trajectorySliceHours", 6);
+        params.eventFilterMode = StringUtils.trimToNull(json.getString("eventFilterMode"));
+        if (params.eventFilterMode != null) {
+            params.eventFilterMode = params.eventFilterMode.toUpperCase();
+        }
         if (json.getJSONArray("engines") == null) {
             params.engines.add("V2");
             params.engines.add("V3");
@@ -115,6 +121,13 @@ public class ProductionTestParams {
         if (trajectorySliceHours != 6) {
             throw new IllegalArgumentException("loitering trajectorySliceHours must be 6");
         }
+        if (!EVENT_FILTER_VALID_NON_WEAK.equals(eventFilterMode)) {
+            throw new IllegalArgumentException(
+                    "loitering eventFilterMode must be VALID_NON_WEAK");
+        }
+        if (storeDetails) {
+            throw new IllegalArgumentException("loitering production test is event-only");
+        }
     }
 
     private void validateFixedRange() {
@@ -163,5 +176,6 @@ public class ProductionTestParams {
     public boolean isStoreDetails() { return storeDetails; }
     public int getWindowDays() { return windowDays; }
     public int getTrajectorySliceHours() { return trajectorySliceHours; }
+    public String getEventFilterMode() { return eventFilterMode; }
     public List<String> getEngines() { return Collections.unmodifiableList(engines); }
 }

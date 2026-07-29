@@ -72,9 +72,13 @@ public class TraceRecipeServiceTest {
         TraceRecipeService.attachLoitering(
                 trace, "V2", event.getStartTime(), event.getEndTime(),
                 15, "config-hash");
+        TraceRecipeService.attachPersistPolicy(
+                trace, TraceRecipeService.PERSIST_POLICY_VALID_NON_WEAK);
 
         JSONObject recipe = TraceRecipeService.parseRecipe(event.getScoreDetailJson());
         assertEquals("V2", recipe.getString("engine"));
+        assertEquals(TraceRecipeService.PERSIST_POLICY_VALID_NON_WEAK,
+                recipe.getString("persistPolicy"));
         assertEquals(event.getStartTime(), recipe.getJSONObject("episodeSelection")
                 .getString("startTime"));
         assertEquals(1, recipe.getJSONArray("roles").size());
@@ -82,6 +86,16 @@ public class TraceRecipeServiceTest {
                 .getJSONObject(0).getIntValue("pointCount"));
         assertNotNull(recipe.getJSONArray("roles")
                 .getJSONObject(0).getString("fingerprint"));
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void persistPolicyRejectsMissingTraceRecipe() {
+        ShipBehaviorEvent event = event(ShipBehaviorEvent.TYPE_LOITERING);
+        ShipBehaviorTrace trace = new ShipBehaviorTrace(
+                event, Collections.emptyList(), Collections.emptyList());
+
+        TraceRecipeService.attachPersistPolicy(
+                trace, TraceRecipeService.PERSIST_POLICY_VALID_NON_WEAK);
     }
 
     private ShipBehaviorEvent event(String behaviorType) {

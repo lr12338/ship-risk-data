@@ -1,5 +1,9 @@
 # 船舶徘徊 V3 XXL-JOB 批量测试链路
 
+> 归档说明：本文描述旧 `shipLoiteringV3BatchJobHandler` / SHADOW 测试链路，
+> 不适用于当前 V2 生产候选批次。当前参数和 V3 门禁见
+> [生产测试状态跟踪](../../ship-behavior-production-test-status.md)。
+
 ## 1. 目标与边界
 
 本文说明 `shipLoiteringV3BatchJobHandler` 的配置、运行和数据验证方式。

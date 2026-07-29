@@ -15,6 +15,8 @@ public class ShipBehaviorLoiteringBatchStatusRepository {
 
     public static final String STATUS_DONE = "DONE";
     public static final String STATUS_FAILED = "FAILED";
+    public static final String RESULT_SUCCESS = "SUCCESS";
+    public static final String RESULT_NO_DATA = "NO_DATA";
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Autowired
@@ -35,12 +37,34 @@ public class ShipBehaviorLoiteringBatchStatusRepository {
 
     public void markDone(String batchNo, String mmsi, String windowStartTime, String windowEndTime,
                          int pointCount, int eventCount) {
-        upsert(batchNo, mmsi, windowStartTime, windowEndTime, STATUS_DONE, pointCount, eventCount, null);
+        markDone(batchNo, mmsi, windowStartTime, windowEndTime,
+                pointCount, eventCount, 0, 0, eventCount, eventCount,
+                pointCount == 0 ? RESULT_NO_DATA : RESULT_SUCCESS, null);
+    }
+
+    public void markDone(String batchNo, String mmsi,
+                         String windowStartTime, String windowEndTime,
+                         int pointCount, int candidateCount, int weakCount,
+                         int downgradedCount, int validCount, int storedEventCount,
+                         String resultCode, Long elapsedMs) {
+        upsert(batchNo, mmsi, windowStartTime, windowEndTime,
+                STATUS_DONE, pointCount, storedEventCount,
+                candidateCount, weakCount, downgradedCount, validCount,
+                storedEventCount, resultCode, elapsedMs, null);
     }
 
     public void markFailed(String batchNo, String mmsi, String windowStartTime, String windowEndTime,
                            String errorMessage) {
-        upsert(batchNo, mmsi, windowStartTime, windowEndTime, STATUS_FAILED, null, 0, truncate(errorMessage));
+        markFailed(batchNo, mmsi, windowStartTime, windowEndTime,
+                errorMessage, null);
+    }
+
+    public void markFailed(String batchNo, String mmsi,
+                           String windowStartTime, String windowEndTime,
+                           String errorMessage, Long elapsedMs) {
+        upsert(batchNo, mmsi, windowStartTime, windowEndTime,
+                STATUS_FAILED, null, 0, null, null, null, null, 0,
+                null, elapsedMs, truncate(errorMessage));
     }
 
     public int countByStatus(String batchNo, String status) {
@@ -56,14 +80,26 @@ public class ShipBehaviorLoiteringBatchStatusRepository {
     }
 
     private void upsert(String batchNo, String mmsi, String windowStartTime, String windowEndTime,
-                        String status, Integer pointCount, int eventCount, String errorMessage) {
+                        String status, Integer pointCount, int eventCount,
+                        Integer candidateCount, Integer weakCount,
+                        Integer downgradedCount, Integer validCount,
+                        Integer storedEventCount, String resultCode,
+                        Long elapsedMs, String errorMessage) {
         String sql = "INSERT INTO dataanalysis.ship_behavior_loitering_batch_status "
-                + "(batch_no, mmsi, window_start_time, window_end_time, status, point_count, event_count, error_message) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                + "(batch_no, mmsi, window_start_time, window_end_time, status, point_count, event_count, "
+                + "candidate_count, weak_count, downgraded_count, valid_count, stored_event_count, "
+                + "result_code, elapsed_ms, error_message) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 + "ON DUPLICATE KEY UPDATE status = VALUES(status), point_count = VALUES(point_count), "
-                + "event_count = VALUES(event_count), error_message = VALUES(error_message), updated_at = CURRENT_TIMESTAMP";
+                + "event_count = VALUES(event_count), candidate_count = VALUES(candidate_count), "
+                + "weak_count = VALUES(weak_count), downgraded_count = VALUES(downgraded_count), "
+                + "valid_count = VALUES(valid_count), stored_event_count = VALUES(stored_event_count), "
+                + "result_code = VALUES(result_code), elapsed_ms = VALUES(elapsed_ms), "
+                + "error_message = VALUES(error_message), updated_at = CURRENT_TIMESTAMP";
         newDataanalysisJdbcTemplate.update(sql, batchNo, mmsi, windowStartTime, windowEndTime,
-                status, pointCount, eventCount, errorMessage);
+                status, pointCount, eventCount, candidateCount, weakCount,
+                downgradedCount, validCount, storedEventCount, resultCode,
+                elapsedMs, errorMessage);
     }
 
     private String truncate(String message) {
