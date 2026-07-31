@@ -2,7 +2,7 @@
 
 > 归档说明：这是 2026-07-27 的阶段验证报告，测试数和实现状态已不是当前值。
 > 当前生产状态见
-> [生产测试状态跟踪](../../ship-behavior-production-test-status.md)。
+> [0731液货船/集装箱船测试维护手册](../../liquid-container-behavior-test-20260731.md)。
 
 ## 1. 报告状态
 

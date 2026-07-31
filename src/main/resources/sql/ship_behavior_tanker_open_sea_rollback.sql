@@ -1,0 +1,11 @@
+-- 普通 JAR 回滚不需要、也不应执行以下 DDL。
+-- 专用名单表与旧 JAR 无冲突，默认保留名单和审计记录。
+--
+-- 只有在确认不再需要任何液货船/集装箱船隔离测试数据，并完成备份后，
+-- 才可由数据库管理员逐条人工执行：
+--
+-- DROP TABLE IF EXISTS dataanalysis.ship_behavior_tanker_open_sea_target_ship;
+-- DROP TABLE IF EXISTS dataanalysis.ship_behavior_event_degraded_candidate;
+--
+-- 本脚本不会删除 ship_behavior_event、ship_behavior_event_detail、
+-- 两张批次状态表或任何正式事件数据。

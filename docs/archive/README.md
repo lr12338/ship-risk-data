@@ -8,7 +8,11 @@
 当前入口：
 
 - [项目文档索引](../README.md)
-- [生产测试状态跟踪](../ship-behavior-production-test-status.md)
+- [0731液货船/集装箱船测试维护手册](../liquid-container-behavior-test-20260731.md)
+
+当前生产归档包括：
+
+- [2026-07-29旧5万商船测试状态](production/ship-behavior-production-test-status-20260729.md)
 
 归档原则：
 

@@ -2,7 +2,7 @@
 
 > 归档说明：本文描述早期接入状态，尚未覆盖固定名单和两个 production-test
 > JobHandler。当前导航见[项目文档索引](../../README.md)，生产进度见
-> [生产测试状态跟踪](../../ship-behavior-production-test-status.md)。
+> [0731液货船/集装箱船测试维护手册](../../liquid-container-behavior-test-20260731.md)。
 
 ## 1. 文档目的
 

@@ -2,7 +2,7 @@
 
 > 归档说明：本文描述旧 `shipLoiteringV3BatchJobHandler` / SHADOW 测试链路，
 > 不适用于当前 V2 生产候选批次。当前参数和 V3 门禁见
-> [生产测试状态跟踪](../../ship-behavior-production-test-status.md)。
+> [0731液货船/集装箱船测试维护手册](../../liquid-container-behavior-test-20260731.md)。
 
 ## 1. 目标与边界
 

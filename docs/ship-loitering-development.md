@@ -4,7 +4,7 @@
 
 本文档是徘徊模块的主开发文档，描述 V2 算法、数据流、落库和排障。
 5 万船批次进度、当前参数、门禁和下一步统一维护在
-[生产测试状态跟踪](ship-behavior-production-test-status.md)。
+[0731液货船/集装箱船测试维护手册](liquid-container-behavior-test-20260731.md)。
 
 当前生产测试与旧单船/批量入口的差异：
 

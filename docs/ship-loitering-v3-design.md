@@ -9,7 +9,7 @@
 - 历史配套验证报告：
   [2026-07-27 V3 验证报告](archive/production/ship-loitering-v3-validation-report.md)
 - 当前生产状态：
-  [搭靠与徘徊 5 万船生产测试状态跟踪](ship-behavior-production-test-status.md)
+  [0731液货船/集装箱船测试维护手册](liquid-container-behavior-test-20260731.md)
 
 本文给出 Loitering V3 的业务定义、规则、类结构、数据库字段和运行服务方案。
 所有数值阈值都是 shadow 阶段的首版标定值，必须经过真实样本评估后才能升级为保险生产口径。

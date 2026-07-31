@@ -8,3 +8,8 @@ dist/
 .settings/
 logs/
 *.log
+.DS_Store
+__pycache__/
+*.py[cod]
+node_modules/
+*.tsbuildinfo

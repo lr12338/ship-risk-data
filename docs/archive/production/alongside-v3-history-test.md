@@ -2,7 +2,7 @@
 
 > 归档说明：这是旧 `shipAlongsideV3TestJobHandler` 历史测试文档，不适用于
 > 当前固定名单 event-only 生产任务。当前参数和状态见
-> [生产测试状态跟踪](../../ship-behavior-production-test-status.md)。
+> [0731液货船/集装箱船测试维护手册](../../liquid-container-behavior-test-20260731.md)。
 
 ## 1. 测试目的
 
