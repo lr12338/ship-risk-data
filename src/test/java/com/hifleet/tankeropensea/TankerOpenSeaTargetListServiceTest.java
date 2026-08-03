@@ -22,6 +22,39 @@ import static org.mockito.Mockito.when;
 public class TankerOpenSeaTargetListServiceTest {
     @Test
     @SuppressWarnings("unchecked")
+    public void createsBalancedFiveThousandShipSnapshot() {
+        TankerOpenSeaTargetShipRepository repository =
+                mock(TankerOpenSeaTargetShipRepository.class);
+        when(repository.count(anyString())).thenReturn(0);
+        List<ShipMetadata> source = new java.util.ArrayList<ShipMetadata>();
+        for (int i = 1; i <= 5000; i++) {
+            source.add(metadata(String.valueOf(100000000 + i),
+                    i % 2 == 1 ? "油轮" : "集装箱船"));
+        }
+        when(repository.selectSourceCandidatesPage(
+                anyString(), anyInt(), anyInt())).thenReturn(source);
+        TankerOpenSeaTargetListService service = service(repository);
+
+        service.create(params(2500, 2500));
+
+        ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+        verify(repository).insertImmutable(
+                org.mockito.Matchers.eq("liquid-container-test-v1"),
+                captor.capture());
+        List<ListedTanker> rows = (List<ListedTanker>) captor.getValue();
+        assertEquals(5000, rows.size());
+        assertEquals(1, rows.get(0).getSeqNo());
+        assertEquals(5000, rows.get(4999).getSeqNo());
+        assertEquals(StandardShipType.TANKER_OIL,
+                rows.get(0).getEligibility().getStandardShipType());
+        assertEquals(StandardShipType.CONTAINER,
+                rows.get(4999).getEligibility().getStandardShipType());
+        verify(repository).validateDistribution(
+                "liquid-container-test-v1", 2500, 2500);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     public void requestedTypesAreInterleavedInImmutableList() {
         TankerOpenSeaTargetShipRepository repository =
                 mock(TankerOpenSeaTargetShipRepository.class);

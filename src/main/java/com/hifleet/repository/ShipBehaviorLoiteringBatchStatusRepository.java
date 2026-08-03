@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -32,6 +33,33 @@ public class ShipBehaviorLoiteringBatchStatusRepository {
                 (rs, rowNum) -> windowKey(rs.getString("mmsi"),
                         rs.getTimestamp("window_start_time").toLocalDateTime().format(TIME_FORMATTER),
                         rs.getTimestamp("window_end_time").toLocalDateTime().format(TIME_FORMATTER)));
+        return new HashSet<String>(list);
+    }
+
+    public Set<String> findCompletedWindows(String batchNo, Set<String> mmsis) {
+        if (mmsis == null || mmsis.isEmpty()) {
+            return new HashSet<String>();
+        }
+        StringBuilder placeholders = new StringBuilder();
+        List<Object> params = new ArrayList<Object>();
+        params.add(batchNo);
+        params.add(STATUS_DONE);
+        for (String mmsi : mmsis) {
+            if (placeholders.length() > 0) {
+                placeholders.append(',');
+            }
+            placeholders.append('?');
+            params.add(mmsi);
+        }
+        String sql = "SELECT mmsi, window_start_time, window_end_time "
+                + "FROM dataanalysis.ship_behavior_loitering_batch_status "
+                + "WHERE batch_no = ? AND status = ? AND mmsi IN (" + placeholders + ")";
+        List<String> list = newDataanalysisJdbcTemplate.query(sql, params.toArray(),
+                (rs, rowNum) -> windowKey(rs.getString("mmsi"),
+                        rs.getTimestamp("window_start_time").toLocalDateTime()
+                                .format(TIME_FORMATTER),
+                        rs.getTimestamp("window_end_time").toLocalDateTime()
+                                .format(TIME_FORMATTER)));
         return new HashSet<String>(list);
     }
 

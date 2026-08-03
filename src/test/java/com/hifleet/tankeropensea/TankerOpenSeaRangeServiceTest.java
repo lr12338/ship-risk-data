@@ -49,6 +49,54 @@ public class TankerOpenSeaRangeServiceTest {
     }
 
     @Test
+    public void fiveThousandShipYearIsSplitIntoTwelveStableMonthlyBatches() {
+        Fixture fixture = fixture();
+        when(fixture.loitering.run(anyString())).thenReturn(success("LOITERING"));
+        JSONObject annual = JSON.parseObject(params(
+                "2025-07-01 00:00:00", "2026-07-01 00:00:00", true));
+        annual.put("listBatchNo",
+                "liquid-container-5000-2025h2-2026h1-v1");
+        annual.put("shipLimit", 5000);
+        annual.put("logIntervalShips", 50);
+        annual.put("batchVersion", "v3");
+
+        TankerOpenSeaRangeResult result = fixture.service.run(
+                annual.toJSONString(),
+                TankerOpenSeaJobParams.Behavior.LOITERING);
+
+        assertTrue(result.isSuccess());
+        assertEquals(12, result.getSegmentsCompleted());
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(fixture.loitering, times(12)).run(captor.capture());
+        List<String> calls = captor.getAllValues();
+        assertSegment(calls.get(0), "2025-07-01 00:00:00",
+                "2025-08-01 00:00:00",
+                "loitering-lc-s5000-202507010000-202508010000-v3",
+                "LOITERING_LIQUID_CONTAINER_V2", "windowHours", 24);
+        assertSegment(calls.get(11), "2026-06-01 00:00:00",
+                "2026-07-01 00:00:00",
+                "loitering-lc-s5000-202606010000-202607010000-v3",
+                "LOITERING_LIQUID_CONTAINER_V2", "windowHours", 24);
+    }
+
+    @Test
+    public void rangeRejectsMoreThanFiveThousandShips() {
+        Fixture fixture = fixture();
+        JSONObject json = JSON.parseObject(params(
+                "2025-07-01 00:00:00", "2026-07-01 00:00:00", true));
+        json.put("shipLimit", 5001);
+
+        try {
+            fixture.service.run(json.toJSONString(),
+                    TankerOpenSeaJobParams.Behavior.ALONGSIDE);
+            fail("expected ship limit rejection");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains(
+                    "shipLimit must be <= 5000"));
+        }
+    }
+
+    @Test
     public void loiteringCustomRangeKeepsPartialFirstAndLastMonths() {
         Fixture fixture = fixture();
         when(fixture.loitering.run(anyString())).thenReturn(success("LOITERING"));
@@ -204,6 +252,7 @@ public class TankerOpenSeaRangeServiceTest {
         assertEquals(start, json.getString("startTime"));
         assertEquals(end, json.getString("endTime"));
         assertEquals(batchNo, json.getString("batchNo"));
+        assertTrue(json.getString("batchNo").length() <= 64);
         assertEquals(ruleVersion, json.getString("ruleVersion"));
         assertEquals(windowValue, json.getIntValue(windowField));
         assertEquals(1, json.getIntValue("parallelism"));

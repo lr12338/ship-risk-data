@@ -13,7 +13,7 @@ public class TankerOpenSeaJobParams {
 
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final int MAX_SHIP_LIMIT = 200;
+    static final int MAX_SHIP_LIMIT = 5000;
 
     private String listBatchNo;
     private int shipLimit;

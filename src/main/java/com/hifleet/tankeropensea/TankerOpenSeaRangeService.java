@@ -137,8 +137,9 @@ public class TankerOpenSeaRangeService {
                         "dedicated liquid-container listBatchNo is required");
             }
             result.shipLimit = positive(json, "shipLimit", 0);
-            if (result.shipLimit > 200) {
-                throw new IllegalArgumentException("shipLimit must be <= 200");
+            if (result.shipLimit > TankerOpenSeaJobParams.MAX_SHIP_LIMIT) {
+                throw new IllegalArgumentException("shipLimit must be <= "
+                        + TankerOpenSeaJobParams.MAX_SHIP_LIMIT);
             }
             result.start = parseTime(required(json, "startTime"));
             result.end = parseTime(required(json, "endTime"));

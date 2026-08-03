@@ -74,12 +74,22 @@ public class TankerOpenSeaJobParamsTest {
     }
 
     @Test
+    public void fiveThousandShipsAreAccepted() {
+        TankerOpenSeaJobParams params = TankerOpenSeaJobParams.parse(
+                base().replace("\"shipLimit\":50", "\"shipLimit\":5000")
+                        .replace("dryrun-50-", "dryrun-5000-"),
+                TankerOpenSeaJobParams.Behavior.ALONGSIDE);
+
+        assertEquals(5000, params.getShipLimit());
+    }
+
+    @Test
     public void wrongModeRuleBatchParallelismAndLimitFailClosed() {
         assertInvalid("{\"mode\":\"production_test\"}");
         assertInvalid(base().replace(TankerOpenSeaAlongsideRule.RULE_VERSION,
                 "ALONGSIDE_V3_INSURANCE"));
         assertInvalid(base().replace("\"parallelism\":1", "\"parallelism\":2"));
-        assertInvalid(base().replace("\"shipLimit\":50", "\"shipLimit\":201"));
+        assertInvalid(base().replace("\"shipLimit\":50", "\"shipLimit\":5001"));
         assertInvalid(base().replace("alongside-liquid-container-dryrun-50-202601-v2",
                 "alongside-prod-2026h1-50k-v1"));
         assertInvalid(base().replace("alongside-liquid-container-dryrun-50-202601-v2",

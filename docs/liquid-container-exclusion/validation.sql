@@ -1,8 +1,10 @@
--- 0731 液货船/集装箱船范围任务只读验收 SQL，适用于 MySQL 5.7。
+-- 0731 液货船/集装箱船5,000艘年度范围任务只读验收 SQL，适用于 MySQL 5.7。
 SET @fingerprint=
   '7470be70e955bc79064bc402586c592a8a8da7a241e00c61997b1fa1bc0df50f';
+SET @alongside_pattern='alongside-lc-s5000-%-v3';
+SET @loitering_pattern='loitering-lc-s5000-%-v3';
 
--- 1. 搭靠月度进度：半年结束时不应出现 FAILED。
+-- 1. 搭靠月度进度：年度结束时不应出现 FAILED。
 SELECT batch_no,status,
        COUNT(*) windows,
        COUNT(DISTINCT mmsi) ships,
@@ -10,7 +12,7 @@ SELECT batch_no,status,
        COALESCE(SUM(event_count),0) status_events,
        MAX(updated_at) last_update
 FROM dataanalysis.ship_behavior_alongside_batch_status
-WHERE batch_no LIKE 'alongside-lc-s200-2026%-v2'
+WHERE batch_no LIKE @alongside_pattern
 GROUP BY batch_no,status
 ORDER BY batch_no,status;
 
@@ -23,9 +25,26 @@ SELECT batch_no,status,result_code,
        COALESCE(SUM(stored_event_count),0) status_events,
        MAX(updated_at) last_update
 FROM dataanalysis.ship_behavior_loitering_batch_status
-WHERE batch_no LIKE 'loitering-lc-s200-2026%-v2'
+WHERE batch_no LIKE @loitering_pattern
 GROUP BY batch_no,status,result_code
 ORDER BY batch_no,status,result_code;
+
+-- 当前失败窗口详情。任务运行中可用于判断是否需要原参数续跑。
+SELECT batch_no,mmsi,window_start_time,window_end_time,
+       error_message,updated_at
+FROM dataanalysis.ship_behavior_alongside_batch_status
+WHERE batch_no LIKE @alongside_pattern
+  AND status='FAILED'
+ORDER BY updated_at DESC
+LIMIT 100;
+
+SELECT batch_no,mmsi,window_start_time,window_end_time,
+       result_code,error_message,updated_at
+FROM dataanalysis.ship_behavior_loitering_batch_status
+WHERE batch_no LIKE @loitering_pattern
+  AND status='FAILED'
+ORDER BY updated_at DESC
+LIMIT 100;
 
 -- 3. 正式事件分布。
 SELECT batch_no,behavior_type,rule_version,
@@ -34,8 +53,8 @@ SELECT batch_no,behavior_type,rule_version,
        MIN(start_time) first_event,
        MAX(end_time) last_event
 FROM dataanalysis.ship_behavior_event
-WHERE batch_no LIKE 'alongside-lc-s200-2026%-v2'
-   OR batch_no LIKE 'loitering-lc-s200-2026%-v2'
+WHERE batch_no LIKE @alongside_pattern
+   OR batch_no LIKE @loitering_pattern
 GROUP BY batch_no,behavior_type,rule_version
 ORDER BY batch_no;
 
@@ -43,8 +62,8 @@ ORDER BY batch_no;
 SELECT COUNT(*) invalid_formal_events
 FROM dataanalysis.ship_behavior_event
 WHERE (
-    batch_no LIKE 'alongside-lc-s200-2026%-v2'
-    OR batch_no LIKE 'loitering-lc-s200-2026%-v2'
+    batch_no LIKE @alongside_pattern
+    OR batch_no LIKE @loitering_pattern
   )
   AND (
     behavior_type NOT IN ('ALONGSIDE','LOITERING')
@@ -95,7 +114,7 @@ SELECT s.batch_no,s.status_events,COALESCE(e.event_rows,0) event_rows
 FROM (
   SELECT batch_no,COALESCE(SUM(event_count),0) status_events
   FROM dataanalysis.ship_behavior_alongside_batch_status
-  WHERE batch_no LIKE 'alongside-lc-s200-2026%-v2'
+  WHERE batch_no LIKE @alongside_pattern
     AND status='DONE'
   GROUP BY batch_no
 ) s
@@ -103,7 +122,7 @@ LEFT JOIN (
   SELECT batch_no,COUNT(*) event_rows
   FROM dataanalysis.ship_behavior_event
   WHERE behavior_type='ALONGSIDE'
-    AND batch_no LIKE 'alongside-lc-s200-2026%-v2'
+    AND batch_no LIKE @alongside_pattern
   GROUP BY batch_no
 ) e ON e.batch_no=s.batch_no
 WHERE s.status_events<>COALESCE(e.event_rows,0);
@@ -112,7 +131,7 @@ SELECT s.batch_no,s.status_events,COALESCE(e.event_rows,0) event_rows
 FROM (
   SELECT batch_no,COALESCE(SUM(stored_event_count),0) status_events
   FROM dataanalysis.ship_behavior_loitering_batch_status
-  WHERE batch_no LIKE 'loitering-lc-s200-2026%-v2'
+  WHERE batch_no LIKE @loitering_pattern
     AND status='DONE'
   GROUP BY batch_no
 ) s
@@ -120,7 +139,7 @@ LEFT JOIN (
   SELECT batch_no,COUNT(*) event_rows
   FROM dataanalysis.ship_behavior_event
   WHERE behavior_type='LOITERING'
-    AND batch_no LIKE 'loitering-lc-s200-2026%-v2'
+    AND batch_no LIKE @loitering_pattern
   GROUP BY batch_no
 ) e ON e.batch_no=s.batch_no
 WHERE s.status_events<>COALESCE(e.event_rows,0);
@@ -129,8 +148,8 @@ WHERE s.status_events<>COALESCE(e.event_rows,0);
 SELECT batch_no,behavior_type,exclusion_health,degradation_reason,
        review_status,COUNT(*) candidate_rows
 FROM dataanalysis.ship_behavior_event_degraded_candidate
-WHERE batch_no LIKE 'alongside-lc-s200-2026%-v2'
-   OR batch_no LIKE 'loitering-lc-s200-2026%-v2'
+WHERE batch_no LIKE @alongside_pattern
+   OR batch_no LIKE @loitering_pattern
 GROUP BY batch_no,behavior_type,exclusion_health,
          degradation_reason,review_status
 ORDER BY batch_no;
@@ -140,8 +159,8 @@ SELECT batch_no,rule_version,behavior_type,mmsi,
        COALESCE(target_mmsi,'') target_mmsi,
        start_time,end_time,COUNT(*) duplicates
 FROM dataanalysis.ship_behavior_event
-WHERE batch_no LIKE 'alongside-lc-s200-2026%-v2'
-   OR batch_no LIKE 'loitering-lc-s200-2026%-v2'
+WHERE batch_no LIKE @alongside_pattern
+   OR batch_no LIKE @loitering_pattern
 GROUP BY batch_no,rule_version,behavior_type,mmsi,
          COALESCE(target_mmsi,''),start_time,end_time
 HAVING COUNT(*)>1;
@@ -149,13 +168,13 @@ HAVING COUNT(*)>1;
 -- 8. 复核候选幂等：结果必须为空。
 SELECT candidate_key,COUNT(*) duplicates
 FROM dataanalysis.ship_behavior_event_degraded_candidate
-WHERE batch_no LIKE 'alongside-lc-s200-2026%-v2'
-   OR batch_no LIKE 'loitering-lc-s200-2026%-v2'
+WHERE batch_no LIKE @alongside_pattern
+   OR batch_no LIKE @loitering_pattern
 GROUP BY candidate_key
 HAVING COUNT(*)>1;
 
 -- 9. 按事件排查；替换批次和 MMSI。
-SET @inspect_batch='loitering-lc-s200-202603010000-202604010000-v2';
+SET @inspect_batch='loitering-lc-s5000-202507010000-202508010000-v3';
 SET @inspect_mmsi='<MMSI>';
 
 SELECT id,batch_no,behavior_type,rule_version,mmsi,target_mmsi,

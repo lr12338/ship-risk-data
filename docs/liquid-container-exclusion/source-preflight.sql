@@ -30,9 +30,9 @@ WHERE bound IS NOT NULL
        OR name LIKE '%锚地%'
        OR name LIKE '%锚泊%');
 
--- 3. 在事件数据库执行：必须为 total=200、unique_mmsi=200、seq=1..200、
--- containers=100、liquid_cargo=100。
-SET @list_batch='liquid-container-2026h1-v1';
+-- 3. 在事件数据库执行：年度名单必须为 total=5000、unique_mmsi=5000、
+-- seq=1..5000、containers=2500、liquid_cargo=2500。
+SET @list_batch='liquid-container-5000-2025h2-2026h1-v1';
 
 SELECT COUNT(*) total,
        COUNT(DISTINCT mmsi) unique_mmsi,

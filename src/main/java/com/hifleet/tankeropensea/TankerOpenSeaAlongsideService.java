@@ -59,15 +59,20 @@ public class TankerOpenSeaAlongsideService {
         TankerOpenSeaBatchResult total = new TankerOpenSeaBatchResult(
                 "ALONGSIDE_TANKER", params.getBatchNo());
         total.setExclusionSnapshot(exclusionSnapshot);
-        Set<String> completed = params.isResume()
-                ? statusRepository.findCompletedWindows(params.getBatchNo())
-                : Collections.<String>emptySet();
         int afterSeq = 0;
         while (afterSeq < params.getShipLimit()) {
             int limit = Math.min(50, params.getShipLimit() - afterSeq);
             List<ListedTanker> page = targetRepository.selectPage(
                     params.getListBatchNo(), afterSeq, limit);
             if (page.isEmpty()) break;
+            Set<String> pageMmsis = new LinkedHashSet<String>();
+            for (ListedTanker ship : page) {
+                pageMmsis.add(ship.getMetadata().getMmsi());
+            }
+            Set<String> completed = params.isResume()
+                    ? statusRepository.findCompletedWindows(
+                    params.getBatchNo(), pageMmsis)
+                    : Collections.<String>emptySet();
             for (ListedTanker ship : page) {
                 total.shipSeen();
                 boolean shipFailed = false;

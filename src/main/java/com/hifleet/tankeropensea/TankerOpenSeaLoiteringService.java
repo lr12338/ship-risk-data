@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -52,9 +53,6 @@ public class TankerOpenSeaLoiteringService {
                 + exclusionSnapshot.getHealth() + " sourceHealth="
                 + exclusionSnapshot.getHealthReportJson());
         targetRepository.validate(params.getListBatchNo(), params.getShipLimit());
-        Set<String> completed = params.isResume()
-                ? statusRepository.findCompletedWindows(params.getBatchNo())
-                : Collections.<String>emptySet();
         TankerOpenSeaBatchResult total = new TankerOpenSeaBatchResult(
                 "LOITERING_TANKER", params.getBatchNo());
         total.setExclusionSnapshot(exclusionSnapshot);
@@ -64,6 +62,14 @@ public class TankerOpenSeaLoiteringService {
             List<ListedTanker> page = targetRepository.selectPage(
                     params.getListBatchNo(), afterSeq, limit);
             if (page.isEmpty()) break;
+            Set<String> pageMmsis = new LinkedHashSet<String>();
+            for (ListedTanker ship : page) {
+                pageMmsis.add(ship.getMetadata().getMmsi());
+            }
+            Set<String> completed = params.isResume()
+                    ? statusRepository.findCompletedWindows(
+                    params.getBatchNo(), pageMmsis)
+                    : Collections.<String>emptySet();
             for (ListedTanker ship : page) {
                 total.shipSeen();
                 boolean shipFailed = false;
