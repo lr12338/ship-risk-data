@@ -95,6 +95,7 @@ public class TankerOpenSeaAlongsideService {
                         total.addCandidates(result.candidateTargets);
                         total.addDetected(result.detectedEvents);
                         total.addStored(result.storedEvents);
+                        total.addReplayTimeoutSkipped(result.replayTimeoutSkipped);
                         total.addDegradedStored(result.degradedStored);
                         total.addQuarantineHits(result.quarantineHits);
                         XxlJobLogger.log("LIQUID_CONTAINER ALONGSIDE window done mmsi="
@@ -155,7 +156,9 @@ public class TankerOpenSeaAlongsideService {
         Set<String> candidateTargets = new LinkedHashSet<String>();
         int replayQueries = 0;
         int replayFailures = 0;
+        int replayTimeoutSkipped = 0;
         int quarantineHits = 0;
+        boolean formalEventsSuppressed = false;
         for (List<TrajectoryPoint> episode : episodes) {
             ExclusionDecision ownExclusion =
                     exclusionService.classify(episode, snapshot);
@@ -170,12 +173,24 @@ public class TankerOpenSeaAlongsideService {
                     ship.getMetadata().getMmsi(), episode, params.getBatchNo());
             replayQueries += replay.getQueryCount();
             replayFailures += replay.getFailedQueries();
+            replayTimeoutSkipped += replay.getTimeoutSkippedQueries();
             if (replay.getCompleteness() == ReplayCompleteness.TRUNCATED_UNRESOLVED) {
                 throw new IllegalStateException("replay truncated unresolved");
             }
             if (replay.getCompleteness() == ReplayCompleteness.FAILED) {
                 throw new IllegalStateException("replay failed count="
                         + replay.getFailedQueries());
+            }
+            if (replay.getCompleteness() == ReplayCompleteness.PARTIAL_TIMEOUT) {
+                formalEventsSuppressed = true;
+                XxlJobLogger.log("LIQUID_CONTAINER ALONGSIDE replay partial mmsi="
+                        + ship.getMetadata().getMmsi() + " episodeStart="
+                        + episode.get(0).getTime() + " episodeEnd="
+                        + episode.get(episode.size() - 1).getTime()
+                        + " timeoutSkippedQueries="
+                        + replay.getTimeoutSkippedQueries()
+                        + " formalEventsSuppressed=true");
+                continue;
             }
             Set<String> targetMmsis = replay.getTracks().keySet();
             Map<String, ShipMetadata> metadata;
@@ -226,6 +241,11 @@ public class TankerOpenSeaAlongsideService {
                 }
             }
         }
+        if (formalEventsSuppressed) {
+            accepted.clear();
+            formal.clear();
+            degraded.clear();
+        }
         int storedEvents = params.isEnableInsert() ? formal.size() : 0;
         int degradedStored = params.isEnableInsert() ? degraded.size() : 0;
         if (params.isEnableInsert()) {
@@ -240,7 +260,8 @@ public class TankerOpenSeaAlongsideService {
         }
         return new WindowResult(points.size(), episodes.size(),
                 candidateTargets.size(), replayQueries, replayFailures,
-                accepted.size(), storedEvents, degradedStored, quarantineHits);
+                replayTimeoutSkipped, accepted.size(), storedEvents,
+                degradedStored, quarantineHits);
     }
 
     private List<Window> windows(TankerOpenSeaJobParams params) {
@@ -272,6 +293,7 @@ public class TankerOpenSeaAlongsideService {
         private final int candidateTargets;
         private final int replayQueries;
         private final int replayFailures;
+        private final int replayTimeoutSkipped;
         private final int detectedEvents;
         private final int storedEvents;
         private final int degradedStored;
@@ -279,7 +301,8 @@ public class TankerOpenSeaAlongsideService {
 
         private WindowResult(int pointCount, int lowSpeedWindows,
                              int candidateTargets, int replayQueries,
-                             int replayFailures, int detectedEvents,
+                             int replayFailures, int replayTimeoutSkipped,
+                             int detectedEvents,
                              int storedEvents, int degradedStored,
                              int quarantineHits) {
             this.pointCount = pointCount;
@@ -287,6 +310,7 @@ public class TankerOpenSeaAlongsideService {
             this.candidateTargets = candidateTargets;
             this.replayQueries = replayQueries;
             this.replayFailures = replayFailures;
+            this.replayTimeoutSkipped = replayTimeoutSkipped;
             this.detectedEvents = detectedEvents;
             this.storedEvents = storedEvents;
             this.degradedStored = degradedStored;

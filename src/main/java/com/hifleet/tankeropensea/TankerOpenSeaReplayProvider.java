@@ -4,6 +4,8 @@ import com.hifleet.domain.ReplayQueryRequest;
 import com.hifleet.domain.ReplayQueryResult;
 import com.hifleet.service.SpatialAisReplayClient;
 import com.hifleet.trajectory.TrajectoryPoint;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -22,6 +24,8 @@ import java.util.Map;
 public class TankerOpenSeaReplayProvider {
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final Logger log =
+            LoggerFactory.getLogger(TankerOpenSeaReplayProvider.class);
 
     @Autowired
     private SpatialAisReplayClient client;
@@ -53,10 +57,12 @@ public class TankerOpenSeaReplayProvider {
             queryPart(ownMmsi, sorted, cursor, next, batchNo, result);
             cursor = next;
         }
-        if (result.failedQueries > 0) {
+        if (result.nonTimeoutFailures > 0) {
             result.completeness = ReplayCompleteness.FAILED;
         } else if (result.unresolvedTruncations > 0) {
             result.completeness = ReplayCompleteness.TRUNCATED_UNRESOLVED;
+        } else if (result.timeoutSkippedQueries > 0) {
+            result.completeness = ReplayCompleteness.PARTIAL_TIMEOUT;
         } else if (result.splitRetries > 0) {
             result.completeness = ReplayCompleteness.TRUNCATED_RETRY_SPLIT;
         } else {
@@ -75,6 +81,15 @@ public class TankerOpenSeaReplayProvider {
         target.queryCount++;
         if (query == null || !query.isSuccess()) {
             target.failedQueries++;
+            if (query != null && query.isTimeout()) {
+                target.timeoutSkippedQueries++;
+                log.warn("REPLAY_TIMEOUT_SKIPPED batchNo={} ownMmsi={} start={} end={} "
+                                + "continue=true",
+                        batchNo, ownMmsi, start.format(FORMATTER),
+                        end.format(FORMATTER));
+            } else {
+                target.nonTimeoutFailures++;
+            }
             return;
         }
         if (query.isTruncated()) {
@@ -156,6 +171,8 @@ public class TankerOpenSeaReplayProvider {
                 new LinkedHashMap<String, List<TrajectoryPoint>>();
         private int queryCount;
         private int failedQueries;
+        private int timeoutSkippedQueries;
+        private int nonTimeoutFailures;
         private int splitRetries;
         private int unresolvedTruncations;
 
@@ -163,6 +180,7 @@ public class TankerOpenSeaReplayProvider {
         public Map<String, List<TrajectoryPoint>> getTracks() { return tracks; }
         public int getQueryCount() { return queryCount; }
         public int getFailedQueries() { return failedQueries; }
+        public int getTimeoutSkippedQueries() { return timeoutSkippedQueries; }
         public int getSplitRetries() { return splitRetries; }
         public int getUnresolvedTruncations() { return unresolvedTruncations; }
     }

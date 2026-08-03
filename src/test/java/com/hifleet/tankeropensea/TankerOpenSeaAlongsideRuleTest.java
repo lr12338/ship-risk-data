@@ -51,6 +51,11 @@ public class TankerOpenSeaAlongsideRuleTest {
                 eligible(StandardShipType.CONTAINER),
                 outsideExclusions(), ReplayCompleteness.TRUNCATED_UNRESOLVED)
                 .isAccepted());
+        assertFalse(rule.evaluate(own, own,
+                eligible(StandardShipType.TANKER_OIL),
+                eligible(StandardShipType.CONTAINER),
+                outsideExclusions(), ReplayCompleteness.PARTIAL_TIMEOUT)
+                .isAccepted());
     }
 
     private List<TrajectoryPoint> track(double startLon, double startLat,

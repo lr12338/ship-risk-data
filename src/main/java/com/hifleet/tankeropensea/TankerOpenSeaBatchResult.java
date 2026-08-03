@@ -11,6 +11,7 @@ public class TankerOpenSeaBatchResult {
     private int candidates;
     private int eventsDetected;
     private int eventsStored;
+    private int replayTimeoutSkipped;
     private int degradedCandidatesStored;
     private int quarantineHits;
     private ExclusionHealth exclusionHealth;
@@ -30,6 +31,7 @@ public class TankerOpenSeaBatchResult {
     void addCandidates(int value) { candidates += value; }
     void addDetected(int value) { eventsDetected += value; }
     void addStored(int value) { eventsStored += value; }
+    void addReplayTimeoutSkipped(int value) { replayTimeoutSkipped += value; }
     void addDegradedStored(int value) { degradedCandidatesStored += value; }
     void addQuarantineHits(int value) { quarantineHits += value; }
     void setExclusionSnapshot(PortAnchorBerthExclusionService.Snapshot snapshot) {
@@ -50,6 +52,7 @@ public class TankerOpenSeaBatchResult {
                 + " candidates=" + candidates
                 + " eventsDetected=" + eventsDetected
                 + " eventsStored=" + eventsStored
+                + " replayTimeoutSkipped=" + replayTimeoutSkipped
                 + " exclusionHealth=" + exclusionHealth
                 + " formalEventsStored=" + eventsStored
                 + " degradedCandidatesStored=" + degradedCandidatesStored

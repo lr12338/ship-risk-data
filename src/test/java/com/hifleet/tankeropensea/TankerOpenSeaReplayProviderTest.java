@@ -42,6 +42,33 @@ public class TankerOpenSeaReplayProviderTest {
                 result.getCompleteness());
     }
 
+    @Test
+    public void timeoutSkipsCurrentPartAndContinuesLaterParts() {
+        TimeoutThenSuccessClient client = new TimeoutThenSuccessClient();
+        TankerOpenSeaReplayProvider provider = provider(client);
+
+        TankerOpenSeaReplayProvider.SearchResult result =
+                provider.search("123456789", pointsForMinutes(60), "test-batch");
+
+        assertEquals(ReplayCompleteness.PARTIAL_TIMEOUT,
+                result.getCompleteness());
+        assertEquals(2, result.getQueryCount());
+        assertEquals(1, result.getFailedQueries());
+        assertEquals(1, result.getTimeoutSkippedQueries());
+        assertEquals(2, client.calls);
+    }
+
+    @Test
+    public void nonTimeoutFailureRemainsFatal() {
+        TankerOpenSeaReplayProvider provider = provider(new FailedClient());
+
+        TankerOpenSeaReplayProvider.SearchResult result =
+                provider.search("123456789", points(), "test-batch");
+
+        assertEquals(ReplayCompleteness.FAILED, result.getCompleteness());
+        assertEquals(0, result.getTimeoutSkippedQueries());
+    }
+
     private TankerOpenSeaReplayProvider provider(SpatialAisReplayClient client) {
         TankerOpenSeaReplayProvider provider = new TankerOpenSeaReplayProvider();
         ReflectionTestUtils.setField(provider, "client", client);
@@ -53,9 +80,13 @@ public class TankerOpenSeaReplayProviderTest {
     }
 
     private List<TrajectoryPoint> points() {
+        return pointsForMinutes(30);
+    }
+
+    private List<TrajectoryPoint> pointsForMinutes(int minutes) {
         List<TrajectoryPoint> result = new ArrayList<TrajectoryPoint>();
         LocalDateTime start = LocalDateTime.of(2026, 1, 1, 0, 0);
-        for (int i = 0; i <= 6; i++) {
+        for (int i = 0; i <= minutes / 5; i++) {
             result.add(new TrajectoryPoint("123456789",
                     start.plusMinutes(i * 5L), 120.0 + i * 0.001,
                     20.0, 2.0, 90.0, "under way"));
@@ -78,6 +109,32 @@ public class TankerOpenSeaReplayProviderTest {
             result.setSuccess(true);
             result.setTruncated(alwaysTruncated
                     || Duration.between(start, end).toMinutes() > 5L);
+            return result;
+        }
+    }
+
+    private static class TimeoutThenSuccessClient extends SpatialAisReplayClient {
+        private int calls;
+
+        @Override
+        public ReplayQueryResult query(ReplayQueryRequest request) {
+            calls++;
+            ReplayQueryResult result = new ReplayQueryResult();
+            if (calls == 1) {
+                result.setTimeout(true);
+                result.setErrorMessage("Read timed out");
+            } else {
+                result.setSuccess(true);
+            }
+            return result;
+        }
+    }
+
+    private static class FailedClient extends SpatialAisReplayClient {
+        @Override
+        public ReplayQueryResult query(ReplayQueryRequest request) {
+            ReplayQueryResult result = new ReplayQueryResult();
+            result.setErrorMessage("HTTP_STATUS_500");
             return result;
         }
     }
