@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maritime-scene-etl"
+version = "0.1.0"
+description = "Offline acquisition, normalization, validation, and packaging for maritime scene data"
+requires-python = ">=3.10,<3.15"
+dependencies = [
+  "Fiona==1.10.1",
+  "PyYAML==6.0.3",
+  "osmium==4.3.1",
+  "psutil==7.2.2",
+  "pyproj==3.7.2",
+  "requests==2.34.2",
+  "rasterio==1.4.3",
+  "Shapely==2.1.2"
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1"]
+
+[project.scripts]
+scene-etl = "scene_etl.cli:main"
+
+[tool.setuptools]
+packages = ["scene_etl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,28 @@
+schema_version: 1
+target_crs: EPSG:4326
+longitude_range: [-180.0, 180.0]
+latitude_range: [-90.0, 90.0]
+geometry_statuses:
+  - VALID_ORIGINAL
+  - VALID_REPAIRED
+  - QUARANTINED
+  - REJECTED_EMPTY
+  - REJECTED_UNPARSEABLE
+  - REJECTED_WRONG_DIMENSION
+tile_size_degrees: 1
+tile_feature_policy: COPY_TO_INTERSECTING_TILES
+output_compression: gzip
+standardizer_version: scene-etl-0.1.0
+qa_layer_order:
+  - land
+  - ocean_coastline
+  - marine_internal_water
+  - marine_archipelagic_water
+  - marine_territorial_sea
+  - marine_eez
+  - marine_high_seas
+  - inland_lake
+  - inland_river_corridor
+  - inland_river_centerline
+  - major_canal
+  - quarantined_geometry

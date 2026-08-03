@@ -13,3 +13,6 @@ __pycache__/
 *.py[cod]
 node_modules/
 *.tsbuildinfo
+var/maritime-scene-data/
+tools/maritime-scene-etl/.venv/
+tools/maritime-scene-etl/.pytest_cache/

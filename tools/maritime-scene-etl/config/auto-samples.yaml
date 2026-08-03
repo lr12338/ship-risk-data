@@ -1,0 +1,5 @@
+schema_version: 1
+positive_per_class: 20
+negative_per_class: 20
+boundary_per_class: 10
+max_total_samples: 1000
