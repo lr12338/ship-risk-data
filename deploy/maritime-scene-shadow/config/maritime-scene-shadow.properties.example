@@ -1,0 +1,14 @@
+# 只追加到服务器现有外置 application.properties；不要覆盖其他配置。
+ship.behavior.maritime-scene.enabled=true
+ship.behavior.maritime-scene.mode=SHADOW
+ship.behavior.maritime-scene.snapshot-path=/data/zhengyi/maritime-scene/releases/phase1-smoke-shanghai-autocross-v1
+ship.behavior.maritime-scene.expected-fingerprint=35cbb1a09f87ea50fec2c5db320f64bd9e91e36150b64c354da99eb54bf5a437
+ship.behavior.maritime-scene.policy-version=MARITIME_SCENE_SHADOW_V1
+ship.behavior.maritime-scene.cache.max-tiles=64
+ship.behavior.maritime-scene.boundary-tolerance-meters=1000
+ship.behavior.maritime-scene.coast-search-radius-nm=60
+ship.behavior.maritime-scene.high-inland-point-ratio=0.90
+ship.behavior.maritime-scene.min-inland-minutes=60
+ship.behavior.maritime-scene.open-water-point-ratio=0.90
+ship.behavior.maritime-scene.max-unknown-ratio=0.05
+ship.behavior.maritime-scene.audit.store-enabled=false

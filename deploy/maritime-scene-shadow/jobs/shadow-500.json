@@ -1,0 +1,14 @@
+{
+  "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+  "startSeq": 1,
+  "shipLimit": 500,
+  "startTime": "2025-07-01 00:00:00",
+  "endTime": "2026-07-01 00:00:00",
+  "batchNo": "maritime-scene-shadow-500-store-202608-v1",
+  "sceneSnapshotVersion": "phase1-smoke-shanghai-autocross-v1",
+  "expectedSceneFingerprint": "35cbb1a09f87ea50fec2c5db320f64bd9e91e36150b64c354da99eb54bf5a437",
+  "scenePolicyVersion": "MARITIME_SCENE_SHADOW_V1",
+  "behaviorTypes": ["LOITERING", "ALONGSIDE"],
+  "dryRun": false,
+  "resume": true
+}

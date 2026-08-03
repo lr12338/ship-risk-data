@@ -19,6 +19,7 @@ from .golden_candidates import generate_candidate_report
 from .geometry import extract_zip, select_vector_path
 from .automatic_validation import run_automatic_validation
 from .auto_samples import generate_auto_samples, validate_auto_samples
+from .atlas import generate_scene_atlas
 from .coast_distance import distance_to_coast
 from .config import config_hash
 from .cross_source_validation import validate_cross_source
@@ -95,6 +96,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     candidates_parser.add_argument("--release", required=True)
     candidates_parser.add_argument("--json", action="store_true", dest="json_output", default=argparse.SUPPRESS)
+    atlas_parser = subparsers.add_parser("atlas", help="generate an offline release QA atlas")
+    atlas_parser.add_argument("--release", required=True)
+    atlas_parser.add_argument("--chrome", default=None)
+    atlas_parser.add_argument("--json", action="store_true", dest="json_output", default=argparse.SUPPRESS)
 
     jrc_plan_parser = subparsers.add_parser("jrc-plan", help="plan safe targeted or regional JRC downloads")
     jrc_plan_parser.add_argument("--bbox", type=str, default=None)
@@ -559,6 +564,13 @@ def cmd_golden_candidates(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_atlas(args: argparse.Namespace) -> int:
+    _, data_root, _ = _release_dir(args)
+    result = generate_scene_atlas(data_root / "releases" / args.release, args.chrome)
+    _emit(result, args)
+    return 0 if result["overallStatus"] == "PASS" else 2
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -576,6 +588,7 @@ def main(argv: list[str] | None = None) -> int:
             "fingerprint": cmd_fingerprint,
             "report": cmd_report,
             "golden-candidates": cmd_golden_candidates,
+            "atlas": cmd_atlas,
             "jrc-plan": cmd_jrc_plan,
             "jrc-acquire": cmd_jrc_acquire,
             "jrc-verify": cmd_jrc_verify,
