@@ -62,7 +62,10 @@ jq -n \
 STAMP="$(date +%Y%m%d-%H%M%S)"
 ARCHIVE="$BASE_DIR/target/maritime-scene-shadow-deploy-$STAMP.tar.gz"
 tar -C "$BASE_DIR/target" -czf "$ARCHIVE" maritime-scene-shadow-deploy
-shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+(
+  cd "$BASE_DIR/target"
+  shasum -a 256 "$(basename "$ARCHIVE")" > "$(basename "$ARCHIVE").sha256"
+)
 
 echo "$OUTPUT_DIR"
 echo "$ARCHIVE"
