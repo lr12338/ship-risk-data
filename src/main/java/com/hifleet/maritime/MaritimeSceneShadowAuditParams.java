@@ -71,7 +71,6 @@ public final class MaritimeSceneShadowAuditParams {
         if (!MaritimeScenePolicy.VERSION.equals(scenePolicyVersion)) {
             throw new IllegalArgumentException("scenePolicyVersion must be " + MaritimeScenePolicy.VERSION);
         }
-        if (!dryRun) throw new IllegalArgumentException("Shadow audit must use dryRun=true");
         LocalDateTime start = parseTime(startTime);
         LocalDateTime end = parseTime(endTime);
         if (!start.isBefore(end) || Duration.between(start, end).toDays() > 366L) {

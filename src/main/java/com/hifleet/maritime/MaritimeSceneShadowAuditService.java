@@ -3,6 +3,7 @@ package com.hifleet.maritime;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,7 @@ public class MaritimeSceneShadowAuditService {
     private final MaritimeSceneService sceneService;
 
     @Autowired(required = false)
+    @Qualifier("newDataanalysisJdbcTemplate")
     private JdbcTemplate jdbcTemplate;
     @Value("${ship.behavior.maritime-scene.audit.store-enabled:false}")
     private boolean storeEnabled;
@@ -41,6 +43,11 @@ public class MaritimeSceneShadowAuditService {
         result.put("shipLimit", params.getShipLimit());
         result.put("dryRun", params.isDryRun());
         result.put("formalEventsChanged", false);
+        if (!params.isDryRun() && !storeEnabled) {
+            result.put("status", "SHADOW_BLOCKED");
+            result.put("reason", "write run requires audit.store-enabled=true");
+            return JSON.parseObject(JSON.toJSONString(result));
+        }
         Map<String, Object> scenePreflight = sceneService.preflight();
         result.put("scene", scenePreflight);
         if (!Boolean.TRUE.equals(scenePreflight.get("available"))) {
@@ -74,8 +81,8 @@ public class MaritimeSceneShadowAuditService {
         result.put("existingAisReplayAndTimeoutSemanticsUnchanged", true);
         result.put("auditStorageEnabled", storeEnabled);
         if ("PASS".equals(preflight.getString("status"))) {
-            result.put("status", "SHADOW_READY_TO_RUN");
-            result.put("executionNote", "Independent shadow audit is ready; formal event handlers are not called here");
+            result.put("status", "SHADOW_RUNNER_NOT_IMPLEMENTED");
+            result.put("executionNote", "Preflight passed, but no ship/AIS episode runner is implemented");
         }
         return result;
     }
@@ -91,8 +98,17 @@ public class MaritimeSceneShadowAuditService {
         evidence.put("dominantScene", summary.getDominantScene());
         evidence.put("dominantSceneConfidence", summary.getDominantSceneConfidence());
         evidence.put("inlandPointRatio", summary.getInlandPointRatio());
+        evidence.put("highConfidenceInlandPointRatio", summary.getHighConfidenceInlandPointRatio());
+        evidence.put("highConfidenceOpenWaterPointRatio", summary.getHighConfidenceOpenWaterPointRatio());
+        evidence.put("lakePointRatio", summary.getLakePointRatio());
+        evidence.put("canalPointRatio", summary.getCanalPointRatio());
+        evidence.put("internalWaterPointRatio", summary.getInternalWaterPointRatio());
+        evidence.put("territorialSeaPointRatio", summary.getTerritorialSeaPointRatio());
+        evidence.put("offshoreEezPointRatio", summary.getOffshoreEezPointRatio());
+        evidence.put("highSeasPointRatio", summary.getHighSeasPointRatio());
         evidence.put("unknownPointRatio", summary.getUnknownPointRatio());
         evidence.put("conflictPointRatio", summary.getConflictPointRatio());
+        evidence.put("sceneTransitionCount", summary.getSceneTransitionCount());
         evidence.put("coastDistanceMinNm", summary.getCoastDistanceMinNm());
         evidence.put("coastDistanceP50Nm", summary.getCoastDistanceP50Nm());
         evidence.put("coastDistanceMaxNm", summary.getCoastDistanceMaxNm());
@@ -104,8 +120,7 @@ public class MaritimeSceneShadowAuditService {
                 batchNo, behaviorType, mmsi, targetMmsi, startTime, endTime, fingerprint);
         auditRepository.store(
                 batchNo, behaviorType, mmsi, targetMmsi, startTime, endTime, version,
-                fingerprint, summary.getDominantScene().name(),
-                summary.getDominantSceneConfidence().name(), decision, evidence.toJSONString());
+                fingerprint, summary, decision, evidence.toJSONString());
         JSONObject result = new JSONObject(true);
         result.put("auditKey", key);
         result.put("shadowDecision", decision);

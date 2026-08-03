@@ -16,8 +16,10 @@ public class MaritimeSceneShadowAuditParamsTest {
     }
 
     @Test
-    public void writeModeAndWrongTargetFailClosed() {
-        assertInvalid(base().replace("\"dryRun\":true", "\"dryRun\":false"));
+    public void writeModeParsesButWrongTargetAndOversizedRunFailClosed() {
+        MaritimeSceneShadowAuditParams writeParams = MaritimeSceneShadowAuditParams.parse(
+                base().replace("\"dryRun\":true", "\"dryRun\":false"));
+        assertTrue(!writeParams.isDryRun());
         assertInvalid(base().replace("liquid-container-5000-2025h2-2026h1-v1", "liquid-container-100-2026-v1"));
         assertInvalid(base().replace("\"shipLimit\":5000", "\"shipLimit\":5001"));
     }

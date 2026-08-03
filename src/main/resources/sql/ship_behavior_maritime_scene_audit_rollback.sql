@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS dataanalysis.ship_behavior_maritime_scene_audit;
+DROP TABLE IF EXISTS `dataanalysis`.`ship_behavior_maritime_scene_audit`;

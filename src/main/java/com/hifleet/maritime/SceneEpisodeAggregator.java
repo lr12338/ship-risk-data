@@ -16,6 +16,8 @@ public class SceneEpisodeAggregator {
                 ? Collections.<MaritimeSceneDecision>emptyList() : decisions;
         int total = values.size();
         int inland = 0;
+        int highConfidenceInland = 0;
+        int highConfidenceOpenWater = 0;
         int lake = 0;
         int canal = 0;
         int internal = 0;
@@ -33,6 +35,8 @@ public class SceneEpisodeAggregator {
             MaritimeSceneClass scene = decision.getSceneClass();
             counts.put(scene, counts.containsKey(scene) ? counts.get(scene) + 1 : 1);
             if (isInland(scene)) inland++;
+            if (isHighConfidenceInlandReference(decision)) highConfidenceInland++;
+            if (isHighConfidenceOpenWaterReference(decision)) highConfidenceOpenWater++;
             if (scene == MaritimeSceneClass.INLAND_LAKE) lake++;
             if (scene == MaritimeSceneClass.MAJOR_CANAL) canal++;
             if (scene == MaritimeSceneClass.MARITIME_INTERNAL_WATER) internal++;
@@ -56,7 +60,8 @@ public class SceneEpisodeAggregator {
         double inlandDurationMinutes = inlandDurationMinutes(values, epochMillis);
         return new Summary(
                 dominant, dominantConfidence,
-                inland / denominator, lake / denominator, canal / denominator,
+                inland / denominator, highConfidenceInland / denominator,
+                highConfidenceOpenWater / denominator, lake / denominator, canal / denominator,
                 internal / denominator, territorial / denominator, eez / denominator,
                 highSeas / denominator, land / denominator, unknown / denominator,
                 conflict / denominator, transitions,
@@ -70,6 +75,23 @@ public class SceneEpisodeAggregator {
                 || scene == MaritimeSceneClass.INLAND_LAKE
                 || scene == MaritimeSceneClass.MAJOR_CANAL
                 || scene == MaritimeSceneClass.ESTUARY_OR_RIVER_MOUTH;
+    }
+
+    private static boolean isHighConfidenceInlandReference(MaritimeSceneDecision decision) {
+        MaritimeSceneClass scene = decision.getSceneClass();
+        return decision.getConfidence() == SceneConfidence.HIGH
+                && !decision.isConflictFlag()
+                && (scene == MaritimeSceneClass.INLAND_RIVER
+                || scene == MaritimeSceneClass.INLAND_LAKE
+                || scene == MaritimeSceneClass.MAJOR_CANAL);
+    }
+
+    private static boolean isHighConfidenceOpenWaterReference(MaritimeSceneDecision decision) {
+        MaritimeSceneClass scene = decision.getSceneClass();
+        return decision.getConfidence() == SceneConfidence.HIGH
+                && !decision.isConflictFlag()
+                && (scene == MaritimeSceneClass.HIGH_SEAS
+                || scene == MaritimeSceneClass.OFFSHORE_EEZ);
     }
 
     private static MaritimeSceneClass dominant(Map<MaritimeSceneClass, Integer> counts) {
@@ -112,7 +134,7 @@ public class SceneEpisodeAggregator {
         double total = 0.0;
         int count = Math.min(decisions.size(), timestamps.size() - 1);
         for (int i = 0; i < count; i++) {
-            if (!isInland(decisions.get(i).getSceneClass())) continue;
+            if (!isHighConfidenceInlandReference(decisions.get(i))) continue;
             total += Math.max(0L, timestamps.get(i + 1) - timestamps.get(i)) / 60000.0;
         }
         return total;
@@ -122,6 +144,8 @@ public class SceneEpisodeAggregator {
         private final MaritimeSceneClass dominantScene;
         private final SceneConfidence dominantSceneConfidence;
         private final double inlandPointRatio;
+        private final double highConfidenceInlandPointRatio;
+        private final double highConfidenceOpenWaterPointRatio;
         private final double lakePointRatio;
         private final double canalPointRatio;
         private final double internalWaterPointRatio;
@@ -143,6 +167,8 @@ public class SceneEpisodeAggregator {
                 MaritimeSceneClass dominantScene,
                 SceneConfidence dominantSceneConfidence,
                 double inlandPointRatio,
+                double highConfidenceInlandPointRatio,
+                double highConfidenceOpenWaterPointRatio,
                 double lakePointRatio,
                 double canalPointRatio,
                 double internalWaterPointRatio,
@@ -162,6 +188,8 @@ public class SceneEpisodeAggregator {
             this.dominantScene = dominantScene;
             this.dominantSceneConfidence = dominantSceneConfidence;
             this.inlandPointRatio = inlandPointRatio;
+            this.highConfidenceInlandPointRatio = highConfidenceInlandPointRatio;
+            this.highConfidenceOpenWaterPointRatio = highConfidenceOpenWaterPointRatio;
             this.lakePointRatio = lakePointRatio;
             this.canalPointRatio = canalPointRatio;
             this.internalWaterPointRatio = internalWaterPointRatio;
@@ -183,6 +211,8 @@ public class SceneEpisodeAggregator {
         public MaritimeSceneClass getDominantScene() { return dominantScene; }
         public SceneConfidence getDominantSceneConfidence() { return dominantSceneConfidence; }
         public double getInlandPointRatio() { return inlandPointRatio; }
+        public double getHighConfidenceInlandPointRatio() { return highConfidenceInlandPointRatio; }
+        public double getHighConfidenceOpenWaterPointRatio() { return highConfidenceOpenWaterPointRatio; }
         public double getLakePointRatio() { return lakePointRatio; }
         public double getCanalPointRatio() { return canalPointRatio; }
         public double getInternalWaterPointRatio() { return internalWaterPointRatio; }

@@ -36,8 +36,7 @@ public class MaritimeSceneShadowJobs {
         try {
             JSONObject result = auditService.run(rawParams);
             String status = result.getString("status");
-            boolean success = "SHADOW_READY_TO_RUN".equals(status)
-                    || "SHADOW_DISABLED".equals(status);
+            boolean success = "SHADOW_RUN_COMPLETED".equals(status);
             return new ReturnT<String>(success ? ReturnT.SUCCESS_CODE : ReturnT.FAIL_CODE,
                     result.toJSONString());
         } catch (Exception ex) {

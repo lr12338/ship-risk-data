@@ -23,6 +23,10 @@ ship.behavior.maritime-scene.policy-version=MARITIME_SCENE_SHADOW_V1
 ship.behavior.maritime-scene.cache.max-tiles=64
 ship.behavior.maritime-scene.boundary-tolerance-meters=1000
 ship.behavior.maritime-scene.coast-search-radius-nm=60
+ship.behavior.maritime-scene.high-inland-point-ratio=0.90
+ship.behavior.maritime-scene.min-inland-minutes=60
+ship.behavior.maritime-scene.open-water-point-ratio=0.90
+ship.behavior.maritime-scene.max-unknown-ratio=0.05
 ship.behavior.maritime-scene.audit.store-enabled=false
 ```
 
@@ -46,6 +50,12 @@ episode 聚合包含各场景比例、dominant scene/confidence、转场次数�
 
 - `shipMaritimeScenePreflightJobHandler`
 - `shipMaritimeSceneShadowAuditJobHandler`
+
+当前只有 Preflight 和单 episode 的 `auditEpisode` 能力；尚无遍历目标名单、加载正式候选与 AIS
+轨迹的 runner。`shipMaritimeSceneShadowAuditJobHandler` 会返回
+`SHADOW_RUNNER_NOT_IMPLEMENTED` 并让 XXL-JOB 任务失败，防止把“预检通过”误报为 100/500/5,000
+艘已执行。实现 runner、补齐 OFF/SHADOW 同轨迹验收并准备覆盖目标轨迹范围的 Release 前，只能运行
+Preflight。
 
 目标名单固定为 `liquid-container-5000-2025h2-2026h1-v1`，支持液货船和集装箱船对应的 `LOITERING`、`ALONGSIDE` Shadow 审计；单次 `shipLimit` 最大 5,000。Preflight 会检查路径、Release 状态、fingerprint、checksum、瓦片、Java 读取能力和 policy version。`dryRun=true` 时只输出独立 NDJSON/JSON 结果，不写数据库。
 

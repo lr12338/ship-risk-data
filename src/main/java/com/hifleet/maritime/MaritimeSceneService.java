@@ -28,6 +28,14 @@ public class MaritimeSceneService {
     private double boundaryToleranceMeters = 1000.0;
     @Value("${ship.behavior.maritime-scene.coast-search-radius-nm:60}")
     private double coastSearchRadiusNm = 60.0;
+    @Value("${ship.behavior.maritime-scene.high-inland-point-ratio:0.90}")
+    private double highInlandPointRatio = 0.90;
+    @Value("${ship.behavior.maritime-scene.min-inland-minutes:60}")
+    private double minInlandMinutes = 60.0;
+    @Value("${ship.behavior.maritime-scene.open-water-point-ratio:0.90}")
+    private double openWaterPointRatio = 0.90;
+    @Value("${ship.behavior.maritime-scene.max-unknown-ratio:0.05}")
+    private double maxUnknownRatio = 0.05;
 
     private MaritimeScenePolicy policy = MaritimeScenePolicy.defaults("OFF");
     private MaritimeSceneSnapshotManager snapshotManager =
@@ -52,7 +60,8 @@ public class MaritimeSceneService {
     public void initialize() {
         policy = new MaritimeScenePolicy(
                 mode, boundaryToleranceMeters, coastSearchRadiusNm,
-                0.90, 60.0, 0.90, 0.05);
+                highInlandPointRatio, minInlandMinutes,
+                openWaterPointRatio, maxUnknownRatio);
         classifier = new MaritimeSceneClassifier(policy);
         if (enabled && policy.isShadow()) {
             snapshotManager = new MaritimeSceneSnapshotManager(
@@ -153,22 +162,32 @@ public class MaritimeSceneService {
                 || summary.getDominantScene() == MaritimeSceneClass.SCENE_CONFLICT) {
             return "SCENE_CONFLICT";
         }
-        if (summary.getInlandPointRatio() >= policy.getHighInlandPointRatio()
+        if (summary.getHighConfidenceInlandPointRatio() >= policy.getHighInlandPointRatio()
                 && summary.getInlandDurationMinutes() >= policy.getMinInlandMinutes()) {
             return "WOULD_REJECT_INLAND";
         }
-        double openWaterRatio = summary.getHighSeasPointRatio()
-                + summary.getOffshoreEezPointRatio();
+        double openWaterRatio = summary.getHighConfidenceOpenWaterPointRatio();
         if (openWaterRatio >= policy.getOpenWaterPointRatio()
                 && summary.getUnknownPointRatio() <= policy.getMaxUnknownRatio()
                 && summary.getConflictPointRatio() == 0.0
                 && summary.getDominantSceneConfidence() == SceneConfidence.HIGH) {
             return "OPEN_WATER_CONFIRMED";
         }
+        if (isCoastalReviewScene(summary.getDominantScene())) {
+            return "COASTAL_REVIEW";
+        }
         if (summary.getCoastDistanceMinNm() != null && summary.getCoastDistanceMinNm() <= 1.0) {
             return "COASTAL_REVIEW";
         }
         return "SCENE_UNKNOWN";
+    }
+
+    private static boolean isCoastalReviewScene(MaritimeSceneClass scene) {
+        return scene == MaritimeSceneClass.MARITIME_INTERNAL_WATER
+                || scene == MaritimeSceneClass.ARCHIPELAGIC_WATER
+                || scene == MaritimeSceneClass.TERRITORIAL_SEA
+                || scene == MaritimeSceneClass.ESTUARY_OR_RIVER_MOUTH
+                || scene == MaritimeSceneClass.BOUNDARY_UNCERTAIN;
     }
 
     public java.util.Map<String, Object> preflight() {

@@ -33,6 +33,20 @@ public class SceneEpisodeAggregatorTest {
         assertEquals(0, summary.getPointCount());
     }
 
+    @Test
+    public void onlyHighConfidenceNonConflictInlandAndOpenWaterFormRuleReferences() {
+        SceneEpisodeAggregator.Summary summary = new SceneEpisodeAggregator().aggregate(Arrays.asList(
+                decision(MaritimeSceneClass.INLAND_RIVER, SceneConfidence.HIGH, 1.0),
+                decision(MaritimeSceneClass.INLAND_LAKE, SceneConfidence.MEDIUM, 1.0),
+                decision(MaritimeSceneClass.ESTUARY_OR_RIVER_MOUTH, SceneConfidence.HIGH, 1.0),
+                decision(MaritimeSceneClass.HIGH_SEAS, SceneConfidence.HIGH, 20.0),
+                decision(MaritimeSceneClass.OFFSHORE_EEZ, SceneConfidence.LOW, 20.0)));
+
+        assertEquals(3.0 / 5.0, summary.getInlandPointRatio(), 0.000001);
+        assertEquals(1.0 / 5.0, summary.getHighConfidenceInlandPointRatio(), 0.000001);
+        assertEquals(1.0 / 5.0, summary.getHighConfidenceOpenWaterPointRatio(), 0.000001);
+    }
+
     private MaritimeSceneDecision decision(
             MaritimeSceneClass scene, SceneConfidence confidence, double coastDistance) {
         return new MaritimeSceneDecision(scene, confidence,
