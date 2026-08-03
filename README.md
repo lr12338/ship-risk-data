@@ -18,6 +18,8 @@ XXL-JOB，当前重点验证搭靠与徘徊 5 万船历史生产任务。
 - [搭靠 V3 规则设计](docs/船舶搭靠事件V3设计与实现.md)
 - [徘徊模块开发文档](docs/ship-loitering-development.md)
 - [徘徊 V3 规则设计](docs/ship-loitering-v3-design.md)
+- [海域场景数据离线 ETL](docs/maritime-scene-data-etl.md)
+- [海域场景 Shadow 接入](docs/maritime-scene-shadow-integration.md)
 
 历史运行手册、测试报告和部署证据统一放在 `docs/archive/`，不得用归档文档
 替代当前状态文档配置生产任务。

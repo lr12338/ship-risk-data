@@ -8,6 +8,9 @@
 
 ## 当前开发文档
 
+- [海域场景数据离线 ETL](maritime-scene-data-etl.md)：第一阶段官方数据登记、下载校验、标准化、瓦片、QA 和发布命令。
+- [海域场景 Shadow 接入](maritime-scene-shadow-integration.md)：`SHADOW_READY` 快照门禁、Java 独立服务、5,000 艘目标任务参数、审计与回滚。
+
 - [搭靠模块开发文档](ship-alongside-development.md)：搭靠任务链路、召回、
   检测、评分、落库和排障。
 - [搭靠 V3 规则设计](船舶搭靠事件V3设计与实现.md)：保险风险识别规则、
