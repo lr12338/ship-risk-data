@@ -43,6 +43,11 @@ public class MaritimeSceneShadowAuditService {
         result.put("shipLimit", params.getShipLimit());
         result.put("dryRun", params.isDryRun());
         result.put("formalEventsChanged", false);
+        result.put("formalEventMutation", false);
+        result.put("databaseWrites", 0);
+        result.put("enforceEnabled", false);
+        result.put("scenePolicyVersion", params.getScenePolicyVersion());
+        result.put("shadowAuditRunnerImplemented", false);
         if (!params.isDryRun() && !storeEnabled) {
             result.put("status", "SHADOW_BLOCKED");
             result.put("reason", "write run requires audit.store-enabled=true");

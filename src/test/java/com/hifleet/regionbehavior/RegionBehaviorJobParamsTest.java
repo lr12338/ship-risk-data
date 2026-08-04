@@ -64,6 +64,46 @@ public class RegionBehaviorJobParamsTest {
         params.validate(RegionBehaviorConfig.defaults());
     }
 
+    @Test
+    public void shadowV2RequiresExplicitSafeFlagsAndOilTankerPolicy() {
+        ShadowRulesConfig shadow = new ShadowRulesConfig();
+        shadow.setEnabled(true);
+        RegionBehaviorJobParams params = RegionBehaviorJobParams.parse(shadowParams(false));
+
+        params.validate(RegionBehaviorConfig.defaults(), shadow);
+
+        assertTrue(params.isShadowRulesEnabled());
+        assertEquals("OIL_TANKER_ONLY", params.getShipTypePolicy());
+        assertEquals(Integer.valueOf(1), params.getParallelism());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void shadowV2RejectsDatabaseWrites() {
+        ShadowRulesConfig shadow = new ShadowRulesConfig();
+        shadow.setEnabled(true);
+        RegionBehaviorJobParams.parse(shadowParams(true))
+                .validate(RegionBehaviorConfig.defaults(), shadow);
+    }
+
+    @Test
+    public void oldRegionParamsRemainValidWhenServerHasShadowCapability() {
+        ShadowRulesConfig shadow = new ShadowRulesConfig();
+        shadow.setEnabled(true);
+
+        validParams().validate(RegionBehaviorConfig.defaults(), shadow);
+    }
+
+    private String shadowParams(boolean databaseWriteEnabled) {
+        return "{\"mode\":\"region_behavior_v1\",\"regionId\":\"r\",\"regionName\":\"n\","
+                + "\"polygonWkt\":\"POLYGON((121 30,122 30,122 31,121 31,121 30))\","
+                + "\"startTime\":\"2026-06-01 00:00:00\",\"endTime\":\"2026-06-01 01:00:00\","
+                + "\"behaviorTypes\":[\"LOITERING\"],\"batchNo\":\"b\","
+                + "\"dryRun\":true,\"storeCandidates\":false,\"shadowRulesEnabled\":true,"
+                + "\"enforceEnabled\":false,\"databaseWriteEnabled\":" + databaseWriteEnabled + ","
+                + "\"shipTypePolicy\":\"OIL_TANKER_ONLY\","
+                + "\"scenePolicyVersion\":\"MARITIME_SCENE_SHADOW_V2\",\"parallelism\":1}";
+    }
+
     private RegionBehaviorJobParams validParams() {
         RegionBehaviorJobParams params = new RegionBehaviorJobParams();
         params.setMode("region_behavior_v1");

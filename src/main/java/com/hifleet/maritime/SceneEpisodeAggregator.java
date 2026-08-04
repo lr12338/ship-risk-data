@@ -2,19 +2,67 @@ package com.hifleet.maritime;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
 public class SceneEpisodeAggregator {
-    public Summary aggregate(List<MaritimeSceneDecision> decisions) {
-        return aggregate(decisions, Collections.<Long>emptyList());
+    private static final long DEFAULT_GAP_CAP_MILLIS = 10L * 60_000L;
+    private final long gapCapMillis;
+
+    public SceneEpisodeAggregator() {
+        this(10L);
     }
 
+    public SceneEpisodeAggregator(long gapCapMinutes) {
+        if (gapCapMinutes <= 0L) {
+            throw new IllegalArgumentException("gapCapMinutes must be positive");
+        }
+        this.gapCapMillis = gapCapMinutes * 60_000L;
+    }
+
+    public Summary aggregate(List<MaritimeSceneDecision> decisions) {
+        List<TimedSceneObservation> observations = new ArrayList<TimedSceneObservation>();
+        if (decisions != null) {
+            for (MaritimeSceneDecision decision : decisions) {
+                if (decision != null) observations.add(new TimedSceneObservation(0L, decision));
+            }
+        }
+        return summarize(observations, false, DEFAULT_GAP_CAP_MILLIS);
+    }
+
+    /** Compatibility entry point. New callers should pass TimedSceneObservation values. */
     public Summary aggregate(List<MaritimeSceneDecision> decisions, List<Long> epochMillis) {
-        List<MaritimeSceneDecision> values = decisions == null
-                ? Collections.<MaritimeSceneDecision>emptyList() : decisions;
-        int total = values.size();
+        List<TimedSceneObservation> observations = new ArrayList<TimedSceneObservation>();
+        int count = Math.min(decisions == null ? 0 : decisions.size(),
+                epochMillis == null ? 0 : epochMillis.size());
+        for (int i = 0; i < count; i++) {
+            if (decisions.get(i) != null && epochMillis.get(i) != null) {
+                observations.add(new TimedSceneObservation(epochMillis.get(i), decisions.get(i)));
+            }
+        }
+        return summarize(observations, true, Long.MAX_VALUE);
+    }
+
+    public Summary aggregateTimed(List<TimedSceneObservation> source) {
+        List<TimedSceneObservation> observations = new ArrayList<TimedSceneObservation>();
+        if (source != null) {
+            for (TimedSceneObservation observation : source) {
+                if (observation != null && observation.getDecision() != null) observations.add(observation);
+            }
+        }
+        Collections.sort(observations, new Comparator<TimedSceneObservation>() {
+            @Override
+            public int compare(TimedSceneObservation left, TimedSceneObservation right) {
+                return Long.compare(left.getEpochMillis(), right.getEpochMillis());
+            }
+        });
+        return summarize(observations, true, gapCapMillis);
+    }
+
+    private Summary summarize(List<TimedSceneObservation> observations, boolean timed, long weightCapMillis) {
+        int total = observations.size();
         int inland = 0;
         int highConfidenceInland = 0;
         int highConfidenceOpenWater = 0;
@@ -28,10 +76,18 @@ public class SceneEpisodeAggregator {
         int unknown = 0;
         int conflict = 0;
         int transitions = 0;
-        Map<MaritimeSceneClass, Integer> counts = new EnumMap<MaritimeSceneClass, Integer>(MaritimeSceneClass.class);
+        Map<MaritimeSceneClass, Integer> counts =
+                new EnumMap<MaritimeSceneClass, Integer>(MaritimeSceneClass.class);
         List<Double> coastDistances = new ArrayList<Double>();
+        double observedMillis = 0.0;
+        double inlandMillis = 0.0;
+        double openWaterMillis = 0.0;
+        double unknownMillis = 0.0;
+        double conflictMillis = 0.0;
+        double maxGapMillis = 0.0;
+        int largeGapCount = 0;
         for (int i = 0; i < total; i++) {
-            MaritimeSceneDecision decision = values.get(i);
+            MaritimeSceneDecision decision = observations.get(i).getDecision();
             MaritimeSceneClass scene = decision.getSceneClass();
             counts.put(scene, counts.containsKey(scene) ? counts.get(scene) + 1 : 1);
             if (isInland(scene)) inland++;
@@ -45,53 +101,72 @@ public class SceneEpisodeAggregator {
             if (scene == MaritimeSceneClass.HIGH_SEAS) highSeas++;
             if (scene == MaritimeSceneClass.LAND) land++;
             if (scene == MaritimeSceneClass.SCENE_UNKNOWN) unknown++;
-            if (scene == MaritimeSceneClass.SCENE_CONFLICT || decision.isConflictFlag()) conflict++;
-            if (i > 0 && scene != values.get(i - 1).getSceneClass()) transitions++;
+            if (isConflict(decision)) conflict++;
+            if (i > 0 && scene != observations.get(i - 1).getDecision().getSceneClass()) transitions++;
             if (decision.getDistanceToCoastNm() != null
                     && Double.isFinite(decision.getDistanceToCoastNm())) {
                 coastDistances.add(decision.getDistanceToCoastNm());
             }
+            if (timed && i + 1 < total) {
+                long rawGap = Math.max(0L, observations.get(i + 1).getEpochMillis()
+                        - observations.get(i).getEpochMillis());
+                maxGapMillis = Math.max(maxGapMillis, rawGap);
+                if (rawGap > weightCapMillis) largeGapCount++;
+                long weight = Math.min(rawGap, weightCapMillis);
+                observedMillis += weight;
+                if (isHighConfidenceInlandReference(decision)) inlandMillis += weight;
+                if (isHighConfidenceOpenWaterReference(decision)) openWaterMillis += weight;
+                if (scene == MaritimeSceneClass.SCENE_UNKNOWN) unknownMillis += weight;
+                if (isConflict(decision)) conflictMillis += weight;
+            }
         }
         Collections.sort(coastDistances);
-        MaritimeSceneClass dominant = dominant(counts);
-        SceneConfidence dominantConfidence = dominantConfidence(values, dominant);
-        double denominator = total == 0 ? 1.0 : total;
-        double durationMinutes = durationMinutes(epochMillis);
-        double inlandDurationMinutes = inlandDurationMinutes(values, epochMillis);
-        return new Summary(
-                dominant, dominantConfidence,
-                inland / denominator, highConfidenceInland / denominator,
-                highConfidenceOpenWater / denominator, lake / denominator, canal / denominator,
-                internal / denominator, territorial / denominator, eez / denominator,
-                highSeas / denominator, land / denominator, unknown / denominator,
-                conflict / denominator, transitions,
+        double pointDenominator = total == 0 ? 1.0 : total;
+        double timeDenominator = observedMillis <= 0.0 ? 1.0 : observedMillis;
+        double eventSpanMillis = timed && total >= 2
+                ? Math.max(0L, observations.get(total - 1).getEpochMillis()
+                - observations.get(0).getEpochMillis()) : 0.0;
+        return new Summary(dominant(counts), dominantConfidence(observations, dominant(counts)),
+                inland / pointDenominator, highConfidenceInland / pointDenominator,
+                highConfidenceOpenWater / pointDenominator, lake / pointDenominator,
+                canal / pointDenominator, internal / pointDenominator,
+                territorial / pointDenominator, eez / pointDenominator,
+                highSeas / pointDenominator, land / pointDenominator,
+                unknown / pointDenominator, conflict / pointDenominator, transitions,
                 percentile(coastDistances, 0.0), percentile(coastDistances, 0.50),
-                percentile(coastDistances, 1.0), durationMinutes, inlandDurationMinutes,
-                total);
+                percentile(coastDistances, 1.0), eventSpanMillis / 60_000.0,
+                observedMillis / 60_000.0,
+                eventSpanMillis <= 0.0 ? 0.0 : observedMillis / eventSpanMillis,
+                inlandMillis / 60_000.0, maxGapMillis / 60_000.0, largeGapCount,
+                inlandMillis / timeDenominator, openWaterMillis / timeDenominator,
+                unknownMillis / timeDenominator, conflictMillis / timeDenominator, total);
     }
 
-    private static boolean isInland(MaritimeSceneClass scene) {
+    static boolean isInland(MaritimeSceneClass scene) {
         return scene == MaritimeSceneClass.INLAND_RIVER
                 || scene == MaritimeSceneClass.INLAND_LAKE
                 || scene == MaritimeSceneClass.MAJOR_CANAL
                 || scene == MaritimeSceneClass.ESTUARY_OR_RIVER_MOUTH;
     }
 
-    private static boolean isHighConfidenceInlandReference(MaritimeSceneDecision decision) {
+    static boolean isHighConfidenceInlandReference(MaritimeSceneDecision decision) {
         MaritimeSceneClass scene = decision.getSceneClass();
-        return decision.getConfidence() == SceneConfidence.HIGH
-                && !decision.isConflictFlag()
+        return decision.getConfidence() == SceneConfidence.HIGH && !isConflict(decision)
                 && (scene == MaritimeSceneClass.INLAND_RIVER
                 || scene == MaritimeSceneClass.INLAND_LAKE
                 || scene == MaritimeSceneClass.MAJOR_CANAL);
     }
 
-    private static boolean isHighConfidenceOpenWaterReference(MaritimeSceneDecision decision) {
+    static boolean isHighConfidenceOpenWaterReference(MaritimeSceneDecision decision) {
         MaritimeSceneClass scene = decision.getSceneClass();
-        return decision.getConfidence() == SceneConfidence.HIGH
-                && !decision.isConflictFlag()
+        return decision.getConfidence() == SceneConfidence.HIGH && !isConflict(decision)
                 && (scene == MaritimeSceneClass.HIGH_SEAS
                 || scene == MaritimeSceneClass.OFFSHORE_EEZ);
+    }
+
+    private static boolean isConflict(MaritimeSceneDecision decision) {
+        return decision.getSceneClass() == MaritimeSceneClass.SCENE_CONFLICT
+                || decision.isConflictFlag();
     }
 
     private static MaritimeSceneClass dominant(Map<MaritimeSceneClass, Integer> counts) {
@@ -110,9 +185,11 @@ public class SceneEpisodeAggregator {
     }
 
     private static SceneConfidence dominantConfidence(
-            List<MaritimeSceneDecision> decisions, MaritimeSceneClass dominant) {
-        for (MaritimeSceneDecision decision : decisions) {
-            if (decision.getSceneClass() == dominant) return decision.getConfidence();
+            List<TimedSceneObservation> observations, MaritimeSceneClass dominant) {
+        for (TimedSceneObservation observation : observations) {
+            if (observation.getDecision().getSceneClass() == dominant) {
+                return observation.getDecision().getConfidence();
+            }
         }
         return SceneConfidence.UNKNOWN;
     }
@@ -121,23 +198,6 @@ public class SceneEpisodeAggregator {
         if (values.isEmpty()) return null;
         int index = (int) Math.round((values.size() - 1) * ratio);
         return values.get(Math.max(0, Math.min(values.size() - 1, index)));
-    }
-
-    private static double durationMinutes(List<Long> timestamps) {
-        if (timestamps == null || timestamps.size() < 2) return 0.0;
-        return Math.max(0L, timestamps.get(timestamps.size() - 1) - timestamps.get(0)) / 60000.0;
-    }
-
-    private static double inlandDurationMinutes(
-            List<MaritimeSceneDecision> decisions, List<Long> timestamps) {
-        if (timestamps == null || timestamps.size() < 2) return 0.0;
-        double total = 0.0;
-        int count = Math.min(decisions.size(), timestamps.size() - 1);
-        for (int i = 0; i < count; i++) {
-            if (!isHighConfidenceInlandReference(decisions.get(i))) continue;
-            total += Math.max(0L, timestamps.get(i + 1) - timestamps.get(i)) / 60000.0;
-        }
-        return total;
     }
 
     public static final class Summary {
@@ -159,32 +219,33 @@ public class SceneEpisodeAggregator {
         private final Double coastDistanceMinNm;
         private final Double coastDistanceP50Nm;
         private final Double coastDistanceMaxNm;
-        private final double durationMinutes;
+        private final double eventSpanMinutes;
+        private final double observedDurationMinutes;
+        private final double temporalCoverageRatio;
         private final double inlandDurationMinutes;
+        private final double maxGapMinutes;
+        private final int largeGapCount;
+        private final double highConfidenceInlandTimeRatio;
+        private final double highConfidenceOpenWaterTimeRatio;
+        private final double unknownTimeRatio;
+        private final double conflictTimeRatio;
         private final int pointCount;
 
-        private Summary(
-                MaritimeSceneClass dominantScene,
-                SceneConfidence dominantSceneConfidence,
-                double inlandPointRatio,
-                double highConfidenceInlandPointRatio,
-                double highConfidenceOpenWaterPointRatio,
-                double lakePointRatio,
-                double canalPointRatio,
-                double internalWaterPointRatio,
-                double territorialSeaPointRatio,
-                double offshoreEezPointRatio,
-                double highSeasPointRatio,
-                double landPointRatio,
-                double unknownPointRatio,
-                double conflictPointRatio,
-                int sceneTransitionCount,
-                Double coastDistanceMinNm,
-                Double coastDistanceP50Nm,
-                Double coastDistanceMaxNm,
-                double durationMinutes,
-                double inlandDurationMinutes,
-                int pointCount) {
+        private Summary(MaritimeSceneClass dominantScene, SceneConfidence dominantSceneConfidence,
+                        double inlandPointRatio, double highConfidenceInlandPointRatio,
+                        double highConfidenceOpenWaterPointRatio, double lakePointRatio,
+                        double canalPointRatio, double internalWaterPointRatio,
+                        double territorialSeaPointRatio, double offshoreEezPointRatio,
+                        double highSeasPointRatio, double landPointRatio,
+                        double unknownPointRatio, double conflictPointRatio,
+                        int sceneTransitionCount, Double coastDistanceMinNm,
+                        Double coastDistanceP50Nm, Double coastDistanceMaxNm,
+                        double eventSpanMinutes, double observedDurationMinutes,
+                        double temporalCoverageRatio, double inlandDurationMinutes,
+                        double maxGapMinutes, int largeGapCount,
+                        double highConfidenceInlandTimeRatio,
+                        double highConfidenceOpenWaterTimeRatio,
+                        double unknownTimeRatio, double conflictTimeRatio, int pointCount) {
             this.dominantScene = dominantScene;
             this.dominantSceneConfidence = dominantSceneConfidence;
             this.inlandPointRatio = inlandPointRatio;
@@ -203,8 +264,16 @@ public class SceneEpisodeAggregator {
             this.coastDistanceMinNm = coastDistanceMinNm;
             this.coastDistanceP50Nm = coastDistanceP50Nm;
             this.coastDistanceMaxNm = coastDistanceMaxNm;
-            this.durationMinutes = durationMinutes;
+            this.eventSpanMinutes = eventSpanMinutes;
+            this.observedDurationMinutes = observedDurationMinutes;
+            this.temporalCoverageRatio = temporalCoverageRatio;
             this.inlandDurationMinutes = inlandDurationMinutes;
+            this.maxGapMinutes = maxGapMinutes;
+            this.largeGapCount = largeGapCount;
+            this.highConfidenceInlandTimeRatio = highConfidenceInlandTimeRatio;
+            this.highConfidenceOpenWaterTimeRatio = highConfidenceOpenWaterTimeRatio;
+            this.unknownTimeRatio = unknownTimeRatio;
+            this.conflictTimeRatio = conflictTimeRatio;
             this.pointCount = pointCount;
         }
 
@@ -226,8 +295,19 @@ public class SceneEpisodeAggregator {
         public Double getCoastDistanceMinNm() { return coastDistanceMinNm; }
         public Double getCoastDistanceP50Nm() { return coastDistanceP50Nm; }
         public Double getCoastDistanceMaxNm() { return coastDistanceMaxNm; }
-        public double getDurationMinutes() { return durationMinutes; }
+        public double getDurationMinutes() { return eventSpanMinutes; }
+        public double getEventSpanMinutes() { return eventSpanMinutes; }
+        public double getObservedDurationMinutes() { return observedDurationMinutes; }
+        public double getTemporalCoverageRatio() { return temporalCoverageRatio; }
         public double getInlandDurationMinutes() { return inlandDurationMinutes; }
+        public double getMaxGapMinutes() { return maxGapMinutes; }
+        public int getLargeGapCount() { return largeGapCount; }
+        public double getHighConfidenceInlandTimeRatio() { return highConfidenceInlandTimeRatio; }
+        public double getInlandTimeRatio() { return highConfidenceInlandTimeRatio; }
+        public double getHighConfidenceOpenWaterTimeRatio() { return highConfidenceOpenWaterTimeRatio; }
+        public double getOpenWaterTimeRatio() { return highConfidenceOpenWaterTimeRatio; }
+        public double getUnknownTimeRatio() { return unknownTimeRatio; }
+        public double getConflictTimeRatio() { return conflictTimeRatio; }
         public int getPointCount() { return pointCount; }
     }
 }

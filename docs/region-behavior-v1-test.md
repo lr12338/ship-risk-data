@@ -25,7 +25,7 @@ git diff --check
 本分支最终验证：
 
 - Region Behavior V1 定向测试：37 tests，0 failures，0 errors。
-- `mvn test`：253 tests，0 failures，0 errors，1 skipped；原有搭靠、徘徊、replay timeout/truncation 和事务存储套件均通过。
+- 2026-08-04 Behavior + Maritime Scene Shadow V2 全仓回归：302 tests，0 failures，0 errors，0 skipped；原有搭靠、徘徊、replay timeout/truncation、事务存储和 Region V1 套件均通过。
 - `mvn clean package -DskipTests`：BUILD SUCCESS，生成 `target/ship-risk-data-0.0.1-SNAPSHOT.jar`。
 - `git diff --check` 与 `git diff --cached --check`：通过。
 

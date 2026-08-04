@@ -1,0 +1,19 @@
+{
+  "mode": "region_behavior_v1",
+  "regionId": "negative-inland-2h",
+  "regionName": "明确内河航道两小时",
+  "polygonWkt": "<POLYGON_WKT>",
+  "startTime": "<START_TIME>",
+  "endTime": "<END_TIME>",
+  "behaviorTypes": ["LOITERING", "ALONGSIDE"],
+  "maxCandidateVessels": 100,
+  "batchNo": "negative-inland-2h-<BATCH_SUFFIX>",
+  "dryRun": true,
+  "storeCandidates": false,
+  "shadowRulesEnabled": true,
+  "enforceEnabled": false,
+  "databaseWriteEnabled": false,
+  "shipTypePolicy": "OIL_TANKER_ONLY",
+  "scenePolicyVersion": "MARITIME_SCENE_SHADOW_V2",
+  "parallelism": 1
+}

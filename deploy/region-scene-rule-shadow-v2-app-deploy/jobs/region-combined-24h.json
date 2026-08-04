@@ -1,0 +1,19 @@
+{
+  "mode": "region_behavior_v1",
+  "regionId": "combined-24h",
+  "regionName": "搭靠徘徊组合二十四小时",
+  "polygonWkt": "<POLYGON_WKT>",
+  "startTime": "<START_TIME>",
+  "endTime": "<END_TIME>",
+  "behaviorTypes": ["LOITERING", "ALONGSIDE"],
+  "maxCandidateVessels": 100,
+  "batchNo": "combined-24h-<BATCH_SUFFIX>",
+  "dryRun": true,
+  "storeCandidates": false,
+  "shadowRulesEnabled": true,
+  "enforceEnabled": false,
+  "databaseWriteEnabled": false,
+  "shipTypePolicy": "OIL_TANKER_ONLY",
+  "scenePolicyVersion": "MARITIME_SCENE_SHADOW_V2",
+  "parallelism": 1
+}

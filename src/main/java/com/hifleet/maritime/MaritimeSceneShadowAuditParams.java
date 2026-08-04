@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.List;
 
 public final class MaritimeSceneShadowAuditParams {
+    private static final String SHADOW_V2_POLICY = "MARITIME_SCENE_SHADOW_V2";
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int MAX_SHIP_LIMIT = 5000;
@@ -68,8 +69,9 @@ public final class MaritimeSceneShadowAuditParams {
         if (!expectedSceneFingerprint.matches("^[0-9a-fA-F]{64}$")) {
             throw new IllegalArgumentException("expectedSceneFingerprint must be a SHA-256");
         }
-        if (!MaritimeScenePolicy.VERSION.equals(scenePolicyVersion)) {
-            throw new IllegalArgumentException("scenePolicyVersion must be " + MaritimeScenePolicy.VERSION);
+        if (!MaritimeScenePolicy.VERSION.equals(scenePolicyVersion)
+                && !SHADOW_V2_POLICY.equals(scenePolicyVersion)) {
+            throw new IllegalArgumentException("unsupported scenePolicyVersion: " + scenePolicyVersion);
         }
         LocalDateTime start = parseTime(startTime);
         LocalDateTime end = parseTime(endTime);

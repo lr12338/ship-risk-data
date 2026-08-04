@@ -1,0 +1,19 @@
+{
+  "mode": "region_behavior_v1",
+  "regionId": "negative-port-2h",
+  "regionName": "港区锚地近岸两小时",
+  "polygonWkt": "<POLYGON_WKT>",
+  "startTime": "<START_TIME>",
+  "endTime": "<END_TIME>",
+  "behaviorTypes": ["LOITERING", "ALONGSIDE"],
+  "maxCandidateVessels": 100,
+  "batchNo": "negative-port-2h-<BATCH_SUFFIX>",
+  "dryRun": true,
+  "storeCandidates": false,
+  "shadowRulesEnabled": true,
+  "enforceEnabled": false,
+  "databaseWriteEnabled": false,
+  "shipTypePolicy": "OIL_TANKER_ONLY",
+  "scenePolicyVersion": "MARITIME_SCENE_SHADOW_V2",
+  "parallelism": 1
+}

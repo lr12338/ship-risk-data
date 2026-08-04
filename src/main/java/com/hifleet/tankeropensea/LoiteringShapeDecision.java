@@ -1,0 +1,10 @@
+package com.hifleet.tankeropensea;
+
+public enum LoiteringShapeDecision {
+    SHAPE_CONFIRMED,
+    WOULD_REJECT_STRAIGHT_TRANSIT,
+    WOULD_REJECT_SINGLE_TURN,
+    WOULD_REJECT_STATIONARY_WAITING,
+    INSUFFICIENT_SHAPE_EVIDENCE,
+    DATA_INCOMPLETE
+}

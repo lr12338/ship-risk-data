@@ -1,0 +1,17 @@
+{
+  "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+  "startTime": "2025-07-01 00:00:00",
+  "endTime": "2026-07-01 00:00:00",
+  "batchNo": "maritime-scene-shadow-behavior-v2-preflight",
+  "shipLimit": 100,
+  "dryRun": true,
+  "storeAudit": false,
+  "sceneSnapshotVersion": "phase1-global-base-v1",
+  "expectedSceneFingerprint": "5c35fd542d492c5857e546a635f5a71790f2bf321b1590b84eca39c2052dec6e",
+  "scenePolicyVersion": "MARITIME_SCENE_SHADOW_V2",
+  "shadowRulesEnabled": true,
+  "enforceEnabled": false,
+  "databaseWriteEnabled": false,
+  "shipTypePolicy": "OIL_TANKER_ONLY",
+  "parallelism": 1
+}

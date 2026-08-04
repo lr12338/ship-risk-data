@@ -21,29 +21,45 @@ public class RegionEventMatcher {
     private final String batchNo;
     private final String regionId;
     private final String regionName;
+    private final boolean requireTimeRatios;
+    private final long timeGapCapMinutes;
+    private final int pairSyncToleranceMinutes;
     private int lastDuplicateCount;
 
     public RegionEventMatcher(RegionGeometry region, RegionBehaviorConfig config,
                               String batchNo, String regionId, String regionName) {
+        this(region, config, batchNo, regionId, regionName, null);
+    }
+
+    public RegionEventMatcher(RegionGeometry region, RegionBehaviorConfig config,
+                              String batchNo, String regionId, String regionName,
+                              ShadowRulesConfig shadowConfig) {
         this.region = region;
         this.config = config;
         this.batchNo = batchNo;
         this.regionId = regionId;
         this.regionName = regionName;
+        this.requireTimeRatios = shadowConfig != null && shadowConfig.isEnabled();
+        this.timeGapCapMinutes = shadowConfig == null ? 10L : shadowConfig.getSceneGapCapMinutes();
+        this.pairSyncToleranceMinutes = shadowConfig == null
+                ? config.getPairSyncToleranceMinutes() : (int) shadowConfig.getAlongsideMaxSyncGapMinutes();
     }
 
     public RegionMatchedEvent matchLoitering(ShipBehaviorTrace trace) {
         RegionMatchedEvent matched = base(trace);
         List<TrajectoryPoint> own = safe(trace.getOwnPoints());
         double ratio = insideRatio(own);
+        TimeStats time = timeStats(own);
         boolean centerInside = centerInside(trace.getEvent(), own);
         matched.setEventCenterInside(centerInside);
         matched.setEventStartInside(endpointInside(own, true));
         matched.setEventEndInside(endpointInside(own, false));
         matched.setOwnPointInsideRatio(ratio);
+        matched.setOwnInsideTimeRatio(time.insideRatio);
         matched.setOwnPointInsideCount(insideCount(own));
         matched.setInsideDurationMinutes(insideDuration(own));
-        boolean strict = centerInside && ratio >= config.getLoiteringMinInsideRatio();
+        boolean strict = centerInside && ratio >= config.getLoiteringMinInsideRatio()
+                && (!requireTimeRatios || time.insideRatio >= config.getLoiteringMinInsideRatio());
         matched.setRegionMatchStatus(strict ? RegionMatchStatus.STRICT_CORE
                 : (centerInside || ratio > 0.0 || intersects(own)
                 ? RegionMatchStatus.REGION_BOUNDARY_PARTIAL
@@ -57,22 +73,29 @@ public class RegionEventMatcher {
         List<TrajectoryPoint> target = safe(trace.getTargetPoints());
         double ownRatio = insideRatio(own);
         double targetRatio = insideRatio(target);
+        TimeStats ownTime = timeStats(own);
+        TimeStats targetTime = timeStats(target);
         PairStats pair = pairStats(own, target);
         boolean centerInside = centerInside(trace.getEvent(), own);
         matched.setEventCenterInside(centerInside);
         matched.setEventStartInside(endpointInside(own, true));
         matched.setEventEndInside(endpointInside(own, false));
         matched.setOwnPointInsideRatio(ownRatio);
+        matched.setOwnInsideTimeRatio(ownTime.insideRatio);
         matched.setOwnPointInsideCount(insideCount(own));
         matched.setTargetPointInsideRatio(targetRatio);
+        matched.setTargetInsideTimeRatio(targetTime.insideRatio);
         matched.setTargetPointInsideCount(insideCount(target));
         matched.setPairMidpointInsideRatio(pair.insideRatio);
+        matched.setPairMidpointInsideTimeRatio(pair.insideTimeRatio);
         matched.setPairMidpointInsideCount(pair.insideCount);
         matched.setInsideDurationMinutes(insideDuration(own));
         matched.setSynchronizedInsideMinutes(pair.insideMinutes);
         double threshold = config.getAlongsideMinInsideRatio();
         boolean strict = centerInside && ownRatio >= threshold && targetRatio >= threshold
-                && pair.insideRatio >= threshold;
+                && pair.insideRatio >= threshold
+                && (!requireTimeRatios || ownTime.insideRatio >= threshold
+                && targetTime.insideRatio >= threshold && pair.insideTimeRatio >= threshold);
         boolean intersects = centerInside || ownRatio > 0.0 || targetRatio > 0.0 || pair.insideRatio > 0.0
                 || intersects(own) || intersects(target) || intersectsCoordinates(pair.midpoints);
         matched.setRegionMatchStatus(strict ? RegionMatchStatus.STRICT_CORE
@@ -197,52 +220,53 @@ public class RegionEventMatcher {
         return minutes;
     }
 
+    private TimeStats timeStats(List<TrajectoryPoint> points) {
+        double observed = 0.0;
+        double inside = 0.0;
+        for (int i = 0; i + 1 < points.size(); i++) {
+            long gap = Math.max(0L, Duration.between(points.get(i).getTime(),
+                    points.get(i + 1).getTime()).toMinutes());
+            double weight = Math.min(gap, timeGapCapMinutes);
+            observed += weight;
+            if (region.containsCore(new Coordinate(points.get(i).getLon(), points.get(i).getLat()))) {
+                inside += weight;
+            }
+        }
+        return new TimeStats(observed <= 0.0 ? 0.0 : inside / observed);
+    }
+
     private PairStats pairStats(List<TrajectoryPoint> own, List<TrajectoryPoint> target) {
-        int paired = 0;
+        TrajectoryPairSynchronizer.Result synchronizedTrack =
+                new TrajectoryPairSynchronizer(pairSyncToleranceMinutes).synchronize(own, target);
         int inside = 0;
         long insideMinutes = 0L;
-        LocalDateTime previousTime = null;
-        boolean previousInside = false;
+        double observedMinutes = 0.0;
+        double weightedInsideMinutes = 0.0;
         List<Coordinate> midpoints = new ArrayList<Coordinate>();
-        for (TrajectoryPoint ownPoint : own) {
-            TrajectoryPoint targetPoint = nearest(ownPoint, target);
-            if (targetPoint == null) {
-                continue;
-            }
-            long gap = Math.abs(Duration.between(ownPoint.getTime(), targetPoint.getTime()).toMinutes());
-            if (gap > config.getPairSyncToleranceMinutes()) {
-                continue;
-            }
-            paired++;
-            Coordinate midpoint = new Coordinate((ownPoint.getLon() + targetPoint.getLon()) / 2.0,
-                    (ownPoint.getLat() + targetPoint.getLat()) / 2.0);
+        List<SynchronizedShipPairPoint> pairs = synchronizedTrack.getPairs();
+        for (int i = 0; i < pairs.size(); i++) {
+            SynchronizedShipPairPoint pair = pairs.get(i);
+            Coordinate midpoint = new Coordinate(pair.getMidpointLon(), pair.getMidpointLat());
             boolean midpointInside = region.containsCore(midpoint);
             midpoints.add(midpoint);
             if (midpointInside) {
                 inside++;
             }
-            if (midpointInside && previousInside && previousTime != null) {
-                insideMinutes += Math.max(0L,
-                        Duration.between(previousTime, ownPoint.getTime()).toMinutes());
+            if (i + 1 < pairs.size()) {
+                long gap = Math.max(0L, (pairs.get(i + 1).getSynchronizedEpochMillis()
+                        - pair.getSynchronizedEpochMillis()) / 60_000L);
+                double weight = Math.min(gap, timeGapCapMinutes);
+                observedMinutes += weight;
+                if (midpointInside) weightedInsideMinutes += weight;
+                if (midpointInside && region.containsCore(new Coordinate(
+                        pairs.get(i + 1).getMidpointLon(), pairs.get(i + 1).getMidpointLat()))) {
+                    insideMinutes += gap;
+                }
             }
-            previousTime = ownPoint.getTime();
-            previousInside = midpointInside;
         }
-        return new PairStats(paired == 0 ? 0.0 : inside / (double) paired,
+        return new PairStats(pairs.isEmpty() ? 0.0 : inside / (double) pairs.size(),
+                observedMinutes <= 0.0 ? 0.0 : weightedInsideMinutes / observedMinutes,
                 inside, insideMinutes, midpoints);
-    }
-
-    private TrajectoryPoint nearest(TrajectoryPoint point, List<TrajectoryPoint> candidates) {
-        TrajectoryPoint nearest = null;
-        long best = Long.MAX_VALUE;
-        for (TrajectoryPoint candidate : candidates) {
-            long gap = Math.abs(Duration.between(point.getTime(), candidate.getTime()).toMinutes());
-            if (gap < best) {
-                best = gap;
-                nearest = candidate;
-            }
-        }
-        return nearest;
     }
 
     private boolean samePair(RegionMatchedEvent left, RegionMatchedEvent right) {
@@ -289,16 +313,25 @@ public class RegionEventMatcher {
 
     private static final class PairStats {
         private final double insideRatio;
+        private final double insideTimeRatio;
         private final int insideCount;
         private final long insideMinutes;
         private final List<Coordinate> midpoints;
 
-        private PairStats(double insideRatio, int insideCount, long insideMinutes,
+        private PairStats(double insideRatio, double insideTimeRatio,
+                          int insideCount, long insideMinutes,
                           List<Coordinate> midpoints) {
             this.insideRatio = insideRatio;
+            this.insideTimeRatio = insideTimeRatio;
             this.insideCount = insideCount;
             this.insideMinutes = insideMinutes;
             this.midpoints = midpoints;
         }
+    }
+
+    private static final class TimeStats {
+        private final double insideRatio;
+
+        private TimeStats(double insideRatio) { this.insideRatio = insideRatio; }
     }
 }

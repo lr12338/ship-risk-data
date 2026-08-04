@@ -21,6 +21,18 @@ public class RegionBehaviorRunService {
     private final RegionAlongsideRunner alongsideRunner;
     private final RegionBehaviorReportWriter reportWriter;
     private final RegionEventContextEnricher contextEnricher;
+    private final ShadowRulesConfig shadowConfig;
+
+    public RegionBehaviorRunService(RegionBehaviorConfig config,
+                                    RegionAisDiscoveryService discoveryService,
+                                    RegionShipMetadataService metadataService,
+                                    RegionLoiteringRunner loiteringRunner,
+                                    RegionAlongsideRunner alongsideRunner,
+                                    RegionBehaviorReportWriter reportWriter,
+                                    RegionEventContextEnricher contextEnricher) {
+        this(config, discoveryService, metadataService, loiteringRunner, alongsideRunner,
+                reportWriter, contextEnricher, new ShadowRulesConfig());
+    }
 
     @Autowired
     public RegionBehaviorRunService(RegionBehaviorConfig config,
@@ -29,7 +41,8 @@ public class RegionBehaviorRunService {
                                     RegionLoiteringRunner loiteringRunner,
                                     RegionAlongsideRunner alongsideRunner,
                                     RegionBehaviorReportWriter reportWriter,
-                                    RegionEventContextEnricher contextEnricher) {
+                                    RegionEventContextEnricher contextEnricher,
+                                    ShadowRulesConfig shadowConfig) {
         this.config = config;
         this.discoveryService = discoveryService;
         this.metadataService = metadataService;
@@ -37,6 +50,7 @@ public class RegionBehaviorRunService {
         this.alongsideRunner = alongsideRunner;
         this.reportWriter = reportWriter;
         this.contextEnricher = contextEnricher;
+        this.shadowConfig = shadowConfig;
     }
 
     public JSONObject preflight(String rawParams) {
@@ -56,7 +70,7 @@ public class RegionBehaviorRunService {
                     "V1 requires dryRun=true and storeCandidates=false");
         }
         try {
-            params.validate(config);
+            params.validate(config, shadowConfig);
         } catch (RuntimeException ex) {
             RegionBehaviorStatus status = ex.getMessage() != null && ex.getMessage().contains("time range")
                     ? RegionBehaviorStatus.BLOCKED_TIME_RANGE_TOO_LARGE
@@ -107,7 +121,7 @@ public class RegionBehaviorRunService {
             throw new IllegalArgumentException(preflight.toJSONString());
         }
         RegionBehaviorJobParams params = RegionBehaviorJobParams.parse(rawParams);
-        params.validate(config);
+        params.validate(config, shadowConfig);
         RegionGeometry region = RegionGeometry.parse(params.getPolygonWkt(),
                 params.effectiveRegionBufferNm(config), config);
         region.assertWithinAreaLimit(config);
@@ -122,11 +136,16 @@ public class RegionBehaviorRunService {
                     "metadata query batches failed=" + metadata.getMetadataQueryFailures());
         }
         RegionEventMatcher matcher = new RegionEventMatcher(region, config, params.getBatchNo(),
-                params.getRegionId(), params.getRegionName());
+                params.getRegionId(), params.getRegionName(),
+                params.isShadowRulesEnabled() ? shadowConfig : null);
         List<RegionMatchedEvent> loitering = new ArrayList<RegionMatchedEvent>();
         List<RegionMatchedEvent> alongside = new ArrayList<RegionMatchedEvent>();
         for (RegionShipCandidate candidate : discovery.getCandidates().values()) {
             if (!candidate.isEligible()) {
+                continue;
+            }
+            if (params.isShadowRulesEnabled()
+                    && !shadowConfig.getShipTypePolicy().accepts(candidate.getShipType())) {
                 continue;
             }
             result.analyzedVessel();
@@ -137,7 +156,8 @@ public class RegionBehaviorRunService {
                     result.analysisFailure("LOITERING", candidate.getMmsi(), computed.getFailure());
                 }
                 for (ShipBehaviorTrace trace : computed.getTraces()) {
-                    loitering.add(enrichStrict(matcher.matchLoitering(trace), trace));
+                    loitering.add(enrichDiagnostic(matcher.matchLoitering(trace), trace, candidate,
+                            params.isShadowRulesEnabled()));
                 }
             }
             if (params.getBehaviorTypes().contains("ALONGSIDE")) {
@@ -147,7 +167,8 @@ public class RegionBehaviorRunService {
                     result.analysisFailure("ALONGSIDE", candidate.getMmsi(), computed.getFailure());
                 }
                 for (ShipBehaviorTrace trace : computed.getTraces()) {
-                    alongside.add(enrichStrict(matcher.matchAlongside(trace), trace));
+                    alongside.add(enrichDiagnostic(matcher.matchAlongside(trace), trace, candidate,
+                            params.isShadowRulesEnabled()));
                 }
             }
         }
@@ -159,20 +180,52 @@ public class RegionBehaviorRunService {
             result.markPartial();
             for (RegionMatchedEvent event : result.getRegionEvents()) {
                 event.setQueryCompleteness(RegionBehaviorStatus.PARTIAL);
+                failClosedPartial(event);
             }
             for (RegionMatchedEvent event : result.getBoundaryEvents()) {
                 event.setQueryCompleteness(RegionBehaviorStatus.PARTIAL);
+                failClosedPartial(event);
             }
         }
         Path output = reportWriter.write(params, region, plan, discovery, metadata, result,
-                contextEnricher.name());
+                enricherName(params));
         result.setOutputDirectory(output.toString());
         return result;
     }
 
-    private RegionMatchedEvent enrichStrict(RegionMatchedEvent event, ShipBehaviorTrace trace) {
+    private RegionMatchedEvent enrichDiagnostic(RegionMatchedEvent event, ShipBehaviorTrace trace,
+                                                RegionShipCandidate candidate,
+                                                boolean shadowRequested) {
+        event.setShadowRulesRequested(shadowRequested);
+        if (event.isShadowRulesRequested()) {
+            boolean ownAccepted = shadowConfig.getShipTypePolicy().accepts(candidate.getShipType());
+            boolean targetAccepted = !"ALONGSIDE".equals(event.getBehaviorType())
+                    || shadowConfig.getShipTypePolicy().accepts(trace.getEvent().getTargetShipType());
+            event.setShipTypePolicyDecision(ownAccepted && targetAccepted,
+                    !ownAccepted ? "OWN_SHIP_TYPE_UNKNOWN_OR_OUT_OF_POLICY"
+                            : !targetAccepted ? "TARGET_SHIP_TYPE_UNKNOWN_OR_OUT_OF_POLICY" : "POLICY_MATCH");
+        }
         return event.getRegionMatchStatus() == RegionMatchStatus.STRICT_CORE
+                || paramsShadowBoundary(event)
                 ? contextEnricher.enrich(event, trace) : event;
+    }
+
+    private boolean paramsShadowBoundary(RegionMatchedEvent event) {
+        return event.isShadowRulesRequested()
+                && event.getRegionMatchStatus() == RegionMatchStatus.REGION_BOUNDARY_PARTIAL;
+    }
+
+    private String enricherName(RegionBehaviorJobParams params) {
+        String name = contextEnricher.name();
+        return !params.isShadowRulesEnabled()
+                && "BEHAVIOR_MARITIME_SCENE_SHADOW_V2".equals(name)
+                ? "MARITIME_SCENE_SHADOW" : name;
+    }
+
+    private void failClosedPartial(RegionMatchedEvent event) {
+        if (!event.isShadowRulesExecuted()) return;
+        event.setCombinedShadowDecision("DATA_PARTIAL_FAIL_CLOSED");
+        event.setShadowRejectReasons(java.util.Collections.singletonList("DATA_PARTIAL"));
     }
 
     private void addMatched(RegionBehaviorRunResult result, List<RegionMatchedEvent> events) {

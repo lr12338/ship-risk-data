@@ -74,10 +74,76 @@ public class RegionBehaviorRunResult {
         json.put("queryComplete", queryComplete);
         json.put("formalEventsChanged", false);
         json.put("databaseWrites", 0);
+        json.put("formalEventMutation", false);
+        json.put("enforceEnabled", false);
+        addShadowStatistics(json);
         if (outputDirectory != null) {
             json.put("outputDirectory", outputDirectory);
         }
         return json;
+    }
+
+    private void addShadowStatistics(JSONObject json) {
+        List<RegionMatchedEvent> all = new ArrayList<RegionMatchedEvent>(regionEvents);
+        all.addAll(boundaryEvents);
+        json.put("baseCandidateCount", loiteringCandidates + alongsideCandidates);
+        json.put("strictCoreCount", regionEvents.size());
+        json.put("boundaryPartialCount", boundaryEvents.size());
+        json.put("sceneOpenWaterCount", count(all, "scene", "OPEN_WATER_CONFIRMED"));
+        json.put("sceneInlandRejectedCount", count(all, "scene", "WOULD_REJECT_INLAND"));
+        json.put("sceneCoastalReviewCount", count(all, "scene", "COASTAL_OPERATION_REVIEW"));
+        json.put("sceneUnknownCount", count(all, "scene", "SCENE_REVIEW_REQUIRED"));
+        json.put("sceneConflictCount", count(all, "scene", "SCENE_CONFLICT"));
+        json.put("alongsideSideBySideConfirmedCount", count(all, "behavior", "SIDE_BY_SIDE_CONFIRMED"));
+        json.put("alongsideFollowingRejectedCount", count(all, "behavior", "WOULD_REJECT_FOLLOWING"));
+        json.put("alongsideOvertakingRejectedCount", count(all, "behavior", "WOULD_REJECT_OVERTAKING"));
+        json.put("alongsideCrossingRejectedCount", count(all, "behavior", "WOULD_REJECT_CROSSING"));
+        json.put("alongsideInsufficientGeometryCount", countPrefix(all, "behavior", "INSUFFICIENT_"));
+        json.put("loiteringShapeConfirmedCount", count(all, "behavior", "SHAPE_CONFIRMED"));
+        json.put("loiteringStraightTransitRejectedCount", count(all, "behavior", "WOULD_REJECT_STRAIGHT_TRANSIT"));
+        json.put("loiteringStationaryWaitingCount", count(all, "behavior", "WOULD_REJECT_STATIONARY_WAITING"));
+        json.put("loiteringInsufficientShapeCount", count(all, "behavior", "INSUFFICIENT_SHAPE_EVIDENCE"));
+        json.put("combinedWouldAcceptCount", count(all, "combined", "WOULD_ACCEPT_SHADOW"));
+        json.put("combinedWouldRejectCount", countPrefix(all, "combined", "WOULD_REJECT_"));
+        json.put("combinedReviewCount", countContains(all, "combined", "REVIEW"));
+        json.put("partialFailClosedCount", count(all, "combined", "DATA_PARTIAL_FAIL_CLOSED"));
+        JSONObject reasons = new JSONObject(true);
+        for (RegionMatchedEvent event : all) {
+            for (String reason : event.getShadowRejectReasons()) {
+                reasons.put(reason, reasons.getIntValue(reason) + 1);
+            }
+        }
+        json.put("rejectReasonCounts", reasons);
+    }
+
+    private int count(List<RegionMatchedEvent> events, String field, String expected) {
+        int result = 0;
+        for (RegionMatchedEvent event : events) if (expected.equals(value(event, field))) result++;
+        return result;
+    }
+
+    private int countPrefix(List<RegionMatchedEvent> events, String field, String prefix) {
+        int result = 0;
+        for (RegionMatchedEvent event : events) {
+            String value = value(event, field);
+            if (value != null && value.startsWith(prefix)) result++;
+        }
+        return result;
+    }
+
+    private int countContains(List<RegionMatchedEvent> events, String field, String token) {
+        int result = 0;
+        for (RegionMatchedEvent event : events) {
+            String value = value(event, field);
+            if (value != null && value.contains(token)) result++;
+        }
+        return result;
+    }
+
+    private String value(RegionMatchedEvent event, String field) {
+        if ("scene".equals(field)) return event.getSceneShadowDecision();
+        if ("behavior".equals(field)) return event.getBehaviorShadowDecision();
+        return event.getCombinedShadowDecision();
     }
 
     void analyzedVessel() { analyzedVessels++; }

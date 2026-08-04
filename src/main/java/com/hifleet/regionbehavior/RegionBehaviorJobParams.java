@@ -41,6 +41,11 @@ public class RegionBehaviorJobParams {
     private String batchNo;
     private boolean dryRun;
     private boolean storeCandidates;
+    private Boolean shadowRulesEnabled;
+    private Boolean enforceEnabled;
+    private Boolean databaseWriteEnabled;
+    private String scenePolicyVersion;
+    private Integer parallelism;
 
     public static RegionBehaviorJobParams parse(String raw) {
         if (StringUtils.isBlank(raw)) {
@@ -70,6 +75,11 @@ public class RegionBehaviorJobParams {
         params.batchNo = json.getString("batchNo");
         params.dryRun = json.getBooleanValue("dryRun");
         params.storeCandidates = json.getBooleanValue("storeCandidates");
+        params.shadowRulesEnabled = json.getBoolean("shadowRulesEnabled");
+        params.enforceEnabled = json.getBoolean("enforceEnabled");
+        params.databaseWriteEnabled = json.getBoolean("databaseWriteEnabled");
+        params.scenePolicyVersion = json.getString("scenePolicyVersion");
+        params.parallelism = json.getInteger("parallelism");
         JSONArray types = json.getJSONArray("behaviorTypes");
         if (types != null) {
             for (Object type : types) {
@@ -82,6 +92,10 @@ public class RegionBehaviorJobParams {
     }
 
     public void validate(RegionBehaviorConfig config) {
+        validate(config, null);
+    }
+
+    public void validate(RegionBehaviorConfig config, ShadowRulesConfig shadowConfig) {
         if (!MODE.equals(mode)) {
             throw new IllegalArgumentException("mode must be " + MODE);
         }
@@ -93,8 +107,36 @@ public class RegionBehaviorJobParams {
         if (StringUtils.isBlank(polygonWkt)) {
             throw new IllegalArgumentException("polygonWkt is required");
         }
-        if (!"EXISTING_MERCHANT_POLICY".equals(shipTypePolicy)) {
+        boolean shadowRequested = Boolean.TRUE.equals(shadowRulesEnabled);
+        if (!shadowRequested && !"EXISTING_MERCHANT_POLICY".equals(shipTypePolicy)) {
             throw new IllegalArgumentException("unsupported shipTypePolicy");
+        }
+        if (Boolean.TRUE.equals(enforceEnabled)) {
+            throw new IllegalArgumentException("enforceEnabled must remain false");
+        }
+        if (Boolean.TRUE.equals(databaseWriteEnabled)) {
+            throw new IllegalArgumentException("databaseWriteEnabled must remain false");
+        }
+        if (shadowRequested) {
+            if (shadowConfig == null || !shadowConfig.isEnabled()) {
+                throw new IllegalArgumentException("Shadow V2 is not enabled by server configuration");
+            }
+            shadowConfig.validate();
+            if (!Boolean.TRUE.equals(shadowRulesEnabled)
+                    || !Boolean.FALSE.equals(enforceEnabled)
+                    || !Boolean.FALSE.equals(databaseWriteEnabled)) {
+                throw new IllegalArgumentException("Shadow V2 safety flags must be explicit true/false/false");
+            }
+            if (!shadowConfig.getShipTypePolicy().name().equals(shipTypePolicy)) {
+                throw new IllegalArgumentException("shipTypePolicy must match configured Shadow V2 policy");
+            }
+            if (!ShadowRulesConfig.SCENE_POLICY_VERSION.equals(scenePolicyVersion)) {
+                throw new IllegalArgumentException("scenePolicyVersion must be "
+                        + ShadowRulesConfig.SCENE_POLICY_VERSION);
+            }
+            if (parallelism == null || parallelism != 1) {
+                throw new IllegalArgumentException("parallelism must be 1 for Shadow V2");
+            }
         }
         if (behaviorTypes.isEmpty()) {
             throw new IllegalArgumentException("behaviorTypes must not be empty");
@@ -202,6 +244,11 @@ public class RegionBehaviorJobParams {
     public String getBatchNo() { return batchNo; }
     public boolean isDryRun() { return dryRun; }
     public boolean isStoreCandidates() { return storeCandidates; }
+    public boolean isShadowRulesEnabled() { return Boolean.TRUE.equals(shadowRulesEnabled); }
+    public Boolean getEnforceEnabled() { return enforceEnabled; }
+    public Boolean getDatabaseWriteEnabled() { return databaseWriteEnabled; }
+    public String getScenePolicyVersion() { return scenePolicyVersion; }
+    public Integer getParallelism() { return parallelism; }
     public void setMode(String value) { this.mode = value; }
     public void setRegionId(String value) { this.regionId = value; }
     public void setRegionName(String value) { this.regionName = value; }

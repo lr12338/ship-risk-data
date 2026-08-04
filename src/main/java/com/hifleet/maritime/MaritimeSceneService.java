@@ -9,6 +9,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.nio.file.Paths;
 import java.util.Set;
+import java.time.ZoneOffset;
+import java.util.Collections;
+import java.util.Comparator;
+import com.hifleet.trajectory.TrajectoryPoint;
 
 @Service
 public class MaritimeSceneService {
@@ -22,6 +26,8 @@ public class MaritimeSceneService {
     private String expectedFingerprint;
     @Value("${ship.behavior.maritime-scene.policy-version:MARITIME_SCENE_SHADOW_V1}")
     private String policyVersion = MaritimeScenePolicy.VERSION;
+    @Value("${ship.behavior.maritime-scene.snapshot-policy-version:MARITIME_SCENE_SHADOW_V1}")
+    private String snapshotPolicyVersion = MaritimeScenePolicy.VERSION;
     @Value("${ship.behavior.maritime-scene.cache.max-tiles:64}")
     private int maxTiles = 64;
     @Value("${ship.behavior.maritime-scene.boundary-tolerance-meters:1000}")
@@ -69,7 +75,7 @@ public class MaritimeSceneService {
             snapshotManager = new MaritimeSceneSnapshotManager(
                     blankToNull(snapshotPath) == null ? null : Paths.get(snapshotPath),
                     blankToNull(expectedFingerprint),
-                    blankToNull(policyVersion), maxTiles);
+                    blankToNull(snapshotPolicyVersion), maxTiles);
             snapshotManager.load();
         } else {
             snapshotManager = new MaritimeSceneSnapshotManager(
@@ -125,6 +131,35 @@ public class MaritimeSceneService {
         }
     }
 
+    public List<TimedSceneObservation> classifyTimed(List<TrajectoryPoint> source) {
+        List<TrajectoryPoint> points = new ArrayList<TrajectoryPoint>();
+        if (source != null) {
+            for (TrajectoryPoint point : source) {
+                if (point != null && point.getTime() != null) points.add(point);
+            }
+        }
+        Collections.sort(points, new Comparator<TrajectoryPoint>() {
+            @Override
+            public int compare(TrajectoryPoint left, TrajectoryPoint right) {
+                return left.getTime().compareTo(right.getTime());
+            }
+        });
+        List<TimedSceneObservation> result = new ArrayList<TimedSceneObservation>();
+        for (TrajectoryPoint point : points) {
+            MaritimeSceneDecision decision;
+            if (!Double.isFinite(point.getLon()) || !Double.isFinite(point.getLat())
+                    || point.getLon() < -180.0 || point.getLon() > 180.0
+                    || point.getLat() < -90.0 || point.getLat() > 90.0) {
+                decision = unknown("invalid trajectory coordinate", false);
+            } else {
+                decision = classify(point.getLon(), point.getLat());
+            }
+            result.add(new TimedSceneObservation(
+                    point.getTime().toInstant(ZoneOffset.UTC).toEpochMilli(), decision));
+        }
+        return result;
+    }
+
     private MaritimeSceneEvidence evidence(
             List<MaritimeSceneTileLoader.TileRecord> matches, boolean runtimeWaterSupport) {
         List<String> types = new ArrayList<String>();
@@ -168,6 +203,11 @@ public class MaritimeSceneService {
         return episodeAggregator.aggregate(decisions, epochMillis);
     }
 
+    public SceneEpisodeAggregator.Summary aggregateTimed(
+            List<TimedSceneObservation> observations, long gapCapMinutes) {
+        return new SceneEpisodeAggregator(gapCapMinutes).aggregateTimed(observations);
+    }
+
     public String shadowDecision(SceneEpisodeAggregator.Summary summary) {
         if (summary == null) return "SCENE_UNKNOWN";
         if (summary.getConflictPointRatio() > 0.0
@@ -194,6 +234,39 @@ public class MaritimeSceneService {
         return "SCENE_UNKNOWN";
     }
 
+    public String shadowDecisionV2(SceneEpisodeAggregator.Summary summary,
+                                   double minTemporalCoverage,
+                                   double inlandTimeRatio, double inlandMinDurationMinutes,
+                                   double openWaterTimeRatio, double maxUnknownTimeRatio) {
+        if (summary == null || summary.getPointCount() < 2
+                || summary.getTemporalCoverageRatio() < minTemporalCoverage) {
+            return "SCENE_REVIEW_REQUIRED";
+        }
+        if (summary.getConflictTimeRatio() > 0.0 || summary.getConflictPointRatio() > 0.0
+                || summary.getDominantScene() == MaritimeSceneClass.SCENE_CONFLICT) {
+            return "SCENE_CONFLICT";
+        }
+        if (summary.getUnknownTimeRatio() > maxUnknownTimeRatio
+                || summary.getDominantScene() == MaritimeSceneClass.SCENE_UNKNOWN) {
+            return "SCENE_REVIEW_REQUIRED";
+        }
+        if (summary.getHighConfidenceInlandTimeRatio() >= inlandTimeRatio
+                && summary.getInlandDurationMinutes() >= inlandMinDurationMinutes) {
+            return "WOULD_REJECT_INLAND";
+        }
+        if (summary.getHighConfidenceOpenWaterTimeRatio() >= openWaterTimeRatio
+                && summary.getUnknownTimeRatio() <= maxUnknownTimeRatio
+                && summary.getConflictTimeRatio() == 0.0) {
+            return "OPEN_WATER_CONFIRMED";
+        }
+        if (isCoastalReviewScene(summary.getDominantScene())
+                || summary.getCoastDistanceMinNm() != null
+                && summary.getCoastDistanceMinNm() <= policy.getOffshoreMinCoastDistanceNm()) {
+            return "COASTAL_OPERATION_REVIEW";
+        }
+        return "SCENE_REVIEW_REQUIRED";
+    }
+
     private static boolean isCoastalReviewScene(MaritimeSceneClass scene) {
         return scene == MaritimeSceneClass.MARITIME_INTERNAL_WATER
                 || scene == MaritimeSceneClass.ARCHIPELAGIC_WATER
@@ -207,6 +280,7 @@ public class MaritimeSceneService {
         result.put("enabled", enabled);
         result.put("mode", mode);
         result.put("policyVersion", policyVersion);
+        result.put("snapshotPolicyVersion", snapshotPolicyVersion);
         result.putAll(snapshotManager.preflight());
         return result;
     }

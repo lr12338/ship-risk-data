@@ -78,7 +78,8 @@ public class RegionBehaviorReportWriter {
     private JSONObject manifest(RegionBehaviorJobParams params, RegionGeometry region,
                                 RegionBehaviorRunResult runResult, String eventContextEnricher) {
         JSONObject json = runResult.summaryJson();
-        json.put("schemaVersion", "region_behavior_v1");
+        boolean shadowV2 = "BEHAVIOR_MARITIME_SCENE_SHADOW_V2".equals(eventContextEnricher);
+        json.put("schemaVersion", shadowV2 ? "region_behavior_shadow_v2" : "region_behavior_v1");
         json.put("generatedAt", Instant.now().toString());
         json.put("batchNo", params.getBatchNo());
         json.put("regionId", params.getRegionId());
@@ -88,6 +89,18 @@ public class RegionBehaviorReportWriter {
         json.put("storeCandidates", false);
         json.put("sourceMode", "REGION_DRIVEN");
         json.put("eventContextEnricher", eventContextEnricher);
+        if (shadowV2) {
+            json.put("scenePolicyVersion", ShadowRulesConfig.SCENE_POLICY_VERSION);
+            json.put("alongsideBehaviorRuleVersion", ShadowRulesConfig.ALONGSIDE_BEHAVIOR_RULE_VERSION);
+            json.put("alongsideCombinedRuleVersion", ShadowRulesConfig.ALONGSIDE_COMBINED_RULE_VERSION);
+            json.put("loiteringBehaviorRuleVersion", ShadowRulesConfig.LOITERING_BEHAVIOR_RULE_VERSION);
+            json.put("loiteringCombinedRuleVersion", ShadowRulesConfig.LOITERING_COMBINED_RULE_VERSION);
+            json.put("shipTypePolicy", params.getShipTypePolicy());
+            json.put("enforceEnabled", false);
+            json.put("databaseWriteEnabled", false);
+            json.put("formalEventMutation", false);
+            json.put("shadowAuditRunnerImplemented", false);
+        }
         return json;
     }
 
