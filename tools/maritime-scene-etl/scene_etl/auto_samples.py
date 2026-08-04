@@ -154,6 +154,8 @@ def _core_records(
     selected = []
     offshore_min = float(load_yaml(config_dir / "processing-policy.yaml").get(
         "offshore_min_coast_distance_nm", 12.0))
+    near_coast_max = float(load_yaml(config_dir / "jrc-policy.yaml").get(
+        "thresholds", {}).get("very_near_coast_nm", 1.0))
     for record in records:
         point = geometry_from_wkb_hex(record["geometryWkbHex"]).representative_point()
         hit_types = {
@@ -162,9 +164,12 @@ def _core_records(
         }
         if not _candidate_matches_core(sample_class, hit_types):
             continue
-        if sample_class == "OFFSHORE_EEZ":
+        if sample_class in {
+            "OFFSHORE_EEZ", "TERRITORIAL", "MARINE_INTERNAL", "ARCHIPELAGIC",
+        }:
             coast = distance_to_coast(release_dir, point.x, point.y)
-            if not coast.get("available") or float(coast["distanceNm"]) < offshore_min:
+            if not _candidate_coast_distance_ok(
+                sample_class, coast, offshore_min, near_coast_max):
                 continue
         selected.append(record)
         if len(selected) >= required:
@@ -194,6 +199,19 @@ def _candidate_matches_core(sample_class: str, hit_types: set[str]) -> bool:
     return bool(allowed and required in hit_types and hit_types <= allowed)
 
 
+def _candidate_coast_distance_ok(
+    sample_class: str,
+    coast: dict[str, Any],
+    offshore_min: float,
+    near_coast_max: float,
+) -> bool:
+    if sample_class == "OFFSHORE_EEZ":
+        return bool(coast.get("available")) \
+            and float(coast["distanceNm"]) >= offshore_min
+    return not coast.get("available") \
+        or float(coast["distanceNm"]) > near_coast_max
+
+
 def validate_auto_samples(
     release_dir: Path,
     config_dir: Path,
@@ -216,7 +234,13 @@ def validate_auto_samples(
             sample.get("sampleOrigin") in hit_types
         )
         sample["geometrySelfConsistency"] = "PASS" if self_ok else "WARN"
-        decision = classify_point(hits, sampler.sample(lon, lat), policy=policy)
+        decision = classify_point(
+            hits,
+            sampler.sample(lon, lat),
+            coast_distance_nm=sample.get("coastDistanceNm"),
+            policy=policy,
+            runtime_water_support=bool(sample.get("runtimeWaterSupport", False)),
+        )
         expected = sample.get("expectedSceneClass")
         category = _validation_category(sample)
         if category == "BOUNDARY_EXPECTED":
