@@ -1,0 +1,14 @@
+schema_version: 1
+areaField: Lake_area
+minAreaKm2: 50
+boundaryToleranceMeters: 1000
+confidencePolicy:
+  interior: HIGH
+  boundary: BOUNDARY_UNCERTAIN
+  invalidGeometry: UNKNOWN
+retainReservoirs: true
+retainNamedLakes: true
+area_field_candidates: [Lake_area, LAKE_AREA, AREA_SKM, AREA_KM2, AREA]
+allow_geodesic_area_fallback: true
+name_field_candidates: [Lake_name, LAKE_NAME, NAME, NAME_EN]
+type_field_candidates: [Lake_type, LAKE_TYPE, TYPE]

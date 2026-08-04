@@ -1,0 +1,14 @@
+{
+  "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+  "startSeq": 1,
+  "shipLimit": 1,
+  "startTime": "2025-07-01 00:00:00",
+  "endTime": "2026-07-01 00:00:00",
+  "batchNo": "maritime-scene-shadow-preflight-202608-v1",
+  "sceneSnapshotVersion": "phase1-global-base-v1",
+  "expectedSceneFingerprint": "<manifest.snapshotFingerprint>",
+  "scenePolicyVersion": "MARITIME_SCENE_SHADOW_V1",
+  "behaviorTypes": ["LOITERING", "ALONGSIDE"],
+  "dryRun": true,
+  "resume": true
+}

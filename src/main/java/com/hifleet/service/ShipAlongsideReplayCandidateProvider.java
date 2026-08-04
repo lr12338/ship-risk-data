@@ -85,6 +85,14 @@ public class ShipAlongsideReplayCandidateProvider {
     public AlongsideReplaySearchResult findCandidates(String ownMmsi, List<ShipAlongsideDetector.LowSpeedWindow> windows,
                                                        Map<String, List<TrajectoryPoint>> ownPointsByWindow,
                                                        String batchNo) {
+        return findCandidates(ownMmsi, windows, ownPointsByWindow, batchNo, true);
+    }
+
+    public AlongsideReplaySearchResult findCandidates(String ownMmsi,
+                                                       List<ShipAlongsideDetector.LowSpeedWindow> windows,
+                                                       Map<String, List<TrajectoryPoint>> ownPointsByWindow,
+                                                       String batchNo,
+                                                       boolean logQueries) {
         AlongsideReplaySearchResult result = new AlongsideReplaySearchResult();
         if (!replayEnabled || windows == null || windows.isEmpty()) {
             return result;
@@ -101,7 +109,9 @@ public class ShipAlongsideReplayCandidateProvider {
                 ReplayQueryRequest request = requests.get(i);
                 ReplayQueryResult queryResult = spatialAisReplayClient.query(request);
                 result.addReplayResult(queryResult);
-                logReplayQuery(result.getReplayQueryCount(), request, queryResult, batchNo);
+                if (logQueries) {
+                    logReplayQuery(result.getReplayQueryCount(), request, queryResult, batchNo);
+                }
                 if (queryResult == null || !queryResult.isSuccess()) {
                     continue;
                 }

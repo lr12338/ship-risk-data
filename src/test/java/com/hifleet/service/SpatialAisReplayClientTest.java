@@ -5,6 +5,7 @@ import com.hifleet.domain.ReplayQueryResult;
 import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.net.SocketTimeoutException;
 import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -16,6 +17,14 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public class SpatialAisReplayClientTest {
+
+    @Test
+    public void readTimeoutIsDetectedThroughNestedCause() {
+        assertTrue(SpatialAisReplayClient.isReadTimeout(
+                new RuntimeException(new SocketTimeoutException("Read timed out"))));
+        assertFalse(SpatialAisReplayClient.isReadTimeout(
+                new RuntimeException("Read timed out")));
+    }
 
     @Test
     public void buildUriUsesStarttimeParameter() throws Exception {

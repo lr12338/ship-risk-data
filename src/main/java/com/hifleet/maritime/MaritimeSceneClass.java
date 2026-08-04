@@ -1,0 +1,17 @@
+package com.hifleet.maritime;
+
+public enum MaritimeSceneClass {
+    LAND,
+    INLAND_RIVER,
+    INLAND_LAKE,
+    MAJOR_CANAL,
+    ESTUARY_OR_RIVER_MOUTH,
+    MARITIME_INTERNAL_WATER,
+    ARCHIPELAGIC_WATER,
+    TERRITORIAL_SEA,
+    OFFSHORE_EEZ,
+    HIGH_SEAS,
+    BOUNDARY_UNCERTAIN,
+    SCENE_UNKNOWN,
+    SCENE_CONFLICT
+}

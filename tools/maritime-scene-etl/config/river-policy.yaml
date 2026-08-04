@@ -1,0 +1,23 @@
+schema_version: 1
+selection_mode: ALL_AVAILABLE_RULE
+field_candidates:
+  river_order: [ORD_FLOW, ORD_STRA, RIV_ORD, ORDER]
+  average_discharge_m3s: [DIS_AV_CMS, AVG_DIS_CMS, DIS_AV, DISCHARGE]
+  upstream_catchment_km2: [UP_AREA, CATCH_SKM, SUB_AREA, UP_CELLS]
+  distance_to_ocean_km: [DIST_DN_KM, DIST_OCEAN, DIST_DN]
+filters:
+  - field_role: river_order
+    operator: ge
+    value: 5
+  - field_role: average_discharge_m3s
+    operator: ge
+    value: 10
+buffer_meters_by_order:
+  "1": 250
+  "2": 200
+  "3": 150
+  "4": 120
+  "5": 100
+  default: 80
+estuary_low_confidence_distance_km: 25
+fallback_confidence: LOW

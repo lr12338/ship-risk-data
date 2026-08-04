@@ -1,0 +1,58 @@
+schema_version: 1
+source_name: Joint Research Centre / Global Surface Water
+product_name: Global Surface Water 1984-2024
+source_version: GSW1_5-2024
+official_page: https://global-surface-water.appspot.com/download
+data_users_guide: https://storage.googleapis.com/water-world/downloads_ancillary/DataUsersGuidev2024_v.5.pdf
+download_base_url: https://storage.googleapis.com/water-world/download2024/VER1-5/
+tile_size_degrees: 10
+crs: EPSG:4326
+pixel_size_meters: 30
+nodata: 255
+time_range: 1984-03-16/2024-12-31
+products:
+  occurrence:
+    path: occurrence/occurrence
+    band: occurrence
+    unit: percent
+    description: surface-water occurrence, 0-100 percent
+  seasonality:
+    path: seasonality/seasonality
+    band: seasonality
+    unit: months
+    description: number of months with water, 0-12
+  recurrence:
+    path: recurrence/recurrence
+    band: recurrence
+    unit: percent
+    description: inter-annual water recurrence, 0-100 percent
+  extent:
+    path: extent/extent
+    band: max_extent
+    unit: flag
+    description: water detected at least once during the period
+thresholds:
+  stable_occurrence_percent: 70
+  stable_seasonality_months: 9
+  stable_recurrence_percent: 70
+  medium_occurrence_percent: 30
+  medium_seasonality_months: 3
+  medium_recurrence_percent: 30
+  boundary_tolerance_meters: 1000
+  very_near_coast_nm: 1
+  coastal_nm: 12
+  offshore_nm: 60
+  far_offshore_nm: 200
+download:
+  default_mode: TARGETED
+  safety_margin_ratio: 0.20
+  estimated_uncompressed_ratio: 1.60
+  estimated_seconds_per_tile: 45
+  default_product_size_bytes: 100000000
+  products_for_scene_support: [occurrence, seasonality, recurrence, extent]
+license: "Copernicus Programme, free of charge; cite Pekel et al. (2016)"
+attribution: "Source: EC JRC/Google"
+known_limitations:
+  - 2022-2024 uses Landsat Collection 2 while earlier years use Collection 1; residual co-registration offset is possible.
+  - Monthly Recurrence v1.5 has a known sparse-observation issue and is not used as the sole HIGH evidence.
+  - JRC water evidence supports surface-water presence and is not a legal or navigational boundary.

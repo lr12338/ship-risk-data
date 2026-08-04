@@ -15,6 +15,7 @@ jar 内 `application-prod.properties` 为空占位，不承载数据源等生产
 /data/zhengyi/
 ├── ship-risk-data-0.0.1-SNAPSHOT.jar   # 应用包
 ├── application.properties              # 线上外置配置（覆盖 jar 内默认值）
+├── ship_behavior_event_production_index.sql # 全量前低峰期人工执行的索引脚本
 ├── start.sh                            # 启动
 ├── stop.sh                             # 停止
 ├── restart.sh                          # 重启
@@ -43,6 +44,7 @@ chmod +x deploy/package.sh
 dist/
 ├── ship-risk-data-0.0.1-SNAPSHOT.jar
 ├── application.properties   # 首次部署模板，仓库内 deploy/application.properties
+├── ship_behavior_event_production_index.sql
 ├── start.sh
 ├── stop.sh
 ├── restart.sh
@@ -67,10 +69,10 @@ mvn clean package -DskipTests
 ssh user@39.96.38.242 "mkdir -p /data/zhengyi/logs/job/jobhandler /data/zhengyi/logs/archive"
 
 # 首次部署：上传 jar、脚本、application.properties 模板
-scp dist/ship-risk-data-0.0.1-SNAPSHOT.jar dist/*.sh dist/application.properties user@39.96.38.242:/data/zhengyi/
+scp dist/ship-risk-data-0.0.1-SNAPSHOT.jar dist/*.sh dist/application.properties dist/ship_behavior_event_production_index.sql user@39.96.38.242:/data/zhengyi/
 
 # 日常更新：只上传 jar 和脚本，不要覆盖服务器上已维护的 application.properties
-# scp dist/ship-risk-data-0.0.1-SNAPSHOT.jar dist/*.sh user@39.96.38.242:/data/zhengyi/
+# scp dist/ship-risk-data-0.0.1-SNAPSHOT.jar dist/*.sh dist/ship_behavior_event_production_index.sql user@39.96.38.242:/data/zhengyi/
 ```
 
 ---
@@ -107,12 +109,14 @@ chmod +x *.sh
 
 - `dataanalysis.ship_behavior_event`
 - `dataanalysis.ship_behavior_event_detail`
+- `dataanalysis.ship_behavior_loitering_batch_status`
 
 处理规则：
 
 - 表不存在时自动建表
 - `ship_behavior_event` 缺少徘徊 V2 必需字段时逐列补齐
 - `ship_behavior_event.batch_no` 和 `ship_behavior_event_detail.batch_no` 长度低于 64 时自动扩容
+- 徘徊状态表自动补齐候选分类、实际落库数、NO_DATA 和耗时字段
 - 任一必需字段补齐或 `batch_no` 扩容失败，应用启动失败
 
 需要数据库账号具备：
@@ -162,10 +166,16 @@ tail -f /data/zhengyi/logs/startup.log
 | HTTP 端口 | 8090 |
 | XXL-Job 端口 | 30008 |
 | XXL-Job AppName | ship-risk-data |
-| JobHandler | zoneCrossingStatsJobHandler |
+| 生产名单 JobHandler | shipBehaviorTargetShipListJobHandler |
+| 搭靠生产 JobHandler | shipAlongsideProductionTestJobHandler |
+| 徘徊生产 JobHandler | shipLoiteringProductionTestJobHandler |
 | JDK | Java 8 |
 
 安全组放行：**30008**（来源 47.93.16.141，XXL-Job Admin）
+
+搭靠/徘徊生产批次的实际参数、当前进度和门禁统一查阅
+[生产测试状态跟踪](docs/ship-behavior-production-test-status.md)。部署文档不保存滚动任务参数，
+避免历史参数被误用于当前批次。
 
 ---
 

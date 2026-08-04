@@ -73,6 +73,22 @@ public class ShipBehaviorTableInitializerTest {
     }
 
     @Test
+    public void migratesExistingLoiteringStatusMetricsColumns() throws Exception {
+        StubJdbcTemplate jdbcTemplate = new StubJdbcTemplate();
+        jdbcTemplate.loiteringBatchStatusTableExists = true;
+
+        ShipBehaviorTableInitializer initializer = newInitializer(jdbcTemplate);
+
+        initializer.ensureLoiteringBatchStatusTableReady();
+
+        assertEquals(7, jdbcTemplate.alterExecutions.size());
+        assertTrue(jdbcTemplate.executedSqlContains(
+                "ADD COLUMN candidate_count"));
+        assertTrue(jdbcTemplate.executedSqlContains(
+                "ADD COLUMN elapsed_ms"));
+    }
+
+    @Test
     public void createsAlongsideBatchStatusTableWhenMissing() throws Exception {
         StubJdbcTemplate jdbcTemplate = new StubJdbcTemplate();
         jdbcTemplate.eventTableExists = true;
@@ -210,6 +226,7 @@ public class ShipBehaviorTableInitializerTest {
             }
             if (sql.contains("CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_loitering_batch_status`")) {
                 loiteringBatchStatusTableExists = true;
+                existingColumns.addAll(allLoiteringStatusMigrationColumns());
                 return;
             }
             if (sql.contains("CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_alongside_batch_status`")) {
@@ -233,6 +250,14 @@ public class ShipBehaviorTableInitializerTest {
                 existingColumns.add(columnName);
                 return;
             }
+            if (sql.startsWith("ALTER TABLE dataanalysis.ship_behavior_loitering_batch_status ADD COLUMN")) {
+                alterExecutions.add(sql);
+                String prefix = "ALTER TABLE dataanalysis.ship_behavior_loitering_batch_status ADD COLUMN ";
+                String remain = sql.substring(prefix.length()).trim();
+                int end = remain.indexOf(' ');
+                existingColumns.add(end > 0 ? remain.substring(0, end) : remain);
+                return;
+            }
             throw new UnsupportedOperationException(sql);
         }
 
@@ -248,6 +273,15 @@ public class ShipBehaviorTableInitializerTest {
         private Set<String> allMigrationColumns() {
             Set<String> result = new HashSet<String>();
             for (ShipBehaviorTableInitializer.ColumnMigration migration : ShipBehaviorTableInitializer.buildEventTableMigrations()) {
+                result.add(migration.getColumnName());
+            }
+            return result;
+        }
+
+        private Set<String> allLoiteringStatusMigrationColumns() {
+            Set<String> result = new HashSet<String>();
+            for (ShipBehaviorTableInitializer.ColumnMigration migration
+                    : ShipBehaviorTableInitializer.buildLoiteringStatusTableMigrations()) {
                 result.add(migration.getColumnName());
             }
             return result;

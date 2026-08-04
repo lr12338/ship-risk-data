@@ -1,5 +1,28 @@
 # 船舶徘徊模块开发文档
 
+## 0. 文档状态与生产入口
+
+本文档是徘徊模块的主开发文档，描述 V2 算法、数据流、落库和排障。
+当前5,000艘年度批次进度、参数、门禁和下一步统一维护在
+[0731液货船/集装箱船测试维护手册](liquid-container-behavior-test-20260731.md)。
+
+当前生产测试与旧单船/批量入口的差异：
+
+- 生产入口：`shipLoiteringProductionTestJobHandler`。
+- 固定名单：`ship_behavior_target_ship`，按 `seq_no` 游标分页。
+- 整船半年作为一个状态窗口，HBase 按 6 小时切片读取后合并。
+- 单船最多 200,000 点；NO_DATA 写 DONE 并以 `result_code=NO_DATA` 单独统计。
+- 本轮只允许 `LOITERING_V2_INSURANCE`，因为
+  `ship.behavior.loitering.production.scene-ready=false`。
+- 生产强制 `eventFilterMode=VALID_NON_WEAK` 和 `storeDetails=false`。
+- V2 只保存 VALID 且非弱候选 event，并写
+  `traceRecipe.persistPolicy=VALID_NON_WEAK`。
+- `shipLoiteringJobHandler`、`shipLoiteringBatchJobHandler` 用于旧单船/批量回归，
+  不是当前 5 万船生产入口。
+
+当前 V2 结果定位为“正式候选”，不是最终真实可靠事件；港区、锚地、泊位、
+STS 和 V3 场景验收完成前不得改变该表述。
+
 ## 1. 模块目标
 
 船舶徘徊模块用于识别单船在一定时间窗内低速、小范围、持续停留或局部机动的候选行为事件。
@@ -28,7 +51,7 @@ XXL-Job Handler：
 
 代码位置：
 
-- [ShipBehaviorJob.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/xxljob/ShipBehaviorJob.java:19)
+- [ShipBehaviorJob.java](../src/main/java/com/hifleet/xxljob/ShipBehaviorJob.java)
 
 推荐 JSON 参数：
 
@@ -69,11 +92,11 @@ shipLoiteringJobHandler
 
 关键类：
 
-- [ShipBehaviorAnalysisService.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/job/services/ShipBehaviorAnalysisService.java:148)
-- [TrajectoryLoaderService.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/trajectory/TrajectoryLoaderService.java:1)
-- [ShipLoiteringDetector.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/service/ShipLoiteringDetector.java:20)
-- [ShipBehaviorEventRepository.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/repository/ShipBehaviorEventRepository.java:25)
-- [ShipBehaviorTableInitializer.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/repository/ShipBehaviorTableInitializer.java:47)
+- [ShipBehaviorAnalysisService.java](../src/main/java/com/hifleet/job/services/ShipBehaviorAnalysisService.java)
+- [TrajectoryLoaderService.java](../src/main/java/com/hifleet/trajectory/TrajectoryLoaderService.java)
+- [ShipLoiteringDetector.java](../src/main/java/com/hifleet/service/ShipLoiteringDetector.java)
+- [ShipBehaviorEventRepository.java](../src/main/java/com/hifleet/repository/ShipBehaviorEventRepository.java)
+- [ShipBehaviorTableInitializer.java](../src/main/java/com/hifleet/repository/ShipBehaviorTableInitializer.java)
 
 职责边界：
 
@@ -397,7 +420,7 @@ max_ais_gap_minutes <= 180
 
 源码默认配置位于：
 
-- [application.properties](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/resources/application.properties:129)
+- [application.properties](../src/main/resources/application.properties)
 
 线上以服务器 `/data/zhengyi/application.properties` 为准，源码配置只作为默认值。
 
@@ -462,12 +485,12 @@ ship.behavior.loitering.weak.max-score=20
 事件摘要表：
 
 - `dataanalysis.ship_behavior_event`
-- DDL：[ship_behavior_event.sql](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/resources/sql/ship_behavior_event.sql:1)
+- DDL：[ship_behavior_event.sql](../src/main/resources/sql/ship_behavior_event.sql)
 
 事件明细表：
 
 - `dataanalysis.ship_behavior_event_detail`
-- DDL：[ship_behavior_event_detail.sql](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/resources/sql/ship_behavior_event_detail.sql:1)
+- DDL：[ship_behavior_event_detail.sql](../src/main/resources/sql/ship_behavior_event_detail.sql)
 
 V2-lite 新增摘要字段：
 
@@ -510,7 +533,7 @@ ship_behavior_event schema ready
 
 人工排查 SQL 文件：
 
-- [ship_behavior_event_v2_loitering_alter.sql](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/resources/sql/ship_behavior_event_v2_loitering_alter.sql:1)
+- [ship_behavior_event_v2_loitering_alter.sql](../src/main/resources/sql/ship_behavior_event_v2_loitering_alter.sql)
 
 注意：程序不会整包执行这个 ALTER 文件，因为部分字段已存在时整包 ALTER 会失败。程序实际使用 `ShipBehaviorTableInitializer` 内置的逐列 migration。
 

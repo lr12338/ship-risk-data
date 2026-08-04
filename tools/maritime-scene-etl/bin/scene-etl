@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+
+TOOL_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+PYTHONPATH="$TOOL_DIR${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+if [ -x "$TOOL_DIR/.venv/bin/python" ]; then
+  exec "$TOOL_DIR/.venv/bin/python" -m scene_etl.cli "$@"
+fi
+exec python3 -m scene_etl.cli "$@"

@@ -1,0 +1,95 @@
+schema_version: 1
+validation_role: OPTIONAL_MANUAL_REFERENCE
+blocking: false
+verification_status: NOT_PERFORMED
+points:
+  - id: yangtze_inner_river
+    longitude: 121.0
+    latitude: 31.0
+    expected_hits: [inland_river_corridor]
+    forbidden_hits: [land]
+    allowed_alternatives: [marine_internal_water]
+    expected_confidence: MEDIUM
+    reason: Yangtze lower-reach candidate point; coordinate requires QGIS review.
+    evidence_source: HydroRIVERS official product plus QGIS review
+    enabled: false
+  - id: rhine_mainstem
+    longitude: 6.15
+    latitude: 51.95
+    expected_hits: [inland_river_corridor]
+    forbidden_hits: [land]
+    allowed_alternatives: []
+    expected_confidence: MEDIUM
+    reason: Rhine candidate point; coordinate requires QGIS review.
+    evidence_source: HydroRIVERS official product plus QGIS review
+    enabled: false
+  - id: mississippi_mainstem
+    longitude: -90.06
+    latitude: 29.95
+    expected_hits: [inland_river_corridor]
+    forbidden_hits: [land]
+    allowed_alternatives: []
+    expected_confidence: MEDIUM
+    reason: Mississippi candidate point; coordinate requires QGIS review.
+    evidence_source: HydroRIVERS official product plus QGIS review
+    enabled: false
+  - id: great_lakes
+    longitude: -87.9
+    latitude: 43.0
+    expected_hits: [inland_lake]
+    forbidden_hits: [land]
+    allowed_alternatives: []
+    expected_confidence: HIGH
+    reason: Great Lakes candidate point; coordinate requires QGIS review.
+    evidence_source: HydroLAKES official product plus QGIS review
+    enabled: false
+  - id: suez_canal
+    longitude: 32.35
+    latitude: 30.5
+    expected_hits: [major_canal]
+    forbidden_hits: [land]
+    allowed_alternatives: []
+    expected_confidence: REVIEW_REQUIRED
+    reason: Suez Canal candidate point; canal whitelist is not approved yet.
+    evidence_source: Geofabrik Egypt extract plus QGIS review
+    enabled: false
+  - id: panama_canal
+    longitude: -79.7
+    latitude: 9.1
+    expected_hits: [major_canal]
+    forbidden_hits: [land]
+    allowed_alternatives: []
+    expected_confidence: REVIEW_REQUIRED
+    reason: Panama Canal candidate point; canal whitelist is not approved yet.
+    evidence_source: Geofabrik Panama extract plus QGIS review
+    enabled: false
+  - id: kiel_canal
+    longitude: 9.7
+    latitude: 54.3
+    expected_hits: [major_canal]
+    forbidden_hits: [land]
+    allowed_alternatives: []
+    expected_confidence: REVIEW_REQUIRED
+    reason: Kiel Canal candidate point; canal whitelist is not approved yet.
+    evidence_source: Geofabrik Schleswig-Holstein extract plus QGIS review
+    enabled: false
+  - id: shanghai_port_outer
+    longitude: 122.2
+    latitude: 31.0
+    expected_hits: [marine_territorial_sea]
+    forbidden_hits: [land, inland_lake]
+    allowed_alternatives: [marine_eez, marine_internal_water]
+    expected_confidence: HIGH
+    reason: Shanghai outer-coast candidate point; coordinate requires QGIS review.
+    evidence_source: Marine Regions official product plus QGIS review
+    enabled: false
+  - id: open_ocean_candidate
+    longitude: 150.0
+    latitude: 30.0
+    expected_hits: [marine_eez, marine_high_seas]
+    forbidden_hits: [land, inland_lake]
+    allowed_alternatives: [marine_eez]
+    expected_confidence: HIGH
+    reason: Open-ocean candidate point; coordinate requires QGIS review.
+    evidence_source: Marine Regions official product plus QGIS review
+    enabled: false

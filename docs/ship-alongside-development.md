@@ -1,5 +1,26 @@
 # 船舶搭靠模块开发文档
 
+## 0. 文档状态与生产入口
+
+本文档是搭靠模块的主开发文档，描述长期有效的算法、数据流和排障方式。
+当前5,000艘年度批次进度、参数、失败统计和下一步统一维护在
+[0731液货船/集装箱船测试维护手册](liquid-container-behavior-test-20260731.md)，
+不得从历史测试文档复制生产参数。
+
+当前生产测试链路与旧开发/回归入口并存：
+
+- 生产入口：`shipAlongsideProductionTestJobHandler`。
+- 固定名单：`ship_behavior_target_ship`，按 `seq_no` 游标分页。
+- 规则版本：`ALONGSIDE_V3_INSURANCE`。
+- 半年拆成 7 个连续 30 天窗口，每艘窗口串行、页内最多并发 2 艘。
+- `resume=true` 按船舶和窗口跳过 DONE，FAILED 和无状态窗口重算。
+- 生产只保存 VALID 且非弱候选 event，不调用 detail Repository。
+- `shipAlongsideJobHandler`、`shipAlongsideBatchJobHandler` 和
+  `shipAlongsideV3TestJobHandler` 仍用于单船、旧批量和规则回归，不代表 5 万船生产口径。
+
+当前搭靠全量批次正在原批次续跑。已知主要失败是空间回放截断；原批次不得
+中途调整回放窗口、bbox、上限或规则，否则会混合口径。
+
 ## 1. 模块目标
 
 船舶搭靠模块用于识别“两条船在时间邻近、空间邻近、双方低速且具备连续轨迹证据时形成的搭靠候选事件”。
@@ -78,11 +99,11 @@ XXL-Job Handler：
 
 入口代码：
 
-- [ShipBehaviorJob.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/xxljob/ShipBehaviorJob.java:33)
+- [ShipBehaviorJob.java](../src/main/java/com/hifleet/xxljob/ShipBehaviorJob.java)
 
 核心服务：
 
-- [ShipBehaviorAnalysisService.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/job/services/ShipBehaviorAnalysisService.java:335)
+- [ShipBehaviorAnalysisService.java](../src/main/java/com/hifleet/job/services/ShipBehaviorAnalysisService.java)
 
 ## 4. PAIR 模式
 
@@ -317,7 +338,7 @@ updated_at
 
 检测器位置：
 
-- [ShipAlongsideDetector.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/service/ShipAlongsideDetector.java:20)
+- [ShipAlongsideDetector.java](../src/main/java/com/hifleet/service/ShipAlongsideDetector.java)
 
 ### 6.1 轨迹清洗
 
@@ -673,7 +694,7 @@ ship_behavior_alongside_score_yearly
 
 配置位置：
 
-- [application.properties](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/resources/application.properties:183)
+- [application.properties](../src/main/resources/application.properties)
 
 当前默认配置：
 
@@ -939,7 +960,7 @@ ALONGSIDE_BATCH annual_score mmsi=... eventCount=... validEventCount=... highRis
 
 测试类：
 
-- [ShipAlongsideDetectorTest.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/test/java/com/hifleet/service/ShipAlongsideDetectorTest.java:1)
+- [ShipAlongsideDetectorTest.java](../src/test/java/com/hifleet/service/ShipAlongsideDetectorTest.java)
 
 覆盖：
 

@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -106,6 +107,7 @@ public class SpatialAisReplayClient {
                 httpClient.close();
             }
         } catch (Exception ex) {
+            result.setTimeout(isReadTimeout(ex));
             result.setErrorMessage(ex.getMessage());
             log.warn("getRecentAis query failed, request={}", requestSummary(request), ex);
             return result;
@@ -193,6 +195,17 @@ public class SpatialAisReplayClient {
         result.setRequest(request);
         result.setErrorMessage(message);
         return result;
+    }
+
+    static boolean isReadTimeout(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof SocketTimeoutException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private void sleepBeforeRetry() {

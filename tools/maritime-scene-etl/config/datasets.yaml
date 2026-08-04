@@ -1,0 +1,213 @@
+schema_version: 1
+datasets:
+  - dataset_id: marine_eez_v12
+    source_name: Marine Regions
+    product_name: World Exclusive Economic Zones (200NM), version 12
+    source_version: v12-2023-10-25
+    expected_layer: EEZ polygon
+    official_page: https://www.marineregions.org/downloads.php
+    download_mode: MANUAL
+    expected_format: ZIP_ESRI_SHAPEFILE
+    download_url: null
+    expected_file_name: World_EEZ_v12_20231025.zip
+    expected_size_display: 122 MB
+    license: CC BY 4.0
+    attribution: Flanders Marine Institute (Marine Regions), product DOI 10.14284/632
+    enabled: true
+    manual_download: true
+    raw_target_path: marine-regions/World_EEZ_v12_20231025.zip
+    processing_handler: marine_regions
+    source_crs: UNKNOWN_UNTIL_INSPECT
+
+  - dataset_id: marine_territorial_sea_v4
+    source_name: Marine Regions
+    product_name: World 12 Nautical Miles Zone (Territorial Seas), version 4
+    source_version: v4-2023-10-25
+    expected_layer: Territorial Sea polygon
+    official_page: https://www.marineregions.org/downloads.php
+    download_mode: MANUAL
+    expected_format: ZIP_ESRI_SHAPEFILE
+    download_url: null
+    expected_file_name: World_12NM_v4_20231025.zip
+    expected_size_display: 50 MB
+    license: CC BY 4.0
+    attribution: Flanders Marine Institute (Marine Regions), product DOI 10.14284/633
+    enabled: true
+    manual_download: true
+    raw_target_path: marine-regions/World_12NM_v4_20231025.zip
+    processing_handler: marine_regions
+    source_crs: UNKNOWN_UNTIL_INSPECT
+
+  - dataset_id: marine_internal_waters_v4
+    source_name: Marine Regions
+    product_name: World Internal Waters, version 4
+    source_version: v4-2023-10-25
+    expected_layer: Internal Waters polygon
+    official_page: https://www.marineregions.org/downloads.php
+    download_mode: MANUAL
+    expected_format: ZIP_ESRI_SHAPEFILE
+    download_url: null
+    expected_file_name: World_Internal_Waters_v4_20231025.zip
+    expected_size_display: 54 MB
+    license: CC BY 4.0
+    attribution: Flanders Marine Institute (Marine Regions), product DOI 10.14284/631
+    enabled: true
+    manual_download: true
+    raw_target_path: marine-regions/World_Internal_Waters_v4_20231025.zip
+    processing_handler: marine_regions
+    source_crs: UNKNOWN_UNTIL_INSPECT
+
+  - dataset_id: marine_archipelagic_waters_v4
+    source_name: Marine Regions
+    product_name: World Archipelagic Waters, version 4
+    source_version: v4-2023-10-25
+    expected_layer: Archipelagic Waters polygon
+    official_page: https://www.marineregions.org/downloads.php
+    download_mode: MANUAL
+    expected_format: ZIP_ESRI_SHAPEFILE
+    download_url: null
+    expected_file_name: World_Archipelagic_Waters_v4_20231025.zip
+    expected_size_display: 28 MB
+    license: CC BY 4.0
+    attribution: Flanders Marine Institute (Marine Regions), product DOI 10.14284/629
+    enabled: true
+    manual_download: true
+    raw_target_path: marine-regions/World_Archipelagic_Waters_v4_20231025.zip
+    processing_handler: marine_regions
+    source_crs: UNKNOWN_UNTIL_INSPECT
+
+  - dataset_id: marine_high_seas_v2
+    source_name: Marine Regions
+    product_name: World High Seas, version 2
+    source_version: v2-2024-10-10
+    expected_layer: High Seas polygon
+    official_page: https://www.marineregions.org/downloads.php
+    download_mode: MANUAL
+    expected_format: ZIP_ESRI_SHAPEFILE
+    download_url: null
+    expected_file_name: World_High_Seas_v2_20241010.zip
+    expected_size_display: 6.85 MB
+    license: CC BY 4.0
+    attribution: Flanders Marine Institute (Marine Regions), product DOI 10.14284/696
+    enabled: true
+    manual_download: true
+    raw_target_path: marine-regions/World_High_Seas_v2_20241010.zip
+    processing_handler: marine_regions
+    source_crs: UNKNOWN_UNTIL_INSPECT
+
+  - dataset_id: hydrorivers_v1
+    source_name: HydroSHEDS
+    product_name: HydroRIVERS, version 1
+    source_version: v1 / HydroRIVERS_v10 archive
+    expected_layer: global river centerline
+    official_page: https://www.hydrosheds.org/products/hydrorivers
+    download_mode: DIRECT_HTTP
+    expected_format: ZIP_ESRI_SHAPEFILE
+    download_url: https://data.hydrosheds.org/file/HydroRIVERS/HydroRIVERS_v10_shp.zip
+    expected_file_name: HydroRIVERS_v10_shp.zip
+    expected_size_bytes: 544388154
+    license: HydroSHEDS core product license; scientific, educational, and commercial use
+    attribution: HydroSHEDS; Lehner and Grill (2013), DOI 10.1002/hyp.9740
+    enabled: true
+    manual_download: false
+    raw_target_path: hydrorivers/HydroRIVERS_v10_shp.zip
+    processing_handler: hydrorivers
+    source_crs: EPSG:4326
+
+  - dataset_id: hydrolakes_v1
+    source_name: HydroSHEDS
+    product_name: HydroLAKES lake polygons, version 1
+    source_version: v1 / HydroLAKES_polys_v10 archive
+    expected_layer: global lake and reservoir polygon
+    official_page: https://www.hydrosheds.org/products/hydrolakes
+    download_mode: DIRECT_HTTP
+    expected_format: ZIP_ESRI_SHAPEFILE
+    download_url: https://data.hydrosheds.org/file/hydrolakes/HydroLAKES_polys_v10_shp.zip
+    expected_file_name: HydroLAKES_polys_v10_shp.zip
+    expected_size_bytes: 820295132
+    license: CC BY 4.0
+    attribution: HydroSHEDS; Messager et al. (2016), DOI 10.1038/ncomms13603
+    enabled: true
+    manual_download: false
+    raw_target_path: hydrolakes/HydroLAKES_polys_v10_shp.zip
+    processing_handler: hydrolakes
+    source_crs: EPSG:4326
+
+  - dataset_id: gshhg_v237
+    source_name: NOAA NCEI / SOEST
+    product_name: Global Self-consistent Hierarchical High-resolution Geography, version 2.3.7
+    source_version: v2.3.7-2017-06-15
+    expected_layer: High Resolution L1 land polygon and coastline boundary
+    official_page: https://www.ngdc.noaa.gov/mgg/shorelines/shorelines.html
+    download_mode: DIRECT_HTTP
+    expected_format: ZIP_ESRI_SHAPEFILE
+    download_url: https://www.soest.hawaii.edu/pwessel/gshhg/gshhg-shp-2.3.7.zip
+    expected_file_name: gshhg-shp-2.3.7.zip
+    expected_size_bytes: 149157845
+    license: GNU LGPL; README specifies LGPL v3 or any earlier version
+    attribution: Paul Wessel (SOEST) and Walter H. F. Smith (NOAA)
+    enabled: true
+    manual_download: false
+    raw_target_path: gshhg/gshhg-shp-2.3.7.zip
+    processing_handler: gshhg
+    source_crs: WGS84_STATED_BY_SOURCE
+
+  - dataset_id: osm_suez_egypt
+    source_name: OpenStreetMap / Geofabrik
+    product_name: Egypt regional OSM extract for Suez Canal whitelist review
+    source_version: latest-at-acquisition
+    expected_layer: approved major canal ways
+    official_page: https://download.geofabrik.de/africa/egypt.html
+    download_mode: GEOFABRIK_PBF
+    expected_format: OSM_PBF
+    download_url: https://download.geofabrik.de/africa/egypt-latest.osm.pbf
+    expected_file_name: egypt-latest.osm.pbf
+    expected_size_bytes: 177581784
+    license: OpenStreetMap ODbL 1.0
+    attribution: OpenStreetMap contributors; regional extract processed by Geofabrik GmbH
+    enabled: true
+    manual_download: false
+    raw_target_path: osm/egypt-latest.osm.pbf
+    processing_handler: osm_canals
+    source_crs: WGS84_IMPLIED_BY_OSM
+    canal_ids: [suez]
+
+  - dataset_id: osm_panama_panama
+    source_name: OpenStreetMap / Geofabrik
+    product_name: Panama regional OSM extract for Panama Canal whitelist review
+    source_version: latest-at-acquisition
+    expected_layer: approved major canal ways
+    official_page: https://download.geofabrik.de/central-america/panama.html
+    download_mode: GEOFABRIK_PBF
+    expected_format: OSM_PBF
+    download_url: https://download.geofabrik.de/central-america/panama-latest.osm.pbf
+    expected_file_name: panama-latest.osm.pbf
+    expected_size_bytes: 35975944
+    license: OpenStreetMap ODbL 1.0
+    attribution: OpenStreetMap contributors; regional extract processed by Geofabrik GmbH
+    enabled: true
+    manual_download: false
+    raw_target_path: osm/panama-latest.osm.pbf
+    processing_handler: osm_canals
+    source_crs: WGS84_IMPLIED_BY_OSM
+    canal_ids: [panama]
+
+  - dataset_id: osm_kiel_schleswig_holstein
+    source_name: OpenStreetMap / Geofabrik
+    product_name: Schleswig-Holstein regional OSM extract for Kiel Canal whitelist review
+    source_version: latest-at-acquisition
+    expected_layer: approved major canal ways
+    official_page: https://download.geofabrik.de/europe/germany/schleswig-holstein.html
+    download_mode: GEOFABRIK_PBF
+    expected_format: OSM_PBF
+    download_url: https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf
+    expected_file_name: schleswig-holstein-latest.osm.pbf
+    expected_size_bytes: 157237733
+    license: OpenStreetMap ODbL 1.0
+    attribution: OpenStreetMap contributors; regional extract processed by Geofabrik GmbH
+    enabled: true
+    manual_download: false
+    raw_target_path: osm/schleswig-holstein-latest.osm.pbf
+    processing_handler: osm_canals
+    source_crs: WGS84_IMPLIED_BY_OSM
+    canal_ids: [kiel]

@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.hifleet.domain.ShipBehaviorEvent;
 import com.hifleet.domain.ShipBehaviorEventDetail;
+import com.hifleet.domain.ShipBehaviorTrace;
 import com.hifleet.domain.ZoneDefinition;
 import com.hifleet.repository.ShipBehaviorEventDetailRepository;
 import com.hifleet.repository.ShipBehaviorEventRepository;
@@ -22,6 +23,7 @@ import com.hifleet.service.LoiteringV3RuleEngine;
 import com.hifleet.service.LoiteringV3RuleEngine.Context;
 import com.hifleet.service.ZoneLoaderService;
 import com.hifleet.service.ZoneSpatialMatcher;
+import com.hifleet.service.TraceRecipeService;
 import com.hifleet.trajectory.TrajectoryLoaderService;
 import com.hifleet.trajectory.TrajectoryPoint;
 import com.xxl.job.core.log.XxlJobLogger;
@@ -70,6 +72,10 @@ public class ShipLoiteringV3BatchService {
     private final int pageSize;
     private final int maxPageSize;
     private final int windowHours;
+    private ZoneLoaderService productionZoneLoaderService;
+
+    @Value("${ship.behavior.loitering.production.scene-ready:false}")
+    private boolean productionSceneReady;
 
     @Autowired
     public ShipLoiteringV3BatchService(
@@ -97,6 +103,7 @@ public class ShipLoiteringV3BatchService {
                 new JdbcProgressStore(dataanalysisJdbcTemplate, statusRepository),
                 new XxlJobLog(), Clock.system(BUSINESS_ZONE),
                 testShipLimit, pageSize, maxPageSize, windowHours);
+        this.productionZoneLoaderService = zoneLoaderService;
     }
 
     ShipLoiteringV3BatchService(ShipPageSource shipPageSource,
@@ -222,6 +229,127 @@ public class ShipLoiteringV3BatchService {
                 + " duration=" + durationSeconds + "s"
                 + " batchNo=" + request.getBatchNo());
         return result;
+    }
+
+    public void assertProductionReady() {
+        if (!productionSceneReady) {
+            throw new IllegalStateException("loitering production scene is not ready; "
+                    + "set ship.behavior.loitering.production.scene-ready=true only after "
+                    + "port/anchor/berth/STS acceptance");
+        }
+    }
+
+    public List<ShipBehaviorTrace> analyzeV3Production(
+            final TargetShipAdapter ship, final List<TrajectoryPoint> points,
+            final String batchNo, final int simplifyZoom) {
+        assertProductionReady();
+        if (productionZoneLoaderService == null) {
+            throw new IllegalStateException("production zone loader unavailable");
+        }
+        final Ship analyzerShip = new Ship(ship.mmsi, ship.imo, ship.shipName, ship.shipType);
+        LoiteringV3AnalyzerService analyzer = new LoiteringV3AnalyzerService(
+                (start, end) -> Collections.singletonList(analyzerShip),
+                (mmsi, start, end) -> points,
+                new ScenePortContextProvider(productionZoneLoaderService));
+        LocalDateTime runTime = points == null || points.isEmpty()
+                ? LocalDateTime.now(clock) : points.get(points.size() - 1).getTime().plusSeconds(1);
+        RunResult result = analyzer.analyze(runTime);
+        if (result.getFailedShipCount() > 0) {
+            throw new IllegalStateException("V3 analyzer failed for " + result.getFailedMmsi());
+        }
+        List<ShipBehaviorTrace> traces = new ArrayList<ShipBehaviorTrace>();
+        for (AnalyzedEvent analyzed : result.getEvents()) {
+            if (!LoiteringV3RuleEngine.STATUS_REVIEW.equals(analyzed.getStatus())
+                    && !LoiteringV3RuleEngine.STATUS_FINAL.equals(analyzed.getStatus())) {
+                continue;
+            }
+            ShipBehaviorEvent event = productionEvent(analyzed, batchNo);
+            ShipBehaviorTrace trace = new ShipBehaviorTrace(
+                    event, analyzed.getTrajectory(), Collections.<TrajectoryPoint>emptyList());
+            TraceRecipeService.attachLoitering(trace, "V3",
+                    event.getStartTime(), event.getEndTime(), simplifyZoom,
+                    productionRuleConfigHash());
+            traces.add(trace);
+        }
+        return traces;
+    }
+
+    public String productionRuleConfigHash() {
+        JSONObject config = new JSONObject(true);
+        config.put("ruleVersion", "LOITERING_V3_PROD_TEST_2026H1");
+        config.put("rule", LoiteringV3RuleEngine.Config.shadowDefaults());
+        config.put("sceneReady", productionSceneReady);
+        return TraceRecipeService.configHash(config);
+    }
+
+    private ShipBehaviorEvent productionEvent(AnalyzedEvent analyzed, String batchNo) {
+        List<TrajectoryPoint> trajectory = analyzed.getTrajectory();
+        TrajectoryPoint first = trajectory.get(0);
+        TrajectoryPoint last = trajectory.get(trajectory.size() - 1);
+        double lon = 0.0;
+        double lat = 0.0;
+        for (TrajectoryPoint point : trajectory) {
+            lon += point.getLon();
+            lat += point.getLat();
+        }
+        ShipBehaviorEvent event = new ShipBehaviorEvent();
+        event.setBehaviorType(LoiteringV3AnalyzerService.EVENT_TYPE);
+        event.setMmsi(analyzed.getMmsi());
+        event.setStartTime(format(analyzed.getStartTime()));
+        event.setEndTime(format(analyzed.getEndTime()));
+        event.setDurationMinutes(analyzed.getDurationMinutes());
+        event.setStartLon(first.getLon());
+        event.setStartLat(first.getLat());
+        event.setEndLon(last.getLon());
+        event.setEndLat(last.getLat());
+        event.setMaxDistanceNm(analyzed.getRadiusNm());
+        event.setNearPort(analyzed.isNearPort() || analyzed.isInsidePort());
+        event.setOpenSea(!(analyzed.isNearPort() || analyzed.isInsidePort()));
+        event.setOwnShipType(analyzed.getShipType());
+        event.setAvgSpeed(analyzed.getAverageSpeed());
+        event.setPointCount(trajectory.size());
+        event.setRuleVersion("LOITERING_V3_PROD_TEST_2026H1");
+        event.setBatchNo(batchNo);
+        event.setEventSubType(analyzed.getTrajectoryPattern());
+        event.setSeverityLevel(analyzed.getRiskScore() >= 80 ? "L4"
+                : analyzed.getRiskScore() >= 60 ? "L3"
+                : analyzed.getRiskScore() >= 40 ? "L2"
+                : analyzed.getRiskScore() > 0 ? "L1" : "L0");
+        event.setEventScore(analyzed.getRiskScore());
+        event.setConfidenceLevel(analyzed.getConfidenceScore() >= 0.80 ? "HIGH"
+                : analyzed.getConfidenceScore() >= 0.65 ? "MEDIUM" : "LOW");
+        event.setExclusionFlag(LoiteringV3RuleEngine.STATUS_FINAL.equals(analyzed.getStatus())
+                ? "VALID_RISK_EVENT"
+                : LoiteringV3RuleEngine.STATUS_EXCLUDED.equals(analyzed.getStatus())
+                ? "EXCLUDED_NORMAL" : "REVIEW_REQUIRED");
+        event.setExclusionReason(analyzed.getReasonCode());
+        event.setCenterLon(lon / trajectory.size());
+        event.setCenterLat(lat / trajectory.size());
+        event.setRadiusNm(analyzed.getRadiusNm());
+        JSONObject score = new JSONObject(true);
+        score.put("eventKey", analyzed.getEventKey());
+        score.put("decisionStatus", analyzed.getStatus());
+        score.put("trajectoryPattern", analyzed.getTrajectoryPattern());
+        score.put("reasonCode", analyzed.getReasonCode());
+        score.put("confidenceScore", analyzed.getConfidenceScore());
+        score.put("riskScore", analyzed.getRiskScore());
+        score.put("openEpisode", analyzed.isOpen());
+        event.setScoreDetailJson(score.toJSONString());
+        return event;
+    }
+
+    public static class TargetShipAdapter {
+        private final String mmsi;
+        private final String imo;
+        private final String shipName;
+        private final String shipType;
+
+        public TargetShipAdapter(String mmsi, String imo, String shipName, String shipType) {
+            this.mmsi = mmsi;
+            this.imo = imo;
+            this.shipName = shipName;
+            this.shipType = shipType;
+        }
     }
 
     private void markFailedSafely(String batchNo, String mmsi,
