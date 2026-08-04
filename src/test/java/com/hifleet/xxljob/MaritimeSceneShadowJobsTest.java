@@ -41,4 +41,18 @@ public class MaritimeSceneShadowJobsTest {
         assertEquals(ReturnT.SUCCESS_CODE,
                 new MaritimeSceneShadowJobs(service).preflight(PARAMS).getCode());
     }
+
+    @Test
+    public void unimplementedShadowRunnerReturnsXxlJobFailure() {
+        MaritimeSceneShadowAuditService service = mock(MaritimeSceneShadowAuditService.class);
+        JSONObject blocked = new JSONObject();
+        blocked.put("status", "SHADOW_RUNNER_NOT_IMPLEMENTED");
+        when(service.run(PARAMS)).thenReturn(blocked);
+
+        ReturnT<String> result = new MaritimeSceneShadowJobs(service).shadowAudit(PARAMS);
+
+        assertEquals(ReturnT.FAIL_CODE, result.getCode());
+        assertEquals("SHADOW_RUNNER_NOT_IMPLEMENTED",
+                JSONObject.parseObject(result.getMsg()).getString("status"));
+    }
 }

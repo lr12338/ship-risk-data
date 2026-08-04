@@ -1,0 +1,8 @@
+# 安全默认值；区域行为 V1 只能 dry-run，禁止存候选和正式事件。
+ship.behavior.region.enabled=false
+ship.behavior.region.dry-run-only=true
+ship.behavior.region.output-root=/data/zhengyi/region-behavior-runs
+ship.behavior.region.max-region-area-sq-km=500
+ship.behavior.region.max-run-hours=24
+ship.behavior.region.max-candidate-vessels=100
+ship.behavior.region.max-query-slices=2000

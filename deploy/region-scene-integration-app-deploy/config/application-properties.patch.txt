@@ -1,0 +1,17 @@
+# 仅将以下增量人工合并到 /data/zhengyi/application.properties。
+# 不要覆盖数据库、XXL-JOB、端口、AIS/HBase 或其他任务配置。
+
+ship.behavior.maritime-scene.enabled=true
+ship.behavior.maritime-scene.mode=SHADOW
+ship.behavior.maritime-scene.snapshot-path=/data/zhengyi/maritime-scene/releases/phase1-global-base-v1
+ship.behavior.maritime-scene.expected-fingerprint=<SCENE_FINGERPRINT>
+ship.behavior.maritime-scene.policy-version=MARITIME_SCENE_SHADOW_V1
+ship.behavior.maritime-scene.audit.store-enabled=false
+
+ship.behavior.region.enabled=true
+ship.behavior.region.dry-run-only=true
+ship.behavior.region.output-root=/data/zhengyi/region-behavior-runs
+ship.behavior.region.max-region-area-sq-km=500
+ship.behavior.region.max-run-hours=24
+ship.behavior.region.max-candidate-vessels=100
+ship.behavior.region.max-query-slices=2000

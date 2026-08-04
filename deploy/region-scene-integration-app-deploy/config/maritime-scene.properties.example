@@ -1,0 +1,7 @@
+# 安全默认值；仅在 Release 校验通过后按 application-properties.patch.txt 启用 SHADOW。
+ship.behavior.maritime-scene.enabled=false
+ship.behavior.maritime-scene.mode=OFF
+ship.behavior.maritime-scene.snapshot-path=/data/zhengyi/maritime-scene/releases/phase1-global-base-v1
+ship.behavior.maritime-scene.expected-fingerprint=<SCENE_FINGERPRINT>
+ship.behavior.maritime-scene.policy-version=MARITIME_SCENE_SHADOW_V1
+ship.behavior.maritime-scene.audit.store-enabled=false

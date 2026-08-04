@@ -35,6 +35,19 @@ public final class RegionMatchedEvent {
     private long synchronizedInsideMinutes;
     private RegionMatchStatus regionMatchStatus;
     private RegionBehaviorStatus queryCompleteness = RegionBehaviorStatus.COMPLETE;
+    private String dominantMaritimeScene;
+    private String ownScene;
+    private String targetScene;
+    private String synchronizedScene;
+    private String sceneConfidence;
+    private String shadowDecision;
+    private String sceneSnapshotVersion;
+    private String sceneSnapshotFingerprint;
+    private Double coastDistanceMinNm;
+    private Double coastDistanceP50Nm;
+    private Double coastDistanceMaxNm;
+    private Double sceneUnknownRatio;
+    private Double sceneConflictRatio;
     private JSONObject sourceEvent;
 
     static RegionMatchedEvent from(ShipBehaviorEvent event) {
@@ -83,6 +96,19 @@ public final class RegionMatchedEvent {
     public long getSynchronizedInsideMinutes() { return synchronizedInsideMinutes; }
     public RegionMatchStatus getRegionMatchStatus() { return regionMatchStatus; }
     public RegionBehaviorStatus getQueryCompleteness() { return queryCompleteness; }
+    public String getDominantMaritimeScene() { return dominantMaritimeScene; }
+    public String getOwnScene() { return ownScene; }
+    public String getTargetScene() { return targetScene; }
+    public String getSynchronizedScene() { return synchronizedScene; }
+    public String getSceneConfidence() { return sceneConfidence; }
+    public String getShadowDecision() { return shadowDecision; }
+    public String getSceneSnapshotVersion() { return sceneSnapshotVersion; }
+    public String getSceneSnapshotFingerprint() { return sceneSnapshotFingerprint; }
+    public Double getCoastDistanceMinNm() { return coastDistanceMinNm; }
+    public Double getCoastDistanceP50Nm() { return coastDistanceP50Nm; }
+    public Double getCoastDistanceMaxNm() { return coastDistanceMaxNm; }
+    public Double getSceneUnknownRatio() { return sceneUnknownRatio; }
+    public Double getSceneConflictRatio() { return sceneConflictRatio; }
     public JSONObject getSourceEvent() { return sourceEvent; }
 
     void setIdentity(String batchNo, String regionId, String regionName, String fingerprint) {
@@ -107,6 +133,19 @@ public final class RegionMatchedEvent {
     void setSynchronizedInsideMinutes(long value) { this.synchronizedInsideMinutes = value; }
     void setRegionMatchStatus(RegionMatchStatus value) { this.regionMatchStatus = value; }
     public void setQueryCompleteness(RegionBehaviorStatus value) { this.queryCompleteness = value; }
+    void setDominantMaritimeScene(String value) { this.dominantMaritimeScene = value; }
+    void setOwnScene(String value) { this.ownScene = value; }
+    void setTargetScene(String value) { this.targetScene = value; }
+    void setSynchronizedScene(String value) { this.synchronizedScene = value; }
+    void setSceneConfidence(String value) { this.sceneConfidence = value; }
+    void setShadowDecision(String value) { this.shadowDecision = value; }
+    void setSceneSnapshotVersion(String value) { this.sceneSnapshotVersion = value; }
+    void setSceneSnapshotFingerprint(String value) { this.sceneSnapshotFingerprint = value; }
+    void setCoastDistanceMinNm(Double value) { this.coastDistanceMinNm = value; }
+    void setCoastDistanceP50Nm(Double value) { this.coastDistanceP50Nm = value; }
+    void setCoastDistanceMaxNm(Double value) { this.coastDistanceMaxNm = value; }
+    void setSceneUnknownRatio(Double value) { this.sceneUnknownRatio = value; }
+    void setSceneConflictRatio(Double value) { this.sceneConflictRatio = value; }
 
     private String normalizeTime(String value) {
         return value == null ? "" : RegionBehaviorTimes.format(RegionBehaviorTimes.parse(value));

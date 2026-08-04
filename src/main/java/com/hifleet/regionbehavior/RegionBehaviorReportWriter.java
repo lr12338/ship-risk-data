@@ -38,6 +38,13 @@ public class RegionBehaviorReportWriter {
     public Path write(RegionBehaviorJobParams params, RegionGeometry region,
                       RegionQueryPlan plan, RegionAisDiscoveryResult discovery,
                       RegionShipMetadataSummary metadata, RegionBehaviorRunResult runResult) {
+        return write(params, region, plan, discovery, metadata, runResult, "NO_OP");
+    }
+
+    public Path write(RegionBehaviorJobParams params, RegionGeometry region,
+                      RegionQueryPlan plan, RegionAisDiscoveryResult discovery,
+                      RegionShipMetadataSummary metadata, RegionBehaviorRunResult runResult,
+                      String eventContextEnricher) {
         Path root = Paths.get(config.getOutputRoot()).toAbsolutePath().normalize();
         Path directory = root.resolve(params.getBatchNo()).normalize();
         if (!directory.getParent().equals(root)) {
@@ -49,7 +56,8 @@ public class RegionBehaviorReportWriter {
                 throw new IllegalStateException("region behavior output already exists: " + directory);
             }
             Files.createDirectory(directory);
-            writeJson(directory.resolve("manifest.json"), manifest(params, region, runResult));
+            writeJson(directory.resolve("manifest.json"),
+                    manifest(params, region, runResult, eventContextEnricher));
             writeJson(directory.resolve("query-plan.json"), queryPlan(plan));
             writeJson(directory.resolve("discovery-summary.json"), discovery(discovery, metadata));
             writeGzipLines(directory.resolve("candidates.ndjson.gz"),
@@ -68,7 +76,7 @@ public class RegionBehaviorReportWriter {
     }
 
     private JSONObject manifest(RegionBehaviorJobParams params, RegionGeometry region,
-                                RegionBehaviorRunResult runResult) {
+                                RegionBehaviorRunResult runResult, String eventContextEnricher) {
         JSONObject json = runResult.summaryJson();
         json.put("schemaVersion", "region_behavior_v1");
         json.put("generatedAt", Instant.now().toString());
@@ -79,7 +87,7 @@ public class RegionBehaviorReportWriter {
         json.put("dryRun", true);
         json.put("storeCandidates", false);
         json.put("sourceMode", "REGION_DRIVEN");
-        json.put("eventContextEnricher", "NO_OP");
+        json.put("eventContextEnricher", eventContextEnricher);
         return json;
     }
 

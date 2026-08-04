@@ -137,7 +137,7 @@ public class RegionBehaviorRunService {
                     result.analysisFailure("LOITERING", candidate.getMmsi(), computed.getFailure());
                 }
                 for (ShipBehaviorTrace trace : computed.getTraces()) {
-                    loitering.add(contextEnricher.enrich(matcher.matchLoitering(trace)));
+                    loitering.add(enrichStrict(matcher.matchLoitering(trace), trace));
                 }
             }
             if (params.getBehaviorTypes().contains("ALONGSIDE")) {
@@ -147,7 +147,7 @@ public class RegionBehaviorRunService {
                     result.analysisFailure("ALONGSIDE", candidate.getMmsi(), computed.getFailure());
                 }
                 for (ShipBehaviorTrace trace : computed.getTraces()) {
-                    alongside.add(contextEnricher.enrich(matcher.matchAlongside(trace)));
+                    alongside.add(enrichStrict(matcher.matchAlongside(trace), trace));
                 }
             }
         }
@@ -164,9 +164,15 @@ public class RegionBehaviorRunService {
                 event.setQueryCompleteness(RegionBehaviorStatus.PARTIAL);
             }
         }
-        Path output = reportWriter.write(params, region, plan, discovery, metadata, result);
+        Path output = reportWriter.write(params, region, plan, discovery, metadata, result,
+                contextEnricher.name());
         result.setOutputDirectory(output.toString());
         return result;
+    }
+
+    private RegionMatchedEvent enrichStrict(RegionMatchedEvent event, ShipBehaviorTrace trace) {
+        return event.getRegionMatchStatus() == RegionMatchStatus.STRICT_CORE
+                ? contextEnricher.enrich(event, trace) : event;
     }
 
     private void addMatched(RegionBehaviorRunResult result, List<RegionMatchedEvent> events) {

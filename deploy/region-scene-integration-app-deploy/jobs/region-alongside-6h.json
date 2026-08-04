@@ -1,0 +1,13 @@
+{
+  "mode": "region_behavior_v1",
+  "regionId": "region-alongside-6h",
+  "regionName": "区域搭靠六小时",
+  "polygonWkt": "<POLYGON_WKT>",
+  "startTime": "<START_TIME>",
+  "endTime": "<END_TIME>",
+  "behaviorTypes": ["ALONGSIDE"],
+  "maxCandidateVessels": 100,
+  "batchNo": "region-alongside-6h-<BATCH_SUFFIX>",
+  "dryRun": true,
+  "storeCandidates": false
+}
