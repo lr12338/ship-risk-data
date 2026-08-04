@@ -42,12 +42,12 @@ tools/maritime-scene-etl/bin/scene-etl jrc-sample --lon 121.5 --lat 31.5 --json
 ```bash
 tools/maritime-scene-etl/bin/scene-etl normalize --all --bbox 120.5,30.5,122.5,32.0
 tools/maritime-scene-etl/bin/scene-etl build --release phase1-smoke-shanghai --bbox 120.5,30.5,122.5,32.0
-tools/maritime-scene-etl/bin/scene-etl build --release phase1-20260803-v1
-tools/maritime-scene-etl/bin/scene-etl validate --release phase1-20260803-v1
-tools/maritime-scene-etl/bin/scene-etl fingerprint --release phase1-20260803-v1
-tools/maritime-scene-etl/bin/scene-etl report --release phase1-20260803-v1
+tools/maritime-scene-etl/bin/scene-etl estimate-build --release phase1-global-base-v1 --json
+tools/maritime-scene-etl/bin/scene-etl build --release phase1-global-base-v1
+tools/maritime-scene-etl/bin/scene-etl validate --release phase1-global-base-v1
+tools/maritime-scene-etl/bin/scene-etl fingerprint --release phase1-global-base-v1
+tools/maritime-scene-etl/bin/scene-etl report --release phase1-global-base-v1
 tools/maritime-scene-etl/bin/scene-etl golden-candidates --release phase1-smoke-shanghai --json
-tools/maritime-scene-etl/bin/scene-etl estimate-build --scope global --json
 tools/maritime-scene-etl/bin/scene-etl validate --release phase1-smoke-shanghai-autocross-v1 --json
 tools/maritime-scene-etl/bin/scene-etl release-status --release phase1-smoke-shanghai-autocross-v1 \
   --status SHADOW_READY --policy-version MARITIME_SCENE_SHADOW_V1 --json
@@ -62,9 +62,9 @@ tools/maritime-scene-etl/bin/scene-etl release-status --release phase1-smoke-sha
 | 数据源 | 目标版本/产品 | 处理边界 |
 | --- | --- | --- |
 | Marine Regions | World EEZ v12、12NM v4、Internal Waters v4、Archipelagic Waters v4、High Seas v2 | 官方下载需要接受免责声明，保留 `MANUAL_ACTION_REQUIRED`；不把边界描述为航海或法律裁决 |
-| HydroSHEDS | HydroRIVERS v1、HydroLAKES v1 | 通过官方产品直链下载；河流字段按配置候选动态解析，并要求河流阶次 ≥5 且平均流量 ≥10 m³/s，湖泊优先使用源面积字段并支持测地线回退 |
+| HydroSHEDS | HydroRIVERS v1、HydroLAKES v1 | 河流要求 `ORD_FLOW >= 5 AND DIS_AV_CMS >= 10`，米制走廊默认 LOW；湖泊使用实际 `Lake_area` 字段且保留至少 50 km² 的湖泊/水库 |
 | NOAA NCEI/SOEST GSHHG | v2.3.7 | 只处理 `h` high resolution 下的 `L1` land/ocean 边界；明确不处理 Full resolution |
-| OpenStreetMap/Geofabrik | Egypt、Panama、Schleswig-Holstein PBF | 只产出 Suez/Panama/Kiel 目录中的候选；目前 `REVIEW_REQUIRED`，不进入批准的 `major_canal` 场景层 |
+| OpenStreetMap/Geofabrik | Egypt、Panama、Schleswig-Holstein PBF | 只产出 Suez/Panama/Kiel 已核对的固定 way ID 白名单；缺失 ID 或连通性失败时 fail-closed |
 | Joint Research Centre / Global Surface Water | GSW1_5-2024，1984–2024，30 m | 官方 10°×10° GeoTIFF；Occurrence、Seasonality、Recurrence、Extent 只作为水面证据，不替代 Marine Regions 法域或航海判断 |
 
 OSM 最新区域 PBF 是可变下载对象，清单保留获取时的 HTTP 元数据。Marine Regions 的官方免责声明和各数据源许可证/署名随 release 一起保存，不将未知的法律边界含义写进业务规则。
@@ -91,11 +91,11 @@ MANUAL_ACTION_REQUIRED
 
 - `validation/layer-overlap-matrix.json/csv`：预定义 15 组图层关系，区分 `EXPECTED_OVERLAP`、边界接触和 `CONFLICT`；`river/lake/canal × land` 是可解释的预期重叠。
 - `validation/coast-distance-report.json`：按本地投影计算到 GSHHG 海岸线的海里距离，并支持跨 1° 瓦片搜索。
-- `validation/auto-samples.json`、`auto-samples-report.json`：自动生成 Land、River、Lake、Marine、Boundary、Negative 样本；不构成人工真值，未知和冲突单独统计。
+- `validation/auto-samples.json`、`auto-samples-report.json`：分别统计 `BLOCKING_CORE`、`NON_BLOCKING_CANDIDATE` 和 `BOUNDARY_EXPECTED`；核心内部样本门槛为 98%。
 - `validation/cross-source-validation.json`：几何自洽与跨源一致性分开报告；没有 JRC 覆盖时不会把水面证据升级为高置信。
 - `validation/automatic-validation.json`、`qa/conflicts.gpkg` 和冲突 NDJSON：严重冲突定位后默认不阻塞 Shadow，但不得伪装为无冲突。
 
-高置信规则要求河流/湖泊有几何与 JRC 稳定水面证据，海域分类还要通过海岸距离和边界策略；`UNKNOWN`、`CONFLICT` 不是硬排除条件，也不会升级为高置信。GSHHG `land` 与河流、湖泊的重叠是来源语义关系，不表示把河道从陆地数据中裁掉。
+高置信湖泊依赖面积、有效几何和边界容差；批准运河依赖固定白名单和连通校验。河流默认 LOW，只有运行时水面支持和连续 episode 才可升 HIGH。`UNKNOWN`、`CONFLICT` 不是硬排除条件。GSHHG `land` 与河流、湖泊的重叠是来源语义关系。
 
 ## 输出层
 

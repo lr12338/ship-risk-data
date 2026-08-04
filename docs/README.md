@@ -10,6 +10,8 @@
 
 - [海域场景数据离线 ETL](maritime-scene-data-etl.md)：第一阶段官方数据登记、下载校验、标准化、瓦片、QA 和发布命令。
 - [海域场景 Shadow 接入](maritime-scene-shadow-integration.md)：`SHADOW_READY` 快照门禁、Java 独立服务、5,000 艘目标任务参数、审计与回滚。
+- [Maritime Scene 全球基础数据 V1](maritime-scene-global-base.md)：全球向量数据范围、资源计划、覆盖状态、验证与发布边界。
+- [全球基础区域规则契约](maritime-scene-global-base-rule-contract.md)：点级置信度、episode Shadow 结果和 UNKNOWN/CONFLICT 保守语义。
 
 - [搭靠模块开发文档](ship-alongside-development.md)：搭靠任务链路、召回、
   检测、评分、落库和排障。

@@ -23,6 +23,7 @@ ship.behavior.maritime-scene.policy-version=MARITIME_SCENE_SHADOW_V1
 ship.behavior.maritime-scene.cache.max-tiles=64
 ship.behavior.maritime-scene.boundary-tolerance-meters=1000
 ship.behavior.maritime-scene.coast-search-radius-nm=60
+ship.behavior.maritime-scene.offshore-min-coast-distance-nm=12
 ship.behavior.maritime-scene.high-inland-point-ratio=0.90
 ship.behavior.maritime-scene.min-inland-minutes=60
 ship.behavior.maritime-scene.open-water-point-ratio=0.90
@@ -34,7 +35,7 @@ ship.behavior.maritime-scene.audit.store-enabled=false
 
 ## 点级与 episode 输出
 
-点级结果包含 `sceneClass`、`confidence`、来源证据、海岸距离、边界距离、快照版本、fingerprint、policy version 和 `conflictFlag`。River/Lake/Canal 与 GSHHG `land` 的来源重叠不自动视为冲突；River 没有 JRC 或运行时水面支持时最多为 `LOW`，不升级为高置信。`UNKNOWN` 和 `CONFLICT` 单独统计，不能被当成高置信开放水域。
+点级结果包含 `sceneClass`、`confidence`、来源证据、海岸距离、边界距离、快照版本、fingerprint、policy version 和 `conflictFlag`。River/Lake/Canal 与 GSHHG `land` 重叠不自动视为冲突；River 无运行时水面支持时最多为 `LOW`。大型湖泊和已审核运河在几何内部可作 HIGH Shadow 证据。`UNKNOWN` 和 `CONFLICT` 不能被当成高置信开放水域。
 
 episode 聚合包含各场景比例、dominant scene/confidence、转场次数、未知/冲突比例和海岸距离 min/p50/max。Shadow 决策只允许：
 
@@ -69,7 +70,7 @@ Preflight。
   "startTime": "2025-07-01 00:00:00",
   "endTime": "2026-07-01 00:00:00",
   "batchNo": "maritime-scene-shadow-202608-v1",
-  "sceneSnapshotVersion": "phase1-smoke-shanghai-autocross-v1",
+  "sceneSnapshotVersion": "phase1-global-base-v1",
   "expectedSceneFingerprint": "<manifest.snapshotFingerprint>",
   "scenePolicyVersion": "MARITIME_SCENE_SHADOW_V1",
   "behaviorTypes": ["LOITERING", "ALONGSIDE"],

@@ -4,7 +4,7 @@
 
 ## 当前门禁
 
-数据仅覆盖上海 `[120.5,30.5,122.5,32.0]`。Preflight 可以执行；当前 Shadow Audit Handler 只返回 READY，尚未遍历名单/AIS episode，因此 100/500/5,000 参数是已校验的分阶段模板，不是本轮可运行授权。全球 5,000 艘还需要覆盖真实轨迹范围的全球或分区 Release。
+数据为 `phase1-global-base-v1` 全球向量基础版，没有全球 JRC。当前 Shadow Audit Handler 明确返回 `SHADOW_RUNNER_NOT_IMPLEMENTED` 并使 XXL-JOB 失败；本包只允许 Preflight，不得运行 100/500/5,000，不得启用 ENFORCE。Preflight 内部状态只有 `PASS` 才返回 XXL-JOB SUCCESS，`SHADOW_BLOCKED`、`SHADOW_DISABLED` 或校验失败均返回 FAIL。
 
 ## 1. 上传前检查
 
@@ -22,7 +22,7 @@ ss -lntp | grep -E ':(8090|30008)'
 ## 2. 本地待上传
 
 - `app/ship-risk-data-0.0.1-SNAPSHOT.jar`
-- `scene-release/phase1-smoke-shanghai-autocross-v1/`
+- `scene-release/phase1-global-base-v1/`
 - `config/application-properties.patch.txt`
 - `sql/*.sql`
 - `checksums.sha256`
@@ -35,14 +35,14 @@ mkdir -p "$BACKUP_ROOT/$STAMP"
 cp "$APP_HOME/ship-risk-data-0.0.1-SNAPSHOT.jar" "$BACKUP_ROOT/$STAMP/"
 cp "$APP_HOME/application.properties" "$BACKUP_ROOT/$STAMP/"
 cp "$APP_HOME/start.sh" "$APP_HOME/stop.sh" "$BACKUP_ROOT/$STAMP/"
-test ! -d "$SCENE_HOME/releases/phase1-smoke-shanghai-autocross-v1" || cp -a "$SCENE_HOME/releases/phase1-smoke-shanghai-autocross-v1" "$BACKUP_ROOT/$STAMP/"
+test ! -d "$SCENE_HOME/releases/phase1-global-base-v1" || cp -a "$SCENE_HOME/releases/phase1-global-base-v1" "$BACKUP_ROOT/$STAMP/"
 ```
 
 ## 4. 分离 JAR 与数据
 
 ```bash
 mkdir -p "$SCENE_HOME/releases"
-cp -a scene-release/phase1-smoke-shanghai-autocross-v1 "$SCENE_HOME/releases/"
+cp -a scene-release/phase1-global-base-v1 "$SCENE_HOME/releases/"
 cp app/ship-risk-data-0.0.1-SNAPSHOT.jar "$APP_HOME/ship-risk-data-0.0.1-SNAPSHOT.jar.new"
 ```
 
@@ -50,8 +50,8 @@ cp app/ship-risk-data-0.0.1-SNAPSHOT.jar "$APP_HOME/ship-risk-data-0.0.1-SNAPSHO
 
 ```bash
 sha256sum "$APP_HOME/ship-risk-data-0.0.1-SNAPSHOT.jar.new"
-jq '.releaseVersion,.snapshotFingerprint,.validationSummary.releaseStatus' "$SCENE_HOME/releases/phase1-smoke-shanghai-autocross-v1/manifest.json"
-find "$SCENE_HOME/releases/phase1-smoke-shanghai-autocross-v1/tiles" -name '*.ndjson.gz' | wc -l
+jq '.releaseVersion,.snapshotFingerprint,.validationSummary.releaseStatus,.globalCoverage' "$SCENE_HOME/releases/phase1-global-base-v1/manifest.json"
+find "$SCENE_HOME/releases/phase1-global-base-v1/tiles" -name '*.ndjson.gz' | wc -l
 ```
 
 ## 5. 只追加配置
