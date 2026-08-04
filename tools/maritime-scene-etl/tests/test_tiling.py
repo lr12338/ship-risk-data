@@ -50,6 +50,25 @@ def test_polygon_is_clipped_but_keeps_source_boundary_evidence(tmp_path: Path):
     assert geometry_from_wkb_hex(west["geometryWkbHex"]).bounds == (0.5, 0.2, 1.0, 0.8)
 
 
+def test_invalid_polygon_is_repaired_before_tile_clipping(tmp_path: Path):
+    from shapely.geometry import Polygon
+
+    geometry = Polygon([
+        (179.8, 68.4), (180.0, 68.6),
+        (179.8, 68.6), (180.0, 68.4), (179.8, 68.4),
+    ])
+    assert not geometry.is_valid
+    record = scene_record("land", "test", "v1", "invalid", geometry,
+                          "VALID_ORIGINAL", "TEST", "HIGH", {})
+
+    counts = tile_records([record], tmp_path)
+
+    assert counts
+    for output in tmp_path.glob("*.scene.ndjson.gz"):
+        for tiled in iter_normalized_records(output):
+            assert geometry_from_wkb_hex(tiled["geometryWkbHex"]).is_valid
+
+
 def test_tile_gzip_bytes_are_deterministic(tmp_path: Path):
     from shapely.geometry import Point
 

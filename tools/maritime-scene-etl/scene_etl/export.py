@@ -125,6 +125,10 @@ def tile_records(
     try:
         for record in records:
             geometry = geometry_from_wkb_hex(record["geometryWkbHex"])
+            if not geometry.is_valid:
+                from shapely import make_valid
+
+                geometry = make_valid(geometry)
             for tile in tiles_for_bounds(geometry.bounds, tile_size):
                 from shapely.geometry import box
 
