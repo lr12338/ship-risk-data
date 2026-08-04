@@ -20,4 +20,4 @@ buffer_meters_by_order:
   "5": 100
   default: 80
 estuary_low_confidence_distance_km: 25
-fallback_confidence: MEDIUM
+fallback_confidence: LOW

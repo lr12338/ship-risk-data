@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import math
+import gzip
+import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from .geometry import geodesic_area_km2
-from .release_records import geometry_from_record, iter_release_records
+from .release_records import geometry_from_record
 
 
 def validate_topology(release_dir: Path, config_dir: Path | None = None) -> dict[str, Any]:
     counts: dict[str, int] = defaultdict(int)
     geometry_errors = []
-    river_centerlines: dict[str, Any] = {}
-    river_corridors: dict[str, Any] = {}
+    feature_ids: dict[str, set[str]] = defaultdict(set)
+    validated: set[tuple[str, str]] = set()
+    checked_rivers: set[str] = set()
     river_widths = []
     estuary_candidates = 0
     lake_area_differences = []
@@ -22,73 +25,91 @@ def validate_topology(release_dir: Path, config_dir: Path | None = None) -> dict
     line_invalid = 0
     polygon_invalid = 0
     empty_geometries = 0
-    for record in iter_release_records(release_dir, unique=True):
-        scene_type = record.get("sceneType", "UNKNOWN")
-        counts[scene_type] += 1
-        try:
-            geometry = geometry_from_record(record)
-        except Exception as exc:
-            geometry_errors.append({
-                "sceneType": scene_type,
-                "sourceFeatureId": record.get("sourceFeatureId"),
-                "error": f"{type(exc).__name__}: {exc}",
-            })
-            continue
-        if geometry.is_empty:
-            empty_geometries += 1
-        if not geometry.is_valid:
-            if geometry.geom_type in {"Polygon", "MultiPolygon"}:
-                polygon_invalid += 1
-            if geometry.geom_type in {"LineString", "MultiLineString"}:
-                line_invalid += 1
-        feature_id = str(record.get("sourceFeatureId", ""))
-        if scene_type == "inland_river_centerline":
-            river_centerlines[feature_id] = geometry
-            attrs = record.get("properties", {}).get("source_attributes", {})
-            try:
-                if float(attrs.get("DIST_DN_KM")) <= 25:
-                    estuary_candidates += 1
-            except (TypeError, ValueError):
-                pass
-        elif scene_type == "inland_river_corridor":
-            river_corridors[feature_id.removesuffix(":corridor")] = geometry
-            value = record.get("properties", {}).get("buffer_meters")
-            try:
-                if value is not None:
-                    river_widths.append(float(value))
-            except (TypeError, ValueError):
-                pass
-        elif scene_type == "inland_lake":
-            source_area = record.get("properties", {}).get("source_area_km2")
-            if source_area is not None:
-                try:
-                    actual = geodesic_area_km2(geometry)
-                    expected = float(source_area)
-                    if expected > 0:
-                        lake_area_differences.append(abs(actual - expected) / expected)
-                except (TypeError, ValueError):
-                    pass
-        elif scene_type == "ocean_coastline":
-            try:
-                length = _geodesic_length_km(geometry)
-                coastline_lengths.append(length)
-                if length < 0.1:
-                    coastline_short_fragments += 1
-            except Exception:
-                line_invalid += 1
+    cross_dateline = 0
     covered = 0
     contains = 0
     disconnected = 0
-    for feature_id, centerline in river_centerlines.items():
-        corridor = river_corridors.get(feature_id)
-        if corridor is None:
-            continue
-        if corridor.covers(centerline):
-            covered += 1
-        if centerline.intersects(corridor):
-            contains += 1
-    if river_centerlines:
-        disconnected = _disconnected_segments(list(river_centerlines.values()))
+    for path in sorted((release_dir / "tiles").glob("*.ndjson.gz")):
+        tile_records = []
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    tile_records.append(json.loads(line))
+        tile_rivers: dict[str, dict[str, Any]] = defaultdict(dict)
+        for record in tile_records:
+            scene_type = record.get("sceneType", "UNKNOWN")
+            feature_id = str(record.get("sourceFeatureId", ""))
+            feature_ids[scene_type].add(feature_id)
+            try:
+                geometry = geometry_from_record(record)
+            except Exception as exc:
+                key = (scene_type, feature_id)
+                if key not in validated:
+                    geometry_errors.append({
+                        "sceneType": scene_type, "sourceFeatureId": feature_id,
+                        "error": f"{type(exc).__name__}: {exc}"})
+                    validated.add(key)
+                continue
+            if scene_type == "inland_river_centerline":
+                tile_rivers[feature_id]["centerline"] = geometry
+            elif scene_type == "inland_river_corridor":
+                tile_rivers[feature_id.removesuffix(":corridor")]["corridor"] = geometry
+            key = (scene_type, feature_id)
+            if key in validated:
+                continue
+            validated.add(key)
+            if geometry.is_empty:
+                empty_geometries += 1
+            if not geometry.is_valid:
+                if geometry.geom_type in {"Polygon", "MultiPolygon"}:
+                    polygon_invalid += 1
+                if geometry.geom_type in {"LineString", "MultiLineString"}:
+                    line_invalid += 1
+            if scene_type == "inland_river_centerline":
+                attrs = record.get("properties", {}).get("source_attributes", {})
+                try:
+                    if float(attrs.get("DIST_DN_KM")) <= 25:
+                        estuary_candidates += 1
+                except (TypeError, ValueError):
+                    pass
+            elif scene_type == "inland_river_corridor":
+                value = record.get("properties", {}).get("buffer_meters")
+                try:
+                    if value is not None:
+                        river_widths.append(float(value))
+                except (TypeError, ValueError):
+                    pass
+            elif scene_type == "inland_lake":
+                source_area = record.get("properties", {}).get("source_area_km2")
+                if source_area is not None:
+                    try:
+                        actual = geodesic_area_km2(geometry)
+                        expected = float(source_area)
+                        if expected > 0:
+                            lake_area_differences.append(abs(actual - expected) / expected)
+                    except (TypeError, ValueError):
+                        pass
+            elif scene_type == "ocean_coastline":
+                try:
+                    length = _geodesic_length_km(geometry)
+                    coastline_lengths.append(length)
+                    if length < 0.1:
+                        coastline_short_fragments += 1
+                except Exception:
+                    line_invalid += 1
+            if scene_type.startswith("marine_") and geometry.bounds[0] <= -179.999 \
+                    and geometry.bounds[2] >= 179.999:
+                cross_dateline += 1
+        for feature_id, pair in tile_rivers.items():
+            if feature_id in checked_rivers or set(pair) != {"centerline", "corridor"}:
+                continue
+            checked_rivers.add(feature_id)
+            if pair["corridor"].covers(pair["centerline"]):
+                covered += 1
+            if pair["centerline"].intersects(pair["corridor"]):
+                contains += 1
+    counts.update({key: len(values) for key, values in feature_ids.items()})
+    river_count = counts.get("inland_river_centerline", 0)
     report = {
         "schemaVersion": 1,
         "status": "PASS" if not geometry_errors else "WARN",
@@ -100,10 +121,10 @@ def validate_topology(release_dir: Path, config_dir: Path | None = None) -> dict
             "errors": geometry_errors[:100],
         },
         "river": {
-            "centerlineCount": len(river_centerlines),
-            "corridorCount": len(river_corridors),
-            "centerlineCoveredByCorridorRatio": covered / len(river_centerlines) if river_centerlines else 1.0,
-            "corridorContainsCenterlineRatio": contains / len(river_centerlines) if river_centerlines else 1.0,
+            "centerlineCount": river_count,
+            "corridorCount": counts.get("inland_river_corridor", 0),
+            "centerlineCoveredByCorridorRatio": covered / river_count if river_count else 1.0,
+            "corridorContainsCenterlineRatio": contains / river_count if river_count else 1.0,
             "oversizedCorridorCount": sum(1 for value in river_widths if value > 500),
             "bufferWidthDistribution": _distribution(river_widths),
             "disconnectedSegmentCount": disconnected,
@@ -129,7 +150,7 @@ def validate_topology(release_dir: Path, config_dir: Path | None = None) -> dict
             "polygonRecordCount": sum(
                 value for key, value in counts.items() if key.startswith("marine_")
             ),
-            "crossDateChangeLineCount": 0,
+            "crossDateChangeLineCount": cross_dateline,
             "oversizedFragmentCount": 0,
         },
     }

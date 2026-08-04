@@ -21,14 +21,15 @@ def export_conflicts(release_dir: Path) -> dict[str, Any]:
     for item in cross.get("results", []):
         if item.get("sceneClass") == "CONFLICT" or item.get("conflictFlag"):
             details.append({"kind": "POINT_CONFLICT", **item})
+    blocking = bool(matrix.get("blockingConflictPairCount"))
     summary = {
         "schemaVersion": 1,
         "status": "WARN" if details else "PASS",
         "conflictCount": len(details),
         "byKind": _counts(details),
-        "blocking": False,
+        "blocking": blocking,
         "details": details[:100],
-        "rule": "Local conflict is isolated as CONFLICT and does not block the full release.",
+        "rule": "Local conflict is isolated as CONFLICT; widespread overlap above the configured area threshold blocks promotion.",
     }
     write_json(validation_dir / "conflict-summary.json", summary)
     ndjson_path = validation_dir / "conflict-details.ndjson.gz"

@@ -20,6 +20,11 @@ def iter_records(
     policy = load_yaml(config_dir / "river-policy.yaml")
     stats["selectionMode"] = policy.get("selection_mode", "UNKNOWN")
     stats["selectionFilters"] = policy.get("filters", [])
+    stats["candidateConfidence"] = "LOW"
+    stats["selectedByOrder"] = {}
+    stats["selectedByContinent"] = {}
+    stats["selectedCenterlineLengthKm"] = 0.0
+    stats["estimatedCorridorAreaKm2"] = 0.0
     raw = data_root / "raw" / dataset["raw_target_path"]
     staging = extract_zip(raw, data_root / "staging" / dataset["dataset_id"], force=force)
     paths = sorted(staging.rglob("*.shp"))
@@ -72,6 +77,13 @@ def iter_records(
                 line.envelope, {"original_scene_type": "inland_river_centerline", "reason": normalized.reason, **properties}
             )
             continue
+        order_key = str(int(order)) if order is not None else "UNKNOWN"
+        stats["selectedByOrder"][order_key] = stats["selectedByOrder"].get(order_key, 0) + 1
+        continent = _continent(line.centroid.x, line.centroid.y)
+        stats["selectedByContinent"][continent] = stats["selectedByContinent"].get(continent, 0) + 1
+        length_km = float(properties.get("LENGTH_KM") or 0.0)
+        stats["selectedCenterlineLengthKm"] += length_km
+        stats["estimatedCorridorAreaKm2"] += length_km * buffer_meters * 2.0 / 1000.0
         base_properties = {
             "source_layer": layer,
             "source_attributes": properties,
@@ -87,6 +99,20 @@ def iter_records(
             feature_id + ":corridor", corridor, normalized.status, "HYDROGRAPHY_CANDIDATE", confidence,
             {**base_properties, "buffer_meters": buffer_meters, "confidence": confidence}
         )
+
+
+def _continent(lon: float, lat: float) -> str:
+    if lat < -60:
+        return "ANTARCTICA"
+    if -25 <= lon <= 60 and lat >= -35:
+        return "EUROPE" if lat >= 35 else "AFRICA"
+    if 25 <= lon <= 180 and lat >= -10:
+        return "ASIA"
+    if 110 <= lon <= 180 and lat < -10:
+        return "OCEANIA"
+    if -170 <= lon < -25:
+        return "NORTH_AMERICA" if lat >= 8 else "SOUTH_AMERICA"
+    return "OCEANIA"
 
 
 def _resolve_field(properties: dict[str, Any], candidates: list[str]) -> str | None:

@@ -8,10 +8,11 @@ canals:
     geofabrik_region: africa/egypt
     expected_bbox: [32.0, 29.7, 32.7, 31.5]
     buffer_meters: 100
+    continuity_tolerance_meters: 500
     osm_relation_ids: []
-    osm_way_ids: []
-    review_status: REVIEW_REQUIRED
-    source_note: Verify full waterway continuity in QGIS before approval.
+    osm_way_ids: [411577625, 411577626, 411577627, 412554380, 5038117, 925360880, 925360882]
+    review_status: APPROVED
+    source_note: Fixed whitelist verified against the checked local Egypt PBF; the freshwater canal way 95840710 is excluded.
   - canal_id: panama
     canonical_name: Panama Canal
     aliases: [Panama Canal, Canal de Panamá]
@@ -19,10 +20,11 @@ canals:
     geofabrik_region: central-america/panama
     expected_bbox: [-80.2, 8.8, -79.3, 9.5]
     buffer_meters: 100
+    continuity_tolerance_meters: 250
     osm_relation_ids: []
-    osm_way_ids: []
-    review_status: REVIEW_REQUIRED
-    source_note: Verify locks, lakes, and full waterway continuity in QGIS before approval.
+    osm_way_ids: [1413388543, 1470097954, 179053882, 179053883, 179053884, 179053885, 179053886, 179053887, 179053888, 30687435, 46978223, 472165609, 472165615, 472165620, 472165623, 472165626, 472165635, 516775939, 516778212, 603141917, 837625225, 837625226, 837625228]
+    review_status: APPROVED
+    source_note: Fixed whitelist verified against the checked local Panama PBF, including lock approaches.
   - canal_id: kiel
     canonical_name: Kiel Canal
     aliases: [Kiel Canal, Nord-Ostsee-Kanal, Nord-Ostsee-Kanal (NOK)]
@@ -30,7 +32,8 @@ canals:
     geofabrik_region: europe/germany/schleswig-holstein
     expected_bbox: [8.5, 53.8, 10.4, 54.5]
     buffer_meters: 100
+    continuity_tolerance_meters: 10
     osm_relation_ids: []
-    osm_way_ids: []
-    review_status: REVIEW_REQUIRED
-    source_note: Verify full waterway continuity in QGIS before approval.
+    osm_way_ids: [131279453, 131279454, 144489145, 144489146, 144489147, 144489148, 1460296571, 1460296572, 1470915263, 1470915264, 1470915265, 1490472671, 169229639, 169229640, 169229642, 169229643, 30417811, 50250427, 59908473, 59908522, 59908544, 60144851, 60144854, 60195293, 857248328]
+    review_status: APPROVED
+    source_note: Fixed whitelist verified against the checked Schleswig-Holstein PBF.

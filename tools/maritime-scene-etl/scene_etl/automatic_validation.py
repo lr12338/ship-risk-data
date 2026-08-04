@@ -33,7 +33,9 @@ def run_automatic_validation(
         ).get("samples", []),
     )
     conflicts = export_conflicts(release_dir)
-    fatal = bool(topology.get("geometry", {}).get("parseErrorCount"))
+    fatal = bool(topology.get("geometry", {}).get("parseErrorCount")) \
+        or auto_samples.get("status") == "FAIL" \
+        or bool(overlap.get("blockingConflictPairCount"))
     report = {
         "schemaVersion": 1,
         "status": "FAILED" if fatal else ("WARN" if conflicts.get("conflictCount") else "PASS"),
@@ -43,12 +45,14 @@ def run_automatic_validation(
             "status": overlap.get("status"),
             "requiredPairCount": overlap.get("requiredPairCount"),
             "conflictPairCount": overlap.get("conflictPairCount"),
+            "blockingConflictPairCount": overlap.get("blockingConflictPairCount"),
         },
         "coastDistance": coast,
         "autoSamples": {
             "status": auto_samples.get("status"),
             "sampleCount": auto_samples.get("sampleCount"),
             "failedCount": auto_samples.get("failedCount"),
+            "categories": auto_samples.get("categories"),
         },
         "crossSource": {
             "status": cross.get("status"),
@@ -59,7 +63,7 @@ def run_automatic_validation(
         "conflicts": {
             "status": conflicts.get("status"),
             "count": conflicts.get("conflictCount"),
-            "blocking": False,
+            "blocking": bool(overlap.get("blockingConflictPairCount")),
         },
         "manualSpotCheck": {"status": "NOT_PERFORMED", "blocking": False},
         "evidencePolicy": {

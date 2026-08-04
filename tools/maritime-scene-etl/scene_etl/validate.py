@@ -112,10 +112,11 @@ def _status_rank(status: str | None) -> int:
     return {
         "RAW_VERIFIED": 0,
         "GEOMETRY_VALIDATED": 1,
-        "AUTO_CROSS_VALIDATED": 2,
-        "SHADOW_READY": 3,
-        "ENFORCE_CANDIDATE": 4,
-        "ENFORCE_READY": 5,
+        "GLOBAL_CORE_VALIDATED": 2,
+        "AUTO_CROSS_VALIDATED": 3,
+        "SHADOW_READY": 4,
+        "ENFORCE_CANDIDATE": 5,
+        "ENFORCE_READY": 6,
     }.get(status or "", -1)
 
 

@@ -45,7 +45,6 @@ def classify_point(
     hit_types = {record.get("sceneType") for record in hit_records}
     conflict = _has_conflict(hit_types)
     water_high = bool(jrc.get("jrcStableWater"))
-    jrc_available = bool(jrc.get("jrcCoverageAvailable"))
     coast_label = classify_coast_distance(coast_distance_nm, policy) if policy else "UNKNOWN"
     evidence = {
         "sourceHits": sorted(item for item in hit_types if item),
@@ -77,15 +76,14 @@ def classify_point(
         if water_high:
             return _decision("INLAND_RIVER", "HIGH", evidence, False)
         if runtime_water_support:
-            return _decision("INLAND_RIVER", "MEDIUM", evidence, False)
+            return _decision("INLAND_RIVER", "HIGH", evidence, False)
         if "land" in hit_types:
             return _decision("INLAND_RIVER", "LOW", evidence, False)
         return _decision("UNKNOWN", "UNKNOWN", evidence, False)
     if "inland_lake" in hit_types:
-        if water_high:
+        if any(item.get("confidence") == "HIGH" for item in hit_records
+               if item.get("sceneType") == "inland_lake"):
             return _decision("INLAND_LAKE", "HIGH", evidence, False)
-        if not jrc_available:
-            return _decision("INLAND_LAKE", "LOW", evidence, False)
         return _decision("UNKNOWN", "UNKNOWN", evidence, False)
     if "major_canal" in hit_types:
         approved = any(
@@ -93,17 +91,18 @@ def classify_point(
             for item in hit_records
             if item.get("sceneType") == "major_canal"
         )
-        if approved and (water_high or runtime_water_support):
+        if approved:
             return _decision("MAJOR_CANAL", "HIGH", evidence, False)
         return _decision("UNKNOWN", "UNKNOWN", evidence, False)
+    if "land" in hit_types and hit_types.intersection({
+        "marine_high_seas", "marine_eez", "marine_territorial_sea",
+        "marine_internal_water", "marine_archipelagic_water",
+    }):
+        return _decision("BOUNDARY_UNCERTAIN", "LOW", evidence, False)
     if "land" in hit_types:
         if jrc.get("jrcEvidenceClass") in {"STABLE_WATER_HIGH", "WATER_MEDIUM"}:
             return _decision("UNKNOWN", "UNKNOWN", evidence, False)
         return _decision("LAND", "HIGH", evidence, False)
-    if "marine_high_seas" in hit_types:
-        if coast_label in {"VERY_NEAR_COAST", "COASTAL", "UNKNOWN"}:
-            return _decision("BOUNDARY_UNCERTAIN", "LOW", evidence, False)
-        return _decision("HIGH_SEAS", "HIGH", evidence, False)
     if "marine_internal_water" in hit_types:
         return _decision("MARITIME_INTERNAL_WATER", "MEDIUM", evidence, False)
     if "marine_archipelagic_water" in hit_types:
@@ -113,9 +112,14 @@ def classify_point(
             return _decision("BOUNDARY_UNCERTAIN", "LOW", evidence, False)
         return _decision("TERRITORIAL_SEA", "MEDIUM", evidence, False)
     if "marine_eez" in hit_types:
-        if coast_label in {"VERY_NEAR_COAST", "COASTAL", "UNKNOWN"}:
+        offshore_min = float(policy.get("offshore_min_coast_distance_nm", 12.0))
+        if coast_distance_nm is None or coast_distance_nm < offshore_min:
             return _decision("BOUNDARY_UNCERTAIN", "LOW", evidence, False)
         return _decision("OFFSHORE_EEZ", "HIGH", evidence, False)
+    if "marine_high_seas" in hit_types:
+        if coast_label in {"VERY_NEAR_COAST", "COASTAL"}:
+            return _decision("BOUNDARY_UNCERTAIN", "LOW", evidence, False)
+        return _decision("HIGH_SEAS", "HIGH", evidence, False)
     return _decision("UNKNOWN", "UNKNOWN", evidence, False)
 
 
@@ -126,6 +130,7 @@ def validate_cross_source(
     samples: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     policy = load_yaml(config_dir / "jrc-policy.yaml")
+    policy.update(load_yaml(config_dir / "processing-policy.yaml"))
     sampler = JrcRasterSampler(data_root, config_dir)
     if samples is None:
         sample_path = release_dir / "validation" / "auto-samples.json"
@@ -188,8 +193,14 @@ def _fallback_samples(release_dir: Path) -> list[dict[str, Any]]:
 
 
 def _has_conflict(hit_types: set[str]) -> bool:
+    marine = hit_types.intersection({
+        "marine_high_seas", "marine_eez", "marine_territorial_sea",
+        "marine_internal_water", "marine_archipelagic_water",
+    })
+    if marine and hit_types.intersection({"inland_river_corridor", "inland_lake"}):
+        return True
     if "marine_high_seas" in hit_types and hit_types.intersection({
-        "land", "marine_territorial_sea", "marine_internal_water",
+        "land", "marine_eez", "marine_territorial_sea", "marine_internal_water",
         "marine_archipelagic_water", "inland_river_corridor", "inland_lake", "major_canal",
     }):
         return True

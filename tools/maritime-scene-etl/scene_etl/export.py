@@ -5,12 +5,13 @@ import io
 import json
 from contextlib import contextmanager
 from collections import defaultdict
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Iterable
 
 from .geometry import geometry_from_wkb_hex, safe_json
 from .manifest import canonical_json
-from .tiling import tile_path, tiles_for_bounds
+from .tiling import tile_bounds, tile_path, tiles_for_bounds
 
 
 @contextmanager
@@ -120,16 +121,35 @@ def tile_records(
     spool_root = tile_root / ".spool"
     spool_root.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = defaultdict(int)
-    for record in records:
-        geometry = geometry_from_wkb_hex(record["geometryWkbHex"])
-        for tile in tiles_for_bounds(geometry.bounds, tile_size):
-            tile_record = dict(record)
-            tile_record["tileId"] = tile
-            spool = spool_root / tile_path(tile, kind).removesuffix(".gz")
-            spool.parent.mkdir(parents=True, exist_ok=True)
-            with spool.open("a", encoding="utf-8", newline="\n") as handle:
-                handle.write(canonical_json(tile_record) + "\n")
-            counts[tile] += 1
+    spools = _SpoolFiles(64)
+    try:
+        for record in records:
+            geometry = geometry_from_wkb_hex(record["geometryWkbHex"])
+            for tile in tiles_for_bounds(geometry.bounds, tile_size):
+                from shapely.geometry import box
+
+                bounds = tile_bounds(tile, tile_size)
+                tile_box = box(*bounds)
+                clipped = geometry.intersection(tile_box)
+                if clipped.is_empty:
+                    continue
+                tile_record = dict(record)
+                tile_record["tileId"] = tile
+                tile_record["tileClipped"] = True
+                tile_record["geometryWkbHex"] = clipped.wkb_hex
+                if geometry.geom_type in {"Polygon", "MultiPolygon"}:
+                    margin = 0.1
+                    boundary_box = box(
+                        bounds[0] - margin, bounds[1] - margin,
+                        bounds[2] + margin, bounds[3] + margin)
+                    boundary = geometry.boundary.intersection(boundary_box)
+                    if not boundary.is_empty:
+                        tile_record["boundaryWkbHex"] = boundary.wkb_hex
+                spool = spool_root / tile_path(tile, kind).removesuffix(".gz")
+                spools.write(spool, canonical_json(tile_record) + "\n")
+                counts[tile] += 1
+    finally:
+        spools.close()
     for spool in sorted(spool_root.glob("*.ndjson")):
         rows = [json.loads(line) for line in spool.read_text(encoding="utf-8").splitlines() if line]
         rows.sort(key=record_sort_key)
@@ -144,6 +164,28 @@ def tile_records(
     if spool_root.exists() and not any(spool_root.iterdir()):
         spool_root.rmdir()
     return dict(counts)
+
+
+class _SpoolFiles:
+    def __init__(self, maximum: int):
+        self.maximum = maximum
+        self.handles: OrderedDict[Path, Any] = OrderedDict()
+
+    def write(self, path: Path, value: str) -> None:
+        handle = self.handles.pop(path, None)
+        if handle is None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handle = path.open("a", encoding="utf-8", newline="\n")
+        self.handles[path] = handle
+        handle.write(value)
+        if len(self.handles) > self.maximum:
+            _, oldest = self.handles.popitem(last=False)
+            oldest.close()
+
+    def close(self) -> None:
+        for handle in self.handles.values():
+            handle.close()
+        self.handles.clear()
 
 
 def release_tile_paths(tile_root: Path) -> list[Path]:

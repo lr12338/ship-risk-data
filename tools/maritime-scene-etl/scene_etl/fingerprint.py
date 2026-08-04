@@ -78,6 +78,8 @@ def write_release_manifest(
 ) -> tuple[str, dict[str, Any]]:
     inputs = fingerprint_inputs(repo_root, config_dir, data_root, release_dir, datasets)
     fingerprint = canonical_sha256(inputs)
+    coverage_path = release_dir / "validation" / "global-coverage-report.json"
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8")) if coverage_path.exists() else {}
     manifest = {
         "schemaVersion": 1,
         "releaseVersion": release_dir.name,
@@ -85,12 +87,19 @@ def write_release_manifest(
         "snapshotFingerprint": fingerprint,
         "fingerprintInputs": inputs,
         "validationSummary": validation or {},
+        "globalCoverage": bool(coverage.get("globalCoverage", False)),
+        "coveredTileCount": coverage.get("coveredTileCount", 0),
+        "emptyCoveredTileCount": coverage.get("emptyCoveredTileCount", 0),
+        "notCoveredTileCount": coverage.get("notCoveredTileCount", 0),
+        "layerCoverage": coverage.get("layerCoverage", {}),
     }
     write_json(release_dir / "manifest.json", manifest)
     checksums = release_dir / "checksums.sha256"
     lines = []
     for path in sorted(release_dir.rglob("*")):
-        if path.is_file() and path.name != checksums.name:
+        relative = path.relative_to(release_dir)
+        if path.is_file() and path.name != checksums.name \
+                and (not relative.parts or relative.parts[0] != "qa"):
             lines.append(f"{sha256_file(path)}  {relative_path(path, release_dir)}")
     checksums.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return fingerprint, manifest

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import io
+import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from .geometry import geodesic_area_km2
 from .manifest import write_json
-from .release_records import geometry_from_record, iter_release_records
+from .release_records import geometry_from_record
 
 
 REQUIRED_PAIRS = [
@@ -31,56 +33,81 @@ REQUIRED_PAIRS = [
 
 
 def calculate_overlap_matrix(release_dir: Path) -> dict[str, Any]:
-    grouped: dict[str, list[tuple[dict, Any]]] = defaultdict(list)
-    for record in iter_release_records(release_dir, record_kind="scene", unique=True):
-        grouped[record.get("sceneType", "UNKNOWN")].append(
-            (record, geometry_from_record(record))
-        )
+    feature_ids: dict[str, set[str]] = defaultdict(set)
+    pair_state = {
+        pair: {"seen": set(), "overlapCount": 0, "areaKm2": 0.0, "examples": []}
+        for pair in REQUIRED_PAIRS
+    }
+    for path in sorted((release_dir / "tiles").glob("*.scene.ndjson.gz")):
+        grouped: dict[str, list[tuple[dict, Any]]] = defaultdict(list)
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                scene_type = record.get("sceneType", "UNKNOWN")
+                feature_id = str(record.get("sourceFeatureId", ""))
+                feature_ids[scene_type].add(feature_id)
+                if any(scene_type in pair for pair in REQUIRED_PAIRS):
+                    grouped[scene_type].append((record, geometry_from_record(record)))
+        for pair, state in pair_state.items():
+            left, right = pair
+            for left_record, left_geometry in grouped.get(left, []):
+                for right_record, right_geometry in grouped.get(right, []):
+                    key = (str(left_record.get("sourceFeatureId")),
+                           str(right_record.get("sourceFeatureId")))
+                    if key in state["seen"]:
+                        continue
+                    if not _bounds_intersect(left_geometry.bounds, right_geometry.bounds):
+                        continue
+                    state["seen"].add(key)
+                    intersection = left_geometry.intersection(right_geometry)
+                    if intersection.is_empty:
+                        continue
+                    if intersection.geom_type not in {"Point", "MultiPoint"}:
+                        state["overlapCount"] += 1
+                        try:
+                            state["areaKm2"] += geodesic_area_km2(intersection)
+                        except Exception:
+                            pass
+                    if len(state["examples"]) < 10:
+                        state["examples"].append({
+                            "leftFeatureId": key[0], "rightFeatureId": key[1]})
     rows = []
     conflicts = []
+    blocking_conflicts = []
     for left, right in REQUIRED_PAIRS:
-        overlap_count = 0
-        area_km2 = 0.0
-        examples = []
-        for left_record, left_geometry in grouped.get(left, []):
-            for right_record, right_geometry in grouped.get(right, []):
-                if not _bounds_intersect(left_geometry.bounds, right_geometry.bounds):
-                    continue
-                intersection = left_geometry.intersection(right_geometry)
-                if intersection.is_empty:
-                    continue
-                if intersection.geom_type not in {"Point", "MultiPoint"}:
-                    overlap_count += 1
-                    try:
-                        area_km2 += geodesic_area_km2(intersection)
-                    except Exception:
-                        pass
-                if len(examples) < 10:
-                    examples.append({
-                        "leftFeatureId": left_record.get("sourceFeatureId"),
-                        "rightFeatureId": right_record.get("sourceFeatureId"),
-                    })
+        state = pair_state[(left, right)]
+        overlap_count = state["overlapCount"]
+        area_km2 = state["areaKm2"]
+        examples = state["examples"]
         semantic = _semantic(left, right, overlap_count)
         row = {
             "leftLayer": left,
             "rightLayer": right,
-            "leftFeatureCount": len(grouped.get(left, [])),
-            "rightFeatureCount": len(grouped.get(right, [])),
+            "leftFeatureCount": len(feature_ids.get(left, set())),
+            "rightFeatureCount": len(feature_ids.get(right, set())),
             "overlapCount": overlap_count,
             "overlapAreaKm2": round(area_km2, 6),
             "semantic": semantic,
+            "blocking": semantic == "CONFLICT" and area_km2 >= 100.0,
             "examples": examples,
         }
         rows.append(row)
         if semantic == "CONFLICT" and overlap_count:
             conflicts.append(row)
+            if row["blocking"]:
+                blocking_conflicts.append(row)
     return {
         "schemaVersion": 1,
-        "status": "PASS" if not conflicts else "WARN",
+        "status": "FAIL" if blocking_conflicts else ("WARN" if conflicts else "PASS"),
         "requiredPairCount": len(REQUIRED_PAIRS),
         "rows": rows,
         "conflictPairCount": len(conflicts),
+        "blockingConflictPairCount": len(blocking_conflicts),
         "conflicts": conflicts,
+        "blockingConflicts": blocking_conflicts,
+        "blockingAreaThresholdKm2": 100.0,
         "areaMethod": "WGS84 geodesic area; never EPSG:4326 planar area",
     }
 

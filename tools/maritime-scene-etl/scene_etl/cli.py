@@ -79,7 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
     build_parser_.add_argument("--json", action="store_true", dest="json_output", default=argparse.SUPPRESS)
 
     estimate_parser = subparsers.add_parser("estimate-build", help="estimate a global or partitioned build")
-    estimate_parser.add_argument("--scope", choices=["global", "regional", "partition"], required=True)
+    estimate_parser.add_argument("--release", default="phase1-global-base-v1")
+    estimate_parser.add_argument("--scope", choices=["global", "regional", "partition"], default="global")
     estimate_parser.add_argument("--bbox", type=str, default=None)
     estimate_parser.add_argument("--json", action="store_true", dest="json_output", default=argparse.SUPPRESS)
 
@@ -371,7 +372,8 @@ def cmd_build(args: argparse.Namespace) -> int:
 
 def cmd_estimate_build(args: argparse.Namespace) -> int:
     repo_root, data_root, config_dir = _paths(args)
-    result = estimate_build(data_root, config_dir, args.scope, _parse_bbox(args.bbox))
+    result = estimate_build(
+        data_root, config_dir, args.scope, _parse_bbox(args.bbox), args.release)
     _write_command_report(data_root, "estimate-build", result)
     _emit(result, args)
     return 0

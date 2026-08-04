@@ -149,12 +149,21 @@ def normalize_geometry(
         min_x, _, max_x, _ = geometry.bounds
         if min_x < -180.0 or max_x > 180.0:
             geometry = normalize_longitudes(geometry)
+        if _crosses_dateline(geometry):
+            geometry = split_dateline(geometry)
+            status = "VALID_REPAIRED"
         if not geometry.is_valid:
             fixed = make_valid(geometry)
             if fixed.is_empty:
                 return NormalizedGeometry(None, "REJECTED_EMPTY", "longitude normalization empty")
             geometry = fixed
             status = "VALID_REPAIRED"
+        if require_kind == "polygon" and not kind_matches(geometry, require_kind):
+            geometry = polygonal_only(geometry)
+        elif require_kind == "line" and not kind_matches(geometry, require_kind):
+            geometry = lineal_only(geometry)
+        if geometry is None or geometry.is_empty:
+            return NormalizedGeometry(None, "REJECTED_EMPTY", "dimension extraction empty")
         if require_kind and not kind_matches(geometry, require_kind):
             return NormalizedGeometry(
                 geometry.envelope,
@@ -199,6 +208,54 @@ def normalize_longitudes(geometry):
         return wrapped_x, y, z
 
     return transform(wrap, geometry)
+
+
+def split_dateline(geometry):
+    from shapely import make_valid
+    from shapely.geometry import box
+    from shapely.ops import transform, unary_union
+
+    shifted = transform(
+        lambda x, y, z=None: (x % 360.0, y)
+        if z is None else (x % 360.0, y, z),
+        geometry,
+    )
+    if not shifted.is_valid:
+        shifted = make_valid(shifted)
+    parts = []
+    west = shifted.intersection(box(0, -90, 180, 90))
+    east = shifted.intersection(box(180, -90, 360, 90))
+    if not west.is_empty:
+        parts.append(west)
+    if not east.is_empty:
+        parts.append(transform(
+            lambda x, y, z=None: (x - 360.0, y)
+            if z is None else (x - 360.0, y, z), east))
+    return unary_union(parts)
+
+
+def _crosses_dateline(geometry) -> bool:
+    for sequence in _coordinate_sequences(geometry):
+        for first, second in zip(sequence, sequence[1:]):
+            if abs(first[0] - second[0]) > 180.0:
+                return True
+    return False
+
+
+def _coordinate_sequences(geometry):
+    if geometry.geom_type == "Polygon":
+        yield list(geometry.exterior.coords)
+        for ring in geometry.interiors:
+            yield list(ring.coords)
+        return
+    if geometry.geom_type in {"LineString", "LinearRing"}:
+        yield list(geometry.coords)
+        return
+    if geometry.geom_type == "Point":
+        yield [geometry.coords[0]]
+        return
+    for item in getattr(geometry, "geoms", []):
+        yield from _coordinate_sequences(item)
 
 
 def kind_matches(geometry, expected: str) -> bool:

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Iterable
 
 
 def tile_origin(lon: float, lat: float, size: int = 1) -> tuple[int, int]:
+    lon = ((lon + 180.0) % 360.0) - 180.0
+    lat = max(-90.0, min(math.nextafter(90.0, -math.inf), lat))
     return math.floor(lat / size) * size, math.floor(lon / size) * size
 
 
@@ -42,6 +45,15 @@ def tiles_for_bounds(bounds: Iterable[float], size: int = 1) -> list[str]:
 
 def tile_path(tile: str, kind: str) -> str:
     return f"{tile}.{kind}.ndjson.gz"
+
+
+def tile_bounds(tile: str, size: int = 1) -> tuple[float, float, float, float]:
+    match = re.fullmatch(r"([NS])(\d{2})_([EW])(\d{3})", tile)
+    if not match:
+        raise ValueError(f"invalid tile id: {tile}")
+    lat = int(match.group(2)) * (1 if match.group(1) == "N" else -1)
+    lon = int(match.group(4)) * (1 if match.group(3) == "E" else -1)
+    return float(lon), float(lat), float(lon + size), float(lat + size)
 
 
 def jrc_tile_origins(

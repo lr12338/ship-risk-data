@@ -62,6 +62,7 @@ def iter_records(
     handler = Handler()
     handler.apply_file(raw, locations=True)
     stats["candidateCount"] = len(found)
+    _validate_approved_whitelists(found, wanted, stats)
     from shapely.geometry import box
 
     requested_bbox = box(*bbox) if bbox is not None else None
@@ -69,6 +70,10 @@ def iter_records(
         from shapely.geometry import LineString
 
         spec = item["canal"]
+        allowed_way_ids = {str(value) for value in spec.get("osm_way_ids", [])}
+        if item["way_id"] not in allowed_way_ids:
+            stats["nonWhitelistRejected"] = stats.get("nonWhitelistRejected", 0) + 1
+            continue
         line = LineString(item["coordinates"])
         if requested_bbox is not None and not line.intersects(requested_bbox):
             stats["requestedBboxRejected"] = stats.get("requestedBboxRejected", 0) + 1
@@ -86,12 +91,14 @@ def iter_records(
             "canonical_name": spec["canonical_name"],
             "review_status": spec.get("review_status"),
             "osm_way_id": item["way_id"],
+            "boundary_tolerance_meters": min(25.0, float(spec["buffer_meters"]) / 2.0),
             "source_attributes": item["tags"],
         }
         if approved:
             yield scene_record(
                 "major_canal", dataset["source_name"], dataset["source_version"],
-                f"{spec['canal_id']}:{item['way_id']}", line, "VALID_ORIGINAL",
+                f"{spec['canal_id']}:{item['way_id']}",
+                metric_buffer(line, float(spec["buffer_meters"])), "VALID_ORIGINAL",
                 "OSM_REVIEWED_WHITELIST", "HIGH", properties
             )
         else:
@@ -100,3 +107,33 @@ def iter_records(
                 f"{spec['canal_id']}:{item['way_id']}", metric_buffer(line, float(spec["buffer_meters"])),
                 "VALID_ORIGINAL", "REVIEW_REQUIRED", "REVIEW_REQUIRED", properties, record_kind="review"
             )
+
+
+def _validate_approved_whitelists(found, wanted, stats) -> None:
+    from shapely.ops import unary_union
+
+    for canal_id, spec in wanted.items():
+        if spec.get("review_status") != "APPROVED":
+            continue
+        expected = {str(value) for value in spec.get("osm_way_ids", [])}
+        actual_items = [item for item in found if item["canal"]["canal_id"] == canal_id
+                        and item["way_id"] in expected]
+        actual = {item["way_id"] for item in actual_items}
+        missing = sorted(expected - actual)
+        stats.setdefault("canalValidation", {})[canal_id] = {
+            "expectedWayCount": len(expected),
+            "foundWayCount": len(actual),
+            "missingWayIds": missing,
+        }
+        if not expected or missing:
+            raise ValueError(f"approved canal whitelist incomplete for {canal_id}: {missing}")
+        from shapely.geometry import LineString
+
+        tolerance = float(spec.get("continuity_tolerance_meters", 100.0))
+        buffered = [metric_buffer(LineString(item["coordinates"]), tolerance) for item in actual_items]
+        merged = unary_union(buffered)
+        components = len(merged.geoms) if hasattr(merged, "geoms") else 1
+        stats["canalValidation"][canal_id]["continuityComponents"] = components
+        stats["canalValidation"][canal_id]["continuityToleranceMeters"] = tolerance
+        if components != 1:
+            raise ValueError(f"approved canal geometry is discontinuous for {canal_id}: {components} components")

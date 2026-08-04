@@ -31,7 +31,7 @@ def iter_release_records(
                         record.get("recordKind", "scene"),
                         str(record.get("sourceName", "")),
                         str(record.get("sourceFeatureId", "")),
-                        str(record.get("geometryWkbHex", "")),
+                        str(record.get("sceneType", "")),
                     )
                     if key in seen:
                         continue
@@ -54,9 +54,8 @@ def iter_records_for_point(
         tile_id(center_lon + dx, center_lat + dy)
         for dx in range(-radius_degrees, radius_degrees + 1)
         for dy in range(-radius_degrees, radius_degrees + 1)
-        if -180 <= center_lon + dx <= 180 and -90 <= center_lat + dy <= 90
+        if -90 <= center_lat + dy < 90
     }
-    seen: set[tuple[str, str, str]] = set()
     for name in sorted(tile_names):
         path = release_dir / "tiles" / f"{name}.{record_kind or 'scene'}.ndjson.gz"
         if not path.exists():
@@ -68,14 +67,6 @@ def iter_records_for_point(
                 record = json.loads(line)
                 if scene_types and record.get("sceneType") not in scene_types:
                     continue
-                key = (
-                    str(record.get("sourceName", "")),
-                    str(record.get("sourceFeatureId", "")),
-                    str(record.get("geometryWkbHex", "")),
-                )
-                if key in seen:
-                    continue
-                seen.add(key)
                 yield record
 
 
@@ -95,10 +86,16 @@ def point_hits(
 
     point = Point(longitude, latitude)
     hits = []
+    seen: set[tuple[str, str, str]] = set()
     for record in iter_records_for_point(
         release_dir, longitude, latitude, scene_types=scene_types
     ):
         geometry = geometry_from_record(record)
         if geometry.intersects(point):
-            hits.append(record)
+            key = (str(record.get("sourceName", "")),
+                   str(record.get("sourceFeatureId", "")),
+                   str(record.get("sceneType", "")))
+            if key not in seen:
+                seen.add(key)
+                hits.append(record)
     return hits

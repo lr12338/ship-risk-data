@@ -34,3 +34,17 @@ def test_select_vector_path_prefers_polygon_schema(tmp_path):
         sink.write({"geometry": mapping(Polygon([(0, 0), (1, 0), (1, 1), (0, 0)])), "properties": {"id": 1}})
 
     assert select_vector_path([line_path, polygon_path], expected_kind="polygon") == polygon_path
+
+
+def test_polygon_crossing_date_line_is_split_without_world_spanning_bounds():
+    polygon = {
+        "type": "Polygon",
+        "coordinates": [[[179.5, 10], [-179.5, 10], [-179.5, 11], [179.5, 11], [179.5, 10]]],
+    }
+
+    normalized = normalize_geometry(
+        polygon, "EPSG:4326", expected_dimension=2, require_kind="polygon")
+
+    assert normalized.geometry is not None
+    assert normalized.geometry.geom_type == "MultiPolygon"
+    assert all(part.bounds[2] - part.bounds[0] <= 1.0 for part in normalized.geometry.geoms)

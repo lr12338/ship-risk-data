@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import bisect
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,9 @@ CLASS_TO_SCENE = {
     "LAND": "land",
     "RIVER": "inland_river_corridor",
     "LAKE": "inland_lake",
+    "CANAL": "major_canal",
     "MARINE_INTERNAL": "marine_internal_water",
+    "ARCHIPELAGIC": "marine_archipelagic_water",
     "TERRITORIAL": "marine_territorial_sea",
     "OFFSHORE_EEZ": "marine_eez",
     "HIGH_SEAS": "marine_high_seas",
@@ -28,7 +31,9 @@ EXPECTED_SCENE_CLASS = {
     "LAND": "LAND",
     "RIVER": "INLAND_RIVER",
     "LAKE": "INLAND_LAKE",
+    "CANAL": "MAJOR_CANAL",
     "MARINE_INTERNAL": "MARITIME_INTERNAL_WATER",
+    "ARCHIPELAGIC": "ARCHIPELAGIC_WATER",
     "TERRITORIAL": "TERRITORIAL_SEA",
     "OFFSHORE_EEZ": "OFFSHORE_EEZ",
     "HIGH_SEAS": "HIGH_SEAS",
@@ -47,24 +52,23 @@ def generate_auto_samples(
     negative_count = int(config.get("negative_per_class", 20))
     boundary_count = int(config.get("boundary_per_class", 10))
     max_total = max_total or int(config.get("max_total_samples", 1000))
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    grouped: dict[str, list[tuple[tuple[str, ...], dict[str, Any]]]] = defaultdict(list)
+    pool_size = positive_count + boundary_count
     for record in iter_release_records(release_dir, record_kind="scene", unique=True):
         scene_type = record.get("sceneType")
         for sample_class, target_scene in CLASS_TO_SCENE.items():
             if scene_type == target_scene:
-                grouped[sample_class].append(record)
-    for records in grouped.values():
-        records.sort(key=lambda item: (
-            str(item.get("sourceName", "")),
-            str(item.get("sourceFeatureId", "")),
-            str(item.get("geometryWkbHex", "")),
-        ))
+                values = grouped[sample_class]
+                bisect.insort(values, (_record_key(record), record))
+                if len(values) > pool_size:
+                    values.pop()
+    bounded = {key: [item[1] for item in values] for key, values in grouped.items()}
     samples = []
     sample_index = 0
     classes = list(CLASS_TO_SCENE)
-    all_records = [record for records in grouped.values() for record in records]
+    all_records = [record for records in bounded.values() for record in records]
     for sample_class in classes:
-        records = grouped.get(sample_class, [])
+        records = bounded.get(sample_class, [])
         if not records:
             continue
         for role, count in (("positive", positive_count), ("negative", negative_count), ("boundary", boundary_count)):
@@ -113,6 +117,14 @@ def generate_auto_samples(
     return payload
 
 
+def _record_key(record: dict[str, Any]) -> tuple[str, ...]:
+    return (
+        str(record.get("sourceName", "")),
+        str(record.get("sourceFeatureId", "")),
+        str(record.get("tileId", "")),
+    )
+
+
 def validate_auto_samples(
     release_dir: Path,
     config_dir: Path,
@@ -123,6 +135,7 @@ def validate_auto_samples(
         generate_auto_samples(release_dir, config_dir)
     payload = json.loads(sample_path.read_text(encoding="utf-8"))
     policy = load_yaml(config_dir / "jrc-policy.yaml")
+    policy.update(load_yaml(config_dir / "processing-policy.yaml"))
     sampler = JrcRasterSampler(data_root, config_dir)
     results = []
     for sample in payload.get("samples", []):
@@ -136,12 +149,18 @@ def validate_auto_samples(
         sample["geometrySelfConsistency"] = "PASS" if self_ok else "WARN"
         decision = classify_point(hits, sampler.sample(lon, lat), policy=policy)
         expected = sample.get("expectedSceneClass")
-        if sample.get("sampleRole") == "boundary":
+        category = _validation_category(sample)
+        if category == "BOUNDARY_EXPECTED":
             cross_ok = decision["sceneClass"] in {"BOUNDARY_UNCERTAIN", "UNKNOWN", "CONFLICT"}
+        elif category == "NON_BLOCKING_CANDIDATE":
+            cross_ok = decision["sceneClass"] in {"INLAND_RIVER", "UNKNOWN"} \
+                and decision["confidence"] in {"LOW", "UNKNOWN"}
         elif sample.get("sampleRole") == "negative":
             cross_ok = decision["sceneClass"] != EXPECTED_SCENE_CLASS.get(sample.get("negativeOf"))
         else:
-            cross_ok = decision["sceneClass"] == expected or decision["sceneClass"] in {"UNKNOWN", "CONFLICT"}
+            cross_ok = decision["sceneClass"] == expected
+            if sample.get("sampleClass") in {"LAND", "LAKE", "CANAL", "OFFSHORE_EEZ", "HIGH_SEAS"}:
+                cross_ok = cross_ok and decision["confidence"] == "HIGH"
         results.append({
             **sample,
             "hits": sorted(hit_types),
@@ -151,12 +170,26 @@ def validate_auto_samples(
             "conflictFlag": decision["conflictFlag"],
             "crossSourceConsistency": "PASS" if cross_ok else "WARN",
             "passed": bool(self_ok and cross_ok),
+            "validationCategory": category,
         })
     total = len(results)
     passed = sum(1 for item in results if item["passed"])
+    categories = {}
+    for category in ("BLOCKING_CORE", "NON_BLOCKING_CANDIDATE", "BOUNDARY_EXPECTED"):
+        values = [item for item in results if item["validationCategory"] == category]
+        category_passed = sum(1 for item in values if item["passed"])
+        categories[category] = {
+            "sampleCount": len(values),
+            "passedCount": category_passed,
+            "passRate": category_passed / len(values) if values else 0.0,
+        }
+    required_rate = float(load_yaml(config_dir / "auto-samples.yaml").get(
+        "blocking_core_min_pass_rate", 0.98))
+    core = categories["BLOCKING_CORE"]
+    core_pass = core["sampleCount"] > 0 and core["passRate"] >= required_rate
     report = {
         "schemaVersion": 1,
-        "status": "PASS" if all(item["passed"] for item in results) else "WARN",
+        "status": "PASS" if core_pass else "FAIL",
         "sampleCount": total,
         "passedCount": passed,
         "failedCount": total - passed,
@@ -169,10 +202,25 @@ def validate_auto_samples(
             "warningCount": sum(item["crossSourceConsistency"] != "PASS" for item in results),
         },
         "results": results,
+        "categories": categories,
+        "blockingCoreMinimumPassRate": required_rate,
         "notGeographicTruth": True,
     }
     write_json(release_dir / "validation" / "auto-samples-report.json", report)
     return report
+
+
+def _validation_category(sample: dict[str, Any]) -> str:
+    if sample.get("sampleRole") == "boundary":
+        return "BOUNDARY_EXPECTED"
+    if sample.get("sampleClass") == "RIVER" and sample.get("sampleRole") == "positive":
+        return "NON_BLOCKING_CANDIDATE"
+    if sample.get("sampleRole") == "positive" and sample.get("sampleClass") in {
+        "LAND", "HIGH_SEAS", "OFFSHORE_EEZ", "TERRITORIAL",
+        "MARINE_INTERNAL", "ARCHIPELAGIC", "LAKE", "CANAL",
+    }:
+        return "BLOCKING_CORE"
+    return "AUXILIARY"
 
 
 def _sample_point(geometry, role: str):

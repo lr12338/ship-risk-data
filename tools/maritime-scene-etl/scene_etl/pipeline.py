@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -18,6 +19,7 @@ from .export import (
 from .fingerprint import write_release_manifest
 from .automatic_validation import run_automatic_validation
 from .geometry import geometry_from_wkb_hex
+from .global_coverage import write_global_coverage
 from .manifest import utc_now, write_json
 from .marine_regions import iter_records as marine_records
 from .gshhg import iter_records as gshhg_records
@@ -50,7 +52,7 @@ def normalize_dataset(
     bbox: tuple[float, float, float, float] | None = None,
 ) -> dict[str, Any]:
     output = normalized_path(data_root, dataset["dataset_id"])
-    config_hashes = _processing_config_hashes(config_dir)
+    config_hashes = _processing_config_hashes(config_dir, dataset["processing_handler"])
     verification = verify_dataset(data_root, dataset)
     if output.exists() and not force:
         stats_path = output.with_suffix(".stats.json")
@@ -60,7 +62,7 @@ def normalize_dataset(
             if (
                 cached_bbox == (list(bbox) if bbox is not None else None)
                 and cached.get("rawSha256") == verification.get("sha256")
-                and cached.get("configHashes") == config_hashes
+                and _config_hashes_match(cached.get("configHashes", {}), config_hashes)
             ):
                 return cached
     if verification["status"] != "OK":
@@ -136,7 +138,6 @@ def build_release(
     release_dir = data_root / "releases" / release_version
     if release_dir.exists():
         raise FileExistsError(f"release is immutable and already exists: {release_dir}")
-    release_dir.mkdir(parents=True, exist_ok=True)
     datasets = [dataset for dataset in load_datasets(config_dir) if dataset["enabled"]]
     statuses = normalize_all(repo_root, data_root, config_dir, datasets, force=False, bbox=bbox)
     failed_auto = [
@@ -146,6 +147,7 @@ def build_release(
     ]
     if failed_auto:
         raise RuntimeError(f"automatic dataset normalization failed: {failed_auto}")
+    release_dir.mkdir(parents=True, exist_ok=False)
     tile_root = release_dir / "tiles"
     qa_spool = release_dir / ".qa-spool"
     qa_spool.mkdir(parents=True, exist_ok=True)
@@ -163,12 +165,20 @@ def build_release(
 
     scene_tile_counts = tile_records(all_records("scene"), tile_root, 1, "scene")
     coast_tile_counts = tile_records(all_records("coast"), tile_root, 1, "coast")
-    for path in normalized_files:
-        for record in iter_normalized_records(path):
-            layer = record["sceneType"]
-            spool = qa_spool / f"{layer}.ndjson"
-            with spool.open("a", encoding="utf-8", newline="\n") as handle:
-                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
+    coverage = write_global_coverage(
+        release_dir, scene_tile_counts, coast_tile_counts, bbox is None)
+    with ExitStack() as stack:
+        handles = {}
+        for path in normalized_files:
+            for record in iter_normalized_records(path):
+                layer = record["sceneType"]
+                if layer not in handles:
+                    spool = qa_spool / f"{layer}.ndjson"
+                    handles[layer] = stack.enter_context(
+                        spool.open("a", encoding="utf-8", newline="\n"))
+                handles[layer].write(
+                    json.dumps(record, ensure_ascii=False, sort_keys=True,
+                               separators=(",", ":")) + "\n")
     spool_paths = {path.stem: path for path in qa_spool.glob("*.ndjson")}
     qa_order = load_yaml(config_dir / "processing-policy.yaml").get("qa_layer_order", [])
     ordered_layers = [layer for layer in qa_order if layer in spool_paths]
@@ -213,6 +223,7 @@ def build_release(
         "coastTileCount": len(coast_tile_counts),
         "tileCount": len(release_tile_paths(tile_root)),
         "datasetStatuses": statuses,
+        "globalCoverage": coverage,
     }
 
 
@@ -250,18 +261,19 @@ def _clip_records(
         yield clipped_record
 
 
-def _processing_config_hashes(config_dir: Path) -> dict[str, str]:
-    names = (
-        "datasets.yaml",
-        "processing-policy.yaml",
-        "river-policy.yaml",
-        "lake-policy.yaml",
-        "major-canals.yaml",
-        "golden-points.yaml",
-        "jrc-policy.yaml",
-        "auto-samples.yaml",
-    )
+def _processing_config_hashes(config_dir: Path, handler: str) -> dict[str, str]:
+    names = ["datasets.yaml", "processing-policy.yaml"]
+    if handler == "hydrorivers":
+        names.append("river-policy.yaml")
+    elif handler == "hydrolakes":
+        names.append("lake-policy.yaml")
+    elif handler == "osm_canals":
+        names.append("major-canals.yaml")
     return {name: config_hash(config_dir / name) for name in names}
+
+
+def _config_hashes_match(cached: dict[str, str], current: dict[str, str]) -> bool:
+    return all(cached.get(name) == value for name, value in current.items())
 
 
 def _license_text(datasets: list[dict[str, Any]]) -> str:

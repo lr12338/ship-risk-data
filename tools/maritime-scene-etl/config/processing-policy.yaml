@@ -11,6 +11,7 @@ geometry_statuses:
   - REJECTED_WRONG_DIMENSION
 tile_size_degrees: 1
 tile_feature_policy: COPY_TO_INTERSECTING_TILES
+offshore_min_coast_distance_nm: 12
 output_compression: gzip
 standardizer_version: scene-etl-0.1.0
 qa_layer_order:

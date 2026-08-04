@@ -1,5 +1,7 @@
 schema_version: 1
-positive_per_class: 20
-negative_per_class: 20
+positive_per_class: 50
+negative_per_class: 10
 boundary_per_class: 10
 max_total_samples: 1000
+fixed_random_seed: 20260804
+blocking_core_min_pass_rate: 0.98

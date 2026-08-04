@@ -60,17 +60,22 @@ def iter_records(
                 polygon, {"original_scene_type": scene_type, "reason": normalized.reason, **properties}
             )
         else:
-            yield scene_record(
-                scene_type,
-                dataset["source_name"],
-                dataset["source_version"],
-                feature_id,
-                polygon,
-                normalized.status,
-                "LEGAL_BOUNDARY_DATASET",
-                "SOURCE_PUBLISHED",
-                {"source_layer": layer, "source_attributes": properties},
-            )
+            parts = list(polygon.geoms) if polygon.geom_type == "MultiPolygon" else [polygon]
+            stats["splitPartCount"] = stats.get("splitPartCount", 0) + len(parts)
+            for index, part in enumerate(parts):
+                part_id = f"{feature_id}:part-{index:04d}" if len(parts) > 1 else feature_id
+                yield scene_record(
+                    scene_type,
+                    dataset["source_name"],
+                    dataset["source_version"],
+                    part_id,
+                    part,
+                    normalized.status,
+                    "LEGAL_BOUNDARY_DATASET",
+                    "SOURCE_PUBLISHED",
+                    {"source_layer": layer, "source_parent_feature_id": feature_id,
+                     "source_attributes": properties},
+                )
 
 
 def _feature_id(feature: dict[str, Any], properties: dict[str, Any]) -> str:

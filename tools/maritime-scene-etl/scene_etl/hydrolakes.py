@@ -18,6 +18,12 @@ def iter_records(
     bbox: tuple[float, float, float, float] | None = None,
 ) -> Iterator[dict[str, Any]]:
     policy = load_yaml(config_dir / "lake-policy.yaml")
+    minimum_area = float(policy.get("minAreaKm2", policy.get("minimum_area_km2", 50.0)))
+    stats["minimumAreaKm2"] = minimum_area
+    stats["boundaryToleranceMeters"] = float(policy.get("boundaryToleranceMeters", 1000.0))
+    stats["retainReservoirs"] = bool(policy.get("retainReservoirs", True))
+    stats["retainNamedLakes"] = bool(policy.get("retainNamedLakes", True))
+    stats["thresholdCounts"] = {"10": 0, "50": 0, "100": 0}
     raw = data_root / "raw" / dataset["raw_target_path"]
     staging = extract_zip(raw, data_root / "staging" / dataset["dataset_id"], force=force)
     paths = sorted(staging.rglob("*.shp"))
@@ -28,7 +34,11 @@ def iter_records(
         stats["rawCount"] = stats.get("rawCount", 0) + 1
         properties = feature_properties(feature)
         if area_field is None:
-            area_field = _resolve_field(properties, policy.get("area_field_candidates", []))
+            configured = policy.get("areaField")
+            area_field = _resolve_field(
+                properties, [configured] if configured else policy.get("area_field_candidates", []))
+            if configured and area_field is None:
+                raise ValueError(f"configured HydroLAKES areaField is missing: {configured}")
             stats["areaField"] = area_field
         normalized = normalize_geometry(feature.get("geometry"), source_crs, expected_dimension=2, require_kind="polygon")
         if normalized.geometry is None:
@@ -42,7 +52,11 @@ def iter_records(
         if area is None and policy.get("allow_geodesic_area_fallback", True):
             area = geodesic_area_km2(polygon)
             stats["areaFallbackCount"] = stats.get("areaFallbackCount", 0) + 1
-        if area is not None and area < float(policy.get("minimum_area_km2", 1.0)):
+        if area is not None:
+            for threshold in (10, 50, 100):
+                if area >= threshold:
+                    stats["thresholdCounts"][str(threshold)] += 1
+        if area is not None and area < minimum_area:
             stats["filteredCount"] = stats.get("filteredCount", 0) + 1
             continue
         stats[normalized.status] = stats.get(normalized.status, 0) + 1
@@ -55,6 +69,7 @@ def iter_records(
             "source_area_km2": area,
             "lake_name": name,
             "lake_type": lake_type,
+            "boundary_tolerance_meters": stats["boundaryToleranceMeters"],
         }
         if normalized.status == "QUARANTINED":
             yield quarantined_record(
@@ -64,7 +79,7 @@ def iter_records(
         else:
             yield scene_record(
                 "inland_lake", dataset["source_name"], dataset["source_version"], feature_id,
-                polygon, normalized.status, "HYDROGRAPHY_CANDIDATE", "MEDIUM", base_properties
+                polygon, normalized.status, "HYDROGRAPHY_GLOBAL_BASE", "HIGH", base_properties
             )
 
 

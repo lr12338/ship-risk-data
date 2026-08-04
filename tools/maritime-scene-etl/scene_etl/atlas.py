@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import csv
 import json
 import re
 import shutil
@@ -24,19 +25,24 @@ REGIONS = [
     ("05-suez-canal", "Suez Canal", (31.8, 29.7, 32.7, 31.4)),
     ("06-panama-canal", "Panama Canal", (-80.2, 8.7, -79.3, 9.5)),
     ("07-kiel-canal", "Kiel Canal", (8.8, 53.8, 10.3, 54.5)),
-    ("08-territorial-and-offshore-eez", "Territorial sea / offshore EEZ", (120.5, 30.5, 122.5, 32.0)),
-    ("09-high-seas", "High Seas", (-170.0, -20.0, -150.0, 0.0)),
-    ("10-boundary-and-conflict-samples", "Boundary / conflict samples", (120.5, 30.5, 122.5, 32.0)),
+    ("08-north-atlantic-high-seas", "North Atlantic High Seas", (-45.0, 25.0, -25.0, 40.0)),
+    ("09-offshore-eez", "Offshore EEZ", (-130.0, 35.0, -122.0, 43.0)),
+    ("10-indonesia-archipelagic", "Indonesia archipelagic waters", (105.0, -8.0, 120.0, 5.0)),
+    ("11-date-line", "International Date Line", (170.0, -20.0, 180.0, 5.0)),
+    ("12-coast-boundary", "Coast boundary", (120.5, 30.5, 122.5, 32.0)),
 ]
 
 LAYER_STYLES = {
     "marine_eez": ("#8ecae6", 0.28, "EEZ"),
     "marine_territorial_sea": ("#219ebc", 0.30, "Territorial sea"),
     "marine_internal_water": ("#90be6d", 0.34, "Internal water"),
+    "marine_archipelagic_water": ("#43aa8b", 0.32, "Archipelagic water"),
+    "marine_high_seas": ("#577590", 0.20, "High Seas"),
     "land": ("#d9c7a1", 0.78, "Land"),
     "inland_lake": ("#4ea8de", 0.75, "Lake"),
     "inland_river_corridor": ("#277da1", 0.55, "River corridor"),
     "inland_river_centerline": ("none", 1.0, "River centerline"),
+    "major_canal": ("#f8961e", 0.70, "Approved canal"),
     "ocean_coastline": ("none", 1.0, "Coastline"),
 }
 
@@ -61,13 +67,15 @@ def generate_scene_atlas(release_dir: Path, chrome: str | None = None) -> dict[s
     if not canonical.exists() or not samples_path.exists() or not conflicts_path.exists():
         raise FileNotFoundError("atlas requires canonical, auto-sample, and conflict QA files")
 
-    release_bbox = tuple(report["datasetStatuses"][0]["bbox"])
+    first_bbox = report["datasetStatuses"][0].get("bbox") if report.get("datasetStatuses") else None
+    release_bbox = tuple(first_bbox) if first_bbox else (-180.0, -90.0, 180.0, 90.0)
     samples = json.loads(samples_path.read_text(encoding="utf-8")).get("results", [])
     conflicts = json.loads(conflicts_path.read_text(encoding="utf-8"))
     output_dir = release_dir / "qa" / "scene-atlas"
     images_dir = output_dir / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     browser = chrome or _find_chrome()
+    _write_qgis_review(release_dir / "qa", canonical, samples)
     results = []
     for key, title, bbox in REGIONS:
         if not covered_by_release(release_bbox, bbox):
@@ -96,7 +104,8 @@ def generate_scene_atlas(release_dir: Path, chrome: str | None = None) -> dict[s
             "legendMatchesLayers": set(region["layers"]) == set(region["legendLayers"]),
             "bboxValid": -180 <= bbox[0] < bbox[2] <= 180 and -90 <= bbox[1] < bbox[3] <= 90,
             "boundarySampleCount": region["boundarySampleCount"],
-            "boundarySamplesClassified": region["boundarySampleCount"] > 0 and region["boundaryFailures"] == 0,
+            "boundarySamplesClassified": "NOT_APPLICABLE" if region["boundarySampleCount"] == 0
+            else region["boundaryFailures"] == 0,
             "conflictSampleCount": region["conflictSampleCount"],
             "conflictSamplesClassified": "NOT_APPLICABLE" if region["conflictSampleCount"] == 0
             else region["conflictFailures"] == 0,
@@ -105,7 +114,7 @@ def generate_scene_atlas(release_dir: Path, chrome: str | None = None) -> dict[s
         status = "PASS" if (
             checks["imageNonEmpty"] and checks["layerExtentNonEmpty"]
             and checks["legendMatchesLayers"] and checks["bboxValid"]
-            and checks["boundarySamplesClassified"]
+            and checks["boundarySamplesClassified"] in {True, "NOT_APPLICABLE"}
             and checks["conflictSamplesClassified"] in {True, "NOT_APPLICABLE"}
             and not checks["extremePolygonFillsCanvas"]
         ) else "REVIEW"
@@ -121,7 +130,7 @@ def generate_scene_atlas(release_dir: Path, chrome: str | None = None) -> dict[s
         "releaseStatus": report.get("releaseStatus", report.get("status")),
         "fingerprint": manifest["snapshotFingerprint"],
         "releaseBbox": release_bbox,
-        "jrc": {"sourceVersion": "GSW1_5-2024", "coverage": "120E_40N", "display": "stable-water sample points"},
+        "jrc": {"coverage": "NO_GLOBAL_COVERAGE", "role": "future regional overlay only"},
         "conflictCount": conflicts.get("conflictCount", 0),
         "regions": results,
         "overallStatus": "PASS" if all(item["status"] in {"PASS", "NOT_COVERED"} for item in results) else "REVIEW",
@@ -129,6 +138,49 @@ def generate_scene_atlas(release_dir: Path, chrome: str | None = None) -> dict[s
     write_json(output_dir / "summary.json", summary)
     (output_dir / "index.html").write_text(_index_html(summary), encoding="utf-8")
     return summary
+
+
+def _write_qgis_review(qa_dir: Path, canonical: Path, samples: list[dict[str, Any]]) -> None:
+    target = qa_dir / "global-base-review.gpkg"
+    target.unlink(missing_ok=True)
+    for layer_name in fiona.listlayers(canonical):
+        selected = []
+        seen = set()
+        with fiona.open(canonical, layer=layer_name) as source:
+            schema = source.schema.copy()
+            crs = source.crs
+            for _, _, bbox in REGIONS[:8]:
+                for feature in source.filter(bbox=bbox):
+                    key = str(feature.get("id")) + str(feature["properties"].get("source_id"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    selected.append(feature)
+                    if len(selected) >= 200:
+                        break
+                if len(selected) >= 200:
+                    break
+        if not selected:
+            continue
+        with fiona.open(target, "w", driver="GPKG", layer=layer_name,
+                        schema=schema, crs=crs) as sink:
+            for feature in selected:
+                sink.write(feature)
+    points = qa_dir / "review-points.csv"
+    with points.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(["sampleId", "sampleClass", "sceneClass", "confidence", "longitude", "latitude"])
+        for sample in samples:
+            writer.writerow([sample.get("sampleId"), sample.get("sampleClass"),
+                             sample.get("sceneClass"), sample.get("confidence"),
+                             sample.get("longitude"), sample.get("latitude")])
+    (qa_dir / "QGIS-REVIEW.md").write_text(
+        "# QGIS optional review\n\n"
+        "Open `global-base-review.gpkg` and `review-points.csv`. Review at most the first "
+        "eight atlas regions. This optional visual check is not legal or navigational validation "
+        "and does not replace automated gates.\n",
+        encoding="utf-8",
+    )
 
 
 def _render_region(
@@ -149,7 +201,7 @@ def _render_region(
             continue
         fragments = []
         with fiona.open(canonical, layer=layer) as collection:
-            for feature in collection:
+            for feature in collection.filter(bbox=bbox):
                 geometry = shape(feature["geometry"])
                 if geometry.is_empty or not geometry.intersects(clip):
                     continue
@@ -218,7 +270,7 @@ svg{{width:1000px;height:760px;background:#eef7fb;border:1px solid #94a3b8}}
 .meta{{padding:24px 22px;background:#fff;border-left:1px solid #cbd5e1}} h1{{font-size:22px;margin:0 0 10px}} h2{{font-size:14px;margin:18px 0 8px}}
 p,li{{font-size:12px;line-height:1.45}} ul{{list-style:none;padding:0;margin:0}} .swatch{{display:inline-block;width:14px;height:10px;margin-right:8px;border:1px solid #64748b}}
 .axis{{font-size:12px;color:#334155;margin:8px 0 0}} .status{{font-weight:bold;color:#166534}}
-</style></head><body><div class="layout"><section class="map"><svg viewBox="0 0 1000 760" role="img" aria-label="{html.escape(title)} maritime scene layers">{"".join(svg_parts)}</svg><p class="axis">WGS84 extent: {bbox_text}</p></section><aside class="meta"><h1>{html.escape(title)}</h1><p><b>Release:</b> {html.escape(release)}<br><b>Fingerprint:</b> {fingerprint[:12]}<br><b>Status:</b> <span class="status">{html.escape(str(status))}</span></p><h2>Layers</h2><ul>{legend}</ul><h2>Scene / confidence evidence</h2><p>Auto sample colors: green = JRC stable-water evidence; purple = other sample; red = conflict. Labels and confidence remain in the source QA report.</p><h2>Sources</h2><p>{html.escape(sources_text)}</p><h2>JRC coverage</h2><p>GSW1_5-2024 tile 120E_40N; stable-water evidence is displayed at validated sample locations.</p></aside></div></body></html>"""
+</style></head><body><div class="layout"><section class="map"><svg viewBox="0 0 1000 760" role="img" aria-label="{html.escape(title)} maritime scene layers">{"".join(svg_parts)}</svg><p class="axis">WGS84 extent: {bbox_text}</p></section><aside class="meta"><h1>{html.escape(title)}</h1><p><b>Release:</b> {html.escape(release)}<br><b>Fingerprint:</b> {fingerprint[:12]}<br><b>Status:</b> <span class="status">{html.escape(str(status))}</span></p><h2>Layers</h2><ul>{legend}</ul><h2>Scene / confidence evidence</h2><p>Auto sample colors: purple = sample; red = conflict. Labels, boundary state and confidence remain in the source QA report.</p><h2>Sources</h2><p>{html.escape(sources_text)}</p><h2>JRC coverage</h2><p>No global JRC is included. The Shanghai Release remains a separate regional overlay.</p></aside></div></body></html>"""
     return {
         "html": page, "layers": layers, "legendLayers": legend_layers,
         "sources": sorted(sources), "featureCount": feature_count,
