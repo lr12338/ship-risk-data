@@ -279,9 +279,9 @@ public class MaritimeSceneService {
         java.util.Map<String, Object> result = new java.util.LinkedHashMap<String, Object>();
         result.put("enabled", enabled);
         result.put("mode", mode);
+        result.putAll(snapshotManager.preflight());
         result.put("policyVersion", policyVersion);
         result.put("snapshotPolicyVersion", snapshotPolicyVersion);
-        result.putAll(snapshotManager.preflight());
         return result;
     }
 

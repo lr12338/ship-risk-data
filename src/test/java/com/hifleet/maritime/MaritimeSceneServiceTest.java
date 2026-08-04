@@ -1,13 +1,41 @@
 package com.hifleet.maritime;
 
 import org.junit.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 public class MaritimeSceneServiceTest {
+    @Test
+    public void preflightKeepsRuntimeAndSnapshotPolicyVersionsDistinct() {
+        MaritimeSceneSnapshotManager snapshotManager = new MaritimeSceneSnapshotManager(
+                null, null, MaritimeScenePolicy.VERSION, 1) {
+            @Override
+            public synchronized Map<String, Object> preflight() {
+                Map<String, Object> result = new LinkedHashMap<String, Object>();
+                result.put("available", true);
+                result.put("policyVersion", "MARITIME_SCENE_SHADOW_V1");
+                return result;
+            }
+        };
+        MaritimeSceneService service = new MaritimeSceneService(
+                snapshotManager, MaritimeScenePolicy.defaults("SHADOW"));
+        ReflectionTestUtils.setField(
+                service, "policyVersion", "MARITIME_SCENE_SHADOW_V2");
+        ReflectionTestUtils.setField(
+                service, "snapshotPolicyVersion", "MARITIME_SCENE_SHADOW_V1");
+
+        Map<String, Object> result = service.preflight();
+
+        assertEquals("MARITIME_SCENE_SHADOW_V2", result.get("policyVersion"));
+        assertEquals("MARITIME_SCENE_SHADOW_V1", result.get("snapshotPolicyVersion"));
+    }
+
     @Test
     public void defaultServiceIsOffAndDoesNotAffectFormalCalculations() {
         MaritimeSceneService service = new MaritimeSceneService();
