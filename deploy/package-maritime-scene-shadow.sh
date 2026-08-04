@@ -33,15 +33,16 @@ for name in global-base-review.gpkg review-points.csv QGIS-REVIEW.md; do
 done
 chmod +x "$OUTPUT_DIR/scripts/"*.sh
 
+TILE_COUNT="$(find "$RELEASE_DIR/tiles" -name '*.ndjson.gz' | wc -l | tr -d ' ')"
 sed -i.bak "s#phase1-smoke-shanghai-autocross-v1#$RELEASE_NAME#g; s#<manifest.snapshotFingerprint>#$FINGERPRINT#g" \
-  "$OUTPUT_DIR/config/"* "$OUTPUT_DIR/jobs/preflight-params.json"
+  "$OUTPUT_DIR/config/"* "$OUTPUT_DIR/jobs/preflight-params.json" "$OUTPUT_DIR/scripts/"*.sh
+sed -i.bak "s#<manifest.tileFileCount>#$TILE_COUNT#g" "$OUTPUT_DIR/scripts/"*.sh
 find "$OUTPUT_DIR" -name '*.bak' -delete
 
 JAR_SHA="$(shasum -a 256 "$JAR_PATH" | awk '{print $1}')"
 JAR_SIZE="$(stat -f %z "$JAR_PATH" 2>/dev/null || stat -c %s "$JAR_PATH")"
 RELEASE_SIZE="$(du -sk "$RELEASE_DIR" | awk '{print $1 * 1024}')"
 GIT_HEAD="$(git -C "$BASE_DIR" rev-parse HEAD)"
-TILE_COUNT="$(find "$RELEASE_DIR/tiles" -name '*.ndjson.gz' | wc -l | tr -d ' ')"
 
 jq -n \
   --arg builtAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
