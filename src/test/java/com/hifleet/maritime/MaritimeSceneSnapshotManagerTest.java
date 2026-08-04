@@ -38,6 +38,12 @@ public class MaritimeSceneSnapshotManagerTest {
     }
 
     @Test
+    public void tileIdsWrapDateLineAndClampPoles() {
+        assertEquals("N89_W180", MaritimeSceneTileLoader.tileId(180.0, 90.0));
+        assertEquals("S90_W179", MaritimeSceneTileLoader.tileId(181.0, -91.0));
+    }
+
+    @Test
     public void realShanghaiReleaseCanBeLoadedWhenPresent() throws Exception {
         Path root = java.nio.file.Paths.get("var/maritime-scene-data/releases/phase1-smoke-shanghai-autocross-v1");
         Assume.assumeTrue(Files.exists(root));
@@ -66,6 +72,25 @@ public class MaritimeSceneSnapshotManagerTest {
     }
 
     @Test
+    public void coveredEmptyAndNotCoveredBothStayUnknownButKeepCoverageEvidenceDistinct() throws Exception {
+        MaritimeSceneSnapshotManager regional = new MaritimeSceneSnapshotManager(
+                fixture("SHADOW_READY"), fingerprint(), MaritimeScenePolicy.VERSION, 2);
+        assertTrue(regional.load());
+        MaritimeSceneDecision notCovered = new MaritimeSceneService(
+                regional, MaritimeScenePolicy.defaults("SHADOW")).classify(0.5, 0.5);
+        assertEquals(MaritimeSceneClass.SCENE_UNKNOWN, notCovered.getSceneClass());
+        assertFalse(notCovered.getEvidence().isSnapshotAvailable());
+
+        MaritimeSceneSnapshotManager global = new MaritimeSceneSnapshotManager(
+                fixture("SHADOW_READY", true), fingerprint(), MaritimeScenePolicy.VERSION, 2);
+        assertTrue(global.load());
+        MaritimeSceneDecision coveredEmpty = new MaritimeSceneService(
+                global, MaritimeScenePolicy.defaults("SHADOW")).classify(0.5, 0.5);
+        assertEquals(MaritimeSceneClass.SCENE_UNKNOWN, coveredEmpty.getSceneClass());
+        assertTrue(coveredEmpty.getEvidence().isSnapshotAvailable());
+    }
+
+    @Test
     public void statusFingerprintAndChecksumFailuresFailClosed() throws Exception {
         Path statusRoot = fixture("AUTO_CROSS_VALIDATED");
         assertFalse(new MaritimeSceneSnapshotManager(
@@ -84,6 +109,10 @@ public class MaritimeSceneSnapshotManagerTest {
     }
 
     private Path fixture(String status) throws Exception {
+        return fixture(status, false);
+    }
+
+    private Path fixture(String status, boolean globalCoverage) throws Exception {
         Path root = Files.createTempDirectory("maritime-scene-fixture");
         Files.createDirectories(root.resolve("tiles"));
         gzip(root.resolve("tiles/N31_E121.scene.ndjson.gz"), "");
@@ -98,6 +127,7 @@ public class MaritimeSceneSnapshotManagerTest {
         manifest.put("releaseVersion", "fixture-release");
         manifest.put("snapshotFingerprint", fingerprint());
         manifest.put("fingerprintInputs", fingerprintInputs);
+        manifest.put("globalCoverage", globalCoverage);
         manifest.put("validationSummary", validation);
         Files.write(root.resolve("manifest.json"),
                 (manifest.toJSONString() + "\n").getBytes(StandardCharsets.UTF_8));

@@ -71,4 +71,31 @@ public class MaritimeSceneServiceTest {
         assertEquals("COASTAL_REVIEW", service.shadowDecision(
                 service.aggregate(Arrays.asList(territorial, territorial))));
     }
+
+    @Test
+    public void highLakeCanalAndOpenWaterEpisodesFollowTheContract() {
+        MaritimeScenePolicy policy = MaritimeScenePolicy.defaults("SHADOW");
+        MaritimeSceneService service = new MaritimeSceneService(null, policy);
+
+        assertEquals("WOULD_REJECT_INLAND", service.shadowDecision(service.aggregate(
+                Arrays.asList(decision(MaritimeSceneClass.INLAND_LAKE, SceneConfidence.HIGH),
+                        decision(MaritimeSceneClass.INLAND_LAKE, SceneConfidence.HIGH)),
+                Arrays.asList(0L, 3600000L, 7200000L))));
+        assertEquals("WOULD_REJECT_INLAND", service.shadowDecision(service.aggregate(
+                Arrays.asList(decision(MaritimeSceneClass.MAJOR_CANAL, SceneConfidence.HIGH),
+                        decision(MaritimeSceneClass.MAJOR_CANAL, SceneConfidence.HIGH)),
+                Arrays.asList(0L, 3600000L, 7200000L))));
+        assertEquals("OPEN_WATER_CONFIRMED", service.shadowDecision(service.aggregate(
+                Arrays.asList(decision(MaritimeSceneClass.HIGH_SEAS, SceneConfidence.HIGH),
+                        decision(MaritimeSceneClass.HIGH_SEAS, SceneConfidence.HIGH)))));
+        assertEquals("OPEN_WATER_CONFIRMED", service.shadowDecision(service.aggregate(
+                Arrays.asList(decision(MaritimeSceneClass.OFFSHORE_EEZ, SceneConfidence.HIGH),
+                        decision(MaritimeSceneClass.OFFSHORE_EEZ, SceneConfidence.HIGH)))));
+    }
+
+    private MaritimeSceneDecision decision(MaritimeSceneClass scene, SceneConfidence confidence) {
+        return new MaritimeSceneDecision(scene, confidence,
+                MaritimeSceneEvidence.unavailable("test"), 20.0, 10000.0,
+                null, null, MaritimeScenePolicy.VERSION, false);
+    }
 }

@@ -36,6 +36,8 @@ public class MaritimeSceneService {
     private double openWaterPointRatio = 0.90;
     @Value("${ship.behavior.maritime-scene.max-unknown-ratio:0.05}")
     private double maxUnknownRatio = 0.05;
+    @Value("${ship.behavior.maritime-scene.offshore-min-coast-distance-nm:12}")
+    private double offshoreMinCoastDistanceNm = 12.0;
 
     private MaritimeScenePolicy policy = MaritimeScenePolicy.defaults("OFF");
     private MaritimeSceneSnapshotManager snapshotManager =
@@ -61,7 +63,7 @@ public class MaritimeSceneService {
         policy = new MaritimeScenePolicy(
                 mode, boundaryToleranceMeters, coastSearchRadiusNm,
                 highInlandPointRatio, minInlandMinutes,
-                openWaterPointRatio, maxUnknownRatio);
+                openWaterPointRatio, maxUnknownRatio, offshoreMinCoastDistanceNm);
         classifier = new MaritimeSceneClassifier(policy);
         if (enabled && policy.isShadow()) {
             snapshotManager = new MaritimeSceneSnapshotManager(
@@ -85,7 +87,14 @@ public class MaritimeSceneService {
             return unknown("scene service unavailable", runtimeWaterSupport);
         }
         try {
+            longitude = ((longitude + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
+            latitude = Math.max(-90.0,
+                    Math.min(Math.nextAfter(90.0, Double.NEGATIVE_INFINITY), latitude));
             MaritimeSceneTileLoader loader = snapshotManager.getTileLoader();
+            String centerTileId = MaritimeSceneTileLoader.tileId(longitude, latitude);
+            if (!snapshotManager.getManifest().isTileCovered(centerTileId)) {
+                return unknown("tile not covered: " + centerTileId, runtimeWaterSupport);
+            }
             org.locationtech.jts.geom.Point point = MaritimeSceneTileLoader.point(longitude, latitude);
             List<MaritimeSceneTileLoader.TileRecord> matches = new ArrayList<MaritimeSceneTileLoader.TileRecord>();
             List<MaritimeSceneTileLoader.TileRecord> coast = new ArrayList<MaritimeSceneTileLoader.TileRecord>();
@@ -97,7 +106,7 @@ public class MaritimeSceneService {
                     MaritimeSceneTileLoader.TileData tile = loader.load(tileId);
                     for (MaritimeSceneTileLoader.TileRecord record : tile.sceneCandidates(point)) {
                         String key = record.getSceneType() + "|" + record.getSourceFeatureId()
-                                + "|" + record.getTileId();
+                                + "|" + record.getGeometry().getGeometryType();
                         if (record.covers(point) && keys.add(key)) matches.add(record);
                     }
                     coast.addAll(tile.getCoastRecords());
@@ -134,8 +143,11 @@ public class MaritimeSceneService {
             List<MaritimeSceneTileLoader.TileRecord> matches) {
         double best = Double.POSITIVE_INFINITY;
         for (MaritimeSceneTileLoader.TileRecord record : matches) {
+            if (record.getBoundaryGeometry() == null || record.getBoundaryGeometry().isEmpty()) {
+                continue;
+            }
             best = Math.min(best, CoastDistanceService.distanceToGeometryMeters(
-                    longitude, latitude, record.getGeometry().getBoundary()));
+                    longitude, latitude, record.getBoundaryGeometry()));
         }
         return Double.isFinite(best) ? best : null;
     }

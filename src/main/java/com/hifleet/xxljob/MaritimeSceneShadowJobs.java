@@ -24,7 +24,9 @@ public class MaritimeSceneShadowJobs {
         try {
             MaritimeSceneShadowAuditParams params = MaritimeSceneShadowAuditParams.parse(rawParams);
             JSONObject result = auditService.preflight(params);
-            return new ReturnT<String>(ReturnT.SUCCESS_CODE, result.toJSONString());
+            boolean success = "PASS".equals(result.getString("status"));
+            return new ReturnT<String>(success ? ReturnT.SUCCESS_CODE : ReturnT.FAIL_CODE,
+                    result.toJSONString());
         } catch (Exception ex) {
             log.error("maritime scene shadow preflight failed", ex);
             return new ReturnT<String>(ReturnT.FAIL_CODE, ex.getMessage());

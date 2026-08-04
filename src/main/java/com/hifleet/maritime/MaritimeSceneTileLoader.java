@@ -74,12 +74,23 @@ public class MaritimeSceneTileLoader {
                 }
                 Geometry geometry = wkbReader.read(WKBReader.hexToBytes(wkb));
                 if (geometry == null || geometry.isEmpty()) continue;
+                Geometry boundaryGeometry;
+                String boundaryWkb = json.getString("boundaryWkbHex");
+                if (boundaryWkb != null && !boundaryWkb.trim().isEmpty()) {
+                    boundaryGeometry = wkbReader.read(WKBReader.hexToBytes(boundaryWkb));
+                } else if (json.getBooleanValue("tileClipped")) {
+                    boundaryGeometry = geometryFactory.createGeometryCollection(null);
+                } else {
+                    boundaryGeometry = geometry.getBoundary();
+                }
                 result.add(new TileRecord(
                         json.getString("sceneType"),
                         json.getString("sourceFeatureId"),
                         json.getString("tileId") == null ? tileId : json.getString("tileId"),
                         geometry,
-                        json.getJSONObject("properties")));
+                        json.getJSONObject("properties"),
+                        json.getString("confidence"),
+                        boundaryGeometry));
             }
             return result;
         } catch (IOException ex) {
@@ -90,6 +101,8 @@ public class MaritimeSceneTileLoader {
     }
 
     public static String tileId(double longitude, double latitude) {
+        longitude = ((longitude + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
+        latitude = Math.max(-90.0, Math.min(Math.nextAfter(90.0, Double.NEGATIVE_INFINITY), latitude));
         int lon = (int) Math.floor(longitude);
         int lat = (int) Math.floor(latitude);
         return (lat >= 0 ? "N" : "S") + String.format("%02d", Math.abs(lat))
@@ -142,6 +155,8 @@ public class MaritimeSceneTileLoader {
         private final Geometry geometry;
         private final PreparedGeometry preparedGeometry;
         private final JSONObject properties;
+        private final String confidence;
+        private final Geometry boundaryGeometry;
 
         public TileRecord(
                 String sceneType,
@@ -149,12 +164,37 @@ public class MaritimeSceneTileLoader {
                 String tileId,
                 Geometry geometry,
                 JSONObject properties) {
+            this(sceneType, sourceFeatureId, tileId, geometry, properties,
+                    "UNKNOWN", geometry.getBoundary());
+        }
+
+        public TileRecord(
+                String sceneType,
+                String sourceFeatureId,
+                String tileId,
+                Geometry geometry,
+                JSONObject properties,
+                String confidence) {
+            this(sceneType, sourceFeatureId, tileId, geometry, properties,
+                    confidence, geometry.getBoundary());
+        }
+
+        public TileRecord(
+                String sceneType,
+                String sourceFeatureId,
+                String tileId,
+                Geometry geometry,
+                JSONObject properties,
+                String confidence,
+                Geometry boundaryGeometry) {
             this.sceneType = sceneType == null ? "UNKNOWN" : sceneType;
             this.sourceFeatureId = sourceFeatureId;
             this.tileId = tileId;
             this.geometry = geometry;
             this.preparedGeometry = PreparedGeometryFactory.prepare(geometry);
             this.properties = properties == null ? new JSONObject() : properties;
+            this.confidence = confidence == null ? "UNKNOWN" : confidence;
+            this.boundaryGeometry = boundaryGeometry;
         }
 
         public String getSceneType() { return sceneType; }
@@ -163,6 +203,8 @@ public class MaritimeSceneTileLoader {
         public Geometry getGeometry() { return geometry; }
         public PreparedGeometry getPreparedGeometry() { return preparedGeometry; }
         public JSONObject getProperties() { return properties; }
+        public String getConfidence() { return confidence; }
+        public Geometry getBoundaryGeometry() { return boundaryGeometry; }
         public boolean covers(Point point) { return preparedGeometry.covers(point); }
     }
 }

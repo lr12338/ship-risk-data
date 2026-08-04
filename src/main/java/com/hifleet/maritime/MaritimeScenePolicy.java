@@ -14,6 +14,7 @@ public class MaritimeScenePolicy {
     private final double minInlandMinutes;
     private final double openWaterPointRatio;
     private final double maxUnknownRatio;
+    private final double offshoreMinCoastDistanceNm;
 
     public MaritimeScenePolicy(
             String mode,
@@ -23,6 +24,19 @@ public class MaritimeScenePolicy {
             double minInlandMinutes,
             double openWaterPointRatio,
             double maxUnknownRatio) {
+        this(mode, boundaryToleranceMeters, coastSearchRadiusNm, highInlandPointRatio,
+                minInlandMinutes, openWaterPointRatio, maxUnknownRatio, 12.0);
+    }
+
+    public MaritimeScenePolicy(
+            String mode,
+            double boundaryToleranceMeters,
+            double coastSearchRadiusNm,
+            double highInlandPointRatio,
+            double minInlandMinutes,
+            double openWaterPointRatio,
+            double maxUnknownRatio,
+            double offshoreMinCoastDistanceNm) {
         this.mode = mode == null ? "OFF" : mode.toUpperCase();
         this.boundaryToleranceMeters = boundaryToleranceMeters;
         this.coastSearchRadiusNm = coastSearchRadiusNm;
@@ -30,6 +44,7 @@ public class MaritimeScenePolicy {
         this.minInlandMinutes = minInlandMinutes;
         this.openWaterPointRatio = openWaterPointRatio;
         this.maxUnknownRatio = maxUnknownRatio;
+        this.offshoreMinCoastDistanceNm = offshoreMinCoastDistanceNm;
     }
 
     public static MaritimeScenePolicy defaults(String mode) {
@@ -43,6 +58,7 @@ public class MaritimeScenePolicy {
     public double getMinInlandMinutes() { return minInlandMinutes; }
     public double getOpenWaterPointRatio() { return openWaterPointRatio; }
     public double getMaxUnknownRatio() { return maxUnknownRatio; }
+    public double getOffshoreMinCoastDistanceNm() { return offshoreMinCoastDistanceNm; }
 
     public boolean isShadow() { return "SHADOW".equals(mode); }
 

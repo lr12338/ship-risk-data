@@ -25,6 +25,7 @@ public final class MaritimeSceneManifest {
         List<String> statuses = new ArrayList<String>();
         statuses.add("RAW_VERIFIED");
         statuses.add("GEOMETRY_VALIDATED");
+        statuses.add("GLOBAL_CORE_VALIDATED");
         statuses.add("AUTO_CROSS_VALIDATED");
         statuses.add(SHADOW_READY);
         statuses.add("ENFORCE_CANDIDATE");
@@ -38,6 +39,7 @@ public final class MaritimeSceneManifest {
     private final String snapshotFingerprint;
     private final String releaseStatus;
     private final String policyVersion;
+    private final boolean globalCoverage;
 
     private MaritimeSceneManifest(
             Path releaseRoot,
@@ -45,13 +47,15 @@ public final class MaritimeSceneManifest {
             String releaseVersion,
             String snapshotFingerprint,
             String releaseStatus,
-            String policyVersion) {
+            String policyVersion,
+            boolean globalCoverage) {
         this.releaseRoot = releaseRoot;
         this.json = json;
         this.releaseVersion = releaseVersion;
         this.snapshotFingerprint = snapshotFingerprint;
         this.releaseStatus = releaseStatus;
         this.policyVersion = policyVersion;
+        this.globalCoverage = globalCoverage;
     }
 
     public static MaritimeSceneManifest read(
@@ -91,7 +95,9 @@ public final class MaritimeSceneManifest {
             }
             verifyChecksums(root);
             verifyTileFiles(root);
-            return new MaritimeSceneManifest(root, json, releaseVersion, fingerprint, status, policyVersion);
+            return new MaritimeSceneManifest(
+                    root, json, releaseVersion, fingerprint, status, policyVersion,
+                    json.getBooleanValue("globalCoverage"));
         } catch (IOException ex) {
             throw new IllegalStateException("cannot read maritime scene manifest", ex);
         }
@@ -183,4 +189,11 @@ public final class MaritimeSceneManifest {
     public String getSnapshotFingerprint() { return snapshotFingerprint; }
     public String getReleaseStatus() { return releaseStatus; }
     public String getPolicyVersion() { return policyVersion; }
+    public boolean isGlobalCoverage() { return globalCoverage; }
+    public boolean isTileCovered(String tileId) {
+        if (globalCoverage) return true;
+        Path tiles = releaseRoot.resolve("tiles");
+        return Files.exists(tiles.resolve(tileId + ".scene.ndjson.gz"))
+                || Files.exists(tiles.resolve(tileId + ".coast.ndjson.gz"));
+    }
 }

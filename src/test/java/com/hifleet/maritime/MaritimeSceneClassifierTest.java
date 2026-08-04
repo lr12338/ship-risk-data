@@ -53,6 +53,30 @@ public class MaritimeSceneClassifierTest {
                 classify(Collections.singletonList(record("marine_eez")), evidence(false, false), 10.0).getSceneClass());
         assertEquals(MaritimeSceneClass.HIGH_SEAS,
                 classify(Collections.singletonList(record("marine_high_seas")), evidence(false, false), 10.0).getSceneClass());
+        assertEquals(SceneConfidence.MEDIUM,
+                classify(Collections.singletonList(record("marine_eez")), evidence(false, false), 10.0).getConfidence());
+        assertEquals(SceneConfidence.HIGH,
+                classify(Collections.singletonList(record("marine_eez")), evidence(false, false), 20.0).getConfidence());
+    }
+
+    @Test
+    public void reviewedLakeAndCanalAreHighAwayFromBoundary() {
+        assertEquals(SceneConfidence.HIGH, classify(
+                Collections.singletonList(record("inland_lake", "HIGH")), evidence(false, false)).getConfidence());
+        assertEquals(SceneConfidence.HIGH, classify(
+                Arrays.asList(record("land"), record("major_canal", "HIGH")),
+                evidence(false, false)).getConfidence());
+    }
+
+    @Test
+    public void lakeBoundaryIsNeverHardEvidence() {
+        MaritimeSceneDecision decision = classifier.classify(
+                Collections.singletonList(record("inland_lake", "HIGH")), evidence(false, false),
+                20.0, 100.0, "release",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                MaritimeScenePolicy.VERSION);
+        assertEquals(MaritimeSceneClass.BOUNDARY_UNCERTAIN, decision.getSceneClass());
+        assertEquals(SceneConfidence.LOW, decision.getConfidence());
     }
 
     private MaritimeSceneDecision classify(
@@ -70,9 +94,13 @@ public class MaritimeSceneClassifierTest {
     }
 
     private MaritimeSceneTileLoader.TileRecord record(String type) {
+        return record(type, "UNKNOWN");
+    }
+
+    private MaritimeSceneTileLoader.TileRecord record(String type, String confidence) {
         return new MaritimeSceneTileLoader.TileRecord(
                 type, type + "-1", "N31_E121",
-                factory.createPoint(new Coordinate(121.0, 31.0)), new JSONObject());
+                factory.createPoint(new Coordinate(121.0, 31.0)), new JSONObject(), confidence);
     }
 
     private MaritimeSceneEvidence evidence(boolean jrcStable, boolean runtimeWaterSupport) {
