@@ -3,6 +3,7 @@ from pathlib import Path
 
 from scene_etl.estimate_build import estimate_build
 from scene_etl.global_coverage import write_global_coverage
+from scene_etl.automatic_validation import _attach_coast_distances
 
 
 def test_estimate_global_build_reports_required_resource_fields(tmp_path: Path):
@@ -48,3 +49,18 @@ def test_global_coverage_distinguishes_empty_from_not_covered(tmp_path: Path):
     csv_text = (tmp_path / "validation" / "global-tile-coverage.csv").read_text()
     assert "N00_E000,COVERED_WITH_FEATURES,1,0" in csv_text
     assert "N00_E001,COVERED_EMPTY,0,0" in csv_text
+
+
+def test_coast_distance_is_attached_to_every_auto_sample(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(
+        "scene_etl.automatic_validation.distance_to_coast",
+        lambda *_args, **_kwargs: {"distanceNm": 20.0, "available": True},
+    )
+    payload = {"samples": [
+        {"longitude": index, "latitude": 0.0} for index in range(205)
+    ]}
+
+    report = _attach_coast_distances(tmp_path, payload)
+
+    assert report["sampleCount"] == 205
+    assert all(sample["coastDistanceNm"] == 20.0 for sample in payload["samples"])

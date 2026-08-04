@@ -212,8 +212,34 @@ def normalize_longitudes(geometry):
 
 def split_dateline(geometry):
     from shapely import make_valid
-    from shapely.geometry import box
+    from shapely.geometry import GeometryCollection, MultiLineString, MultiPolygon, box
     from shapely.ops import transform, unary_union
+
+    min_x, min_y, max_x, max_y = geometry.bounds
+    if min_x <= -180.0 and max_x >= 180.0 \
+            and (min_y <= -90.0 or max_y >= 90.0):
+        return geometry
+
+    if geometry.geom_type == "MultiPolygon":
+        polygons = []
+        for item in geometry.geoms:
+            split = split_dateline(item) if _crosses_dateline(item) else item
+            split = polygonal_only(split)
+            if split is None or split.is_empty:
+                continue
+            polygons.extend(split.geoms if split.geom_type == "MultiPolygon" else [split])
+        return MultiPolygon(polygons)
+    if geometry.geom_type == "MultiLineString":
+        lines = []
+        for item in geometry.geoms:
+            split = split_dateline(item) if _crosses_dateline(item) else item
+            lines.extend(split.geoms if split.geom_type == "MultiLineString" else [split])
+        return MultiLineString(lines)
+    if geometry.geom_type == "GeometryCollection":
+        return GeometryCollection([
+            split_dateline(item) if _crosses_dateline(item) else item
+            for item in geometry.geoms
+        ])
 
     shifted = transform(
         lambda x, y, z=None: (x % 360.0, y)

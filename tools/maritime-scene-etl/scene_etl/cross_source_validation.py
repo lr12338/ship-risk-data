@@ -108,7 +108,7 @@ def classify_point(
     if "marine_archipelagic_water" in hit_types:
         return _decision("ARCHIPELAGIC_WATER", "MEDIUM", evidence, False)
     if "marine_territorial_sea" in hit_types:
-        if coast_label in {"VERY_NEAR_COAST", "COASTAL", "UNKNOWN"}:
+        if coast_label in {"VERY_NEAR_COAST", "UNKNOWN"}:
             return _decision("BOUNDARY_UNCERTAIN", "LOW", evidence, False)
         return _decision("TERRITORIAL_SEA", "MEDIUM", evidence, False)
     if "marine_eez" in hit_types:
@@ -204,10 +204,7 @@ def _has_conflict(hit_types: set[str]) -> bool:
         "marine_archipelagic_water", "inland_river_corridor", "inland_lake", "major_canal",
     }):
         return True
-    marine_classes = hit_types.intersection({
-        "marine_territorial_sea", "marine_internal_water", "marine_archipelagic_water",
-    })
-    return len(marine_classes) > 1
+    return False
 
 
 def _decision(scene_class: str, confidence: str, evidence: dict[str, Any], conflict: bool):

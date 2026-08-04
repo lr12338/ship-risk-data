@@ -48,3 +48,34 @@ def test_polygon_crossing_date_line_is_split_without_world_spanning_bounds():
     assert normalized.geometry is not None
     assert normalized.geometry.geom_type == "MultiPolygon"
     assert all(part.bounds[2] - part.bounds[0] <= 1.0 for part in normalized.geometry.geoms)
+
+
+def test_date_line_split_does_not_expand_unrelated_greenwich_polygon():
+    geometry = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [[[-10, 0], [10, 0], [10, 10], [-10, 10], [-10, 0]]],
+            [[[179.5, 20], [-179.5, 20], [-179.5, 21], [179.5, 21], [179.5, 20]]],
+        ],
+    }
+
+    normalized = normalize_geometry(
+        geometry, "EPSG:4326", expected_dimension=2, require_kind="polygon")
+
+    assert normalized.geometry is not None
+    assert round(normalized.geometry.area, 6) == 201.0
+
+
+def test_polar_cap_keeps_full_longitude_extent():
+    geometry = {
+        "type": "Polygon",
+        "coordinates": [[
+            [-180, 80], [180, 80], [180, 90], [-180, 90], [-180, 80],
+        ]],
+    }
+
+    normalized = normalize_geometry(
+        geometry, "EPSG:4326", expected_dimension=2, require_kind="polygon")
+
+    assert normalized.geometry is not None
+    assert round(normalized.geometry.area, 6) == 3600.0

@@ -80,7 +80,7 @@ def run_automatic_validation(
 def _attach_coast_distances(release_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
     samples = payload.get("samples", [])
     results = []
-    for sample in samples[:200]:
+    for sample in samples:
         result = distance_to_coast(
             release_dir,
             float(sample["longitude"]),

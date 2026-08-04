@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import bisect
+import hashlib
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from .config import load_yaml
+from .coast_distance import distance_to_coast
 from .cross_source_validation import classify_point
 from .geometry import geometry_from_wkb_hex
 from .jrc import JrcRasterSampler
@@ -51,15 +53,16 @@ def generate_auto_samples(
     positive_count = int(config.get("positive_per_class", 20))
     negative_count = int(config.get("negative_per_class", 20))
     boundary_count = int(config.get("boundary_per_class", 10))
+    random_seed = int(config.get("fixed_random_seed", 0))
     max_total = max_total or int(config.get("max_total_samples", 1000))
     grouped: dict[str, list[tuple[tuple[str, ...], dict[str, Any]]]] = defaultdict(list)
-    pool_size = positive_count + boundary_count
-    for record in iter_release_records(release_dir, record_kind="scene", unique=True):
+    pool_size = positive_count * 10 + boundary_count
+    for record in iter_release_records(release_dir, record_kind="scene", unique=False):
         scene_type = record.get("sceneType")
         for sample_class, target_scene in CLASS_TO_SCENE.items():
             if scene_type == target_scene:
                 values = grouped[sample_class]
-                bisect.insort(values, (_record_key(record), record))
+                bisect.insort(values, (_record_key(record, random_seed), record))
                 if len(values) > pool_size:
                     values.pop()
     bounded = {key: [item[1] for item in values] for key, values in grouped.items()}
@@ -71,8 +74,11 @@ def generate_auto_samples(
         records = bounded.get(sample_class, [])
         if not records:
             continue
+        positive_records = _core_records(
+            release_dir, config_dir, sample_class, records, positive_count)
         for role, count in (("positive", positive_count), ("negative", negative_count), ("boundary", boundary_count)):
-            for index in range(count):
+            role_count = min(count, len(positive_records)) if role == "positive" else count
+            for index in range(role_count):
                 if len(samples) >= max_total:
                     break
                 if role == "negative":
@@ -83,10 +89,17 @@ def generate_auto_samples(
                     if not negative_pool:
                         continue
                     record = negative_pool[index % len(negative_pool)]
+                elif role == "positive":
+                    record = positive_records[index % len(positive_records)]
                 else:
                     record = records[index % len(records)]
                 geometry = geometry_from_wkb_hex(record["geometryWkbHex"])
-                point = _sample_point(geometry, role)
+                if role == "boundary" and record.get("boundaryWkbHex"):
+                    boundary = geometry_from_wkb_hex(record["boundaryWkbHex"])
+                    point = boundary.interpolate(boundary.length * 0.5) \
+                        if boundary.length else geometry.representative_point()
+                else:
+                    point = _sample_point(geometry, role)
                 sample = {
                     "sampleId": f"auto-{sample_index:05d}",
                     "sampleClass": sample_class,
@@ -117,12 +130,68 @@ def generate_auto_samples(
     return payload
 
 
-def _record_key(record: dict[str, Any]) -> tuple[str, ...]:
-    return (
+def _record_key(record: dict[str, Any], random_seed: int) -> tuple[str, ...]:
+    identity = "|".join((
+        str(random_seed),
         str(record.get("sourceName", "")),
         str(record.get("sourceFeatureId", "")),
+        str(record.get("sceneType", "")),
+        str(record.get("tileId", "")),
+    ))
+    return (
+        hashlib.sha256(identity.encode("utf-8")).hexdigest(),
         str(record.get("tileId", "")),
     )
+
+
+def _core_records(
+    release_dir: Path,
+    config_dir: Path,
+    sample_class: str,
+    records: list[dict[str, Any]],
+    required: int,
+) -> list[dict[str, Any]]:
+    selected = []
+    offshore_min = float(load_yaml(config_dir / "processing-policy.yaml").get(
+        "offshore_min_coast_distance_nm", 12.0))
+    for record in records:
+        point = geometry_from_wkb_hex(record["geometryWkbHex"]).representative_point()
+        hit_types = {
+            item.get("sceneType")
+            for item in point_hits(release_dir, point.x, point.y)
+        }
+        if not _candidate_matches_core(sample_class, hit_types):
+            continue
+        if sample_class == "OFFSHORE_EEZ":
+            coast = distance_to_coast(release_dir, point.x, point.y)
+            if not coast.get("available") or float(coast["distanceNm"]) < offshore_min:
+                continue
+        selected.append(record)
+        if len(selected) >= required:
+            break
+    return selected or records[:required]
+
+
+def _candidate_matches_core(sample_class: str, hit_types: set[str]) -> bool:
+    allowed = {
+        "LAND": {"land"},
+        "HIGH_SEAS": {"marine_high_seas"},
+        "OFFSHORE_EEZ": {"marine_eez"},
+        "TERRITORIAL": {"marine_territorial_sea", "marine_eez"},
+        "MARINE_INTERNAL": {
+            "marine_internal_water", "marine_territorial_sea", "marine_eez",
+        },
+        "ARCHIPELAGIC": {
+            "marine_archipelagic_water", "marine_territorial_sea", "marine_eez",
+        },
+        "LAKE": {"inland_lake", "land"},
+        "CANAL": {
+            "major_canal", "land", "marine_eez", "marine_territorial_sea",
+            "marine_internal_water", "marine_archipelagic_water",
+        },
+    }.get(sample_class)
+    required = CLASS_TO_SCENE.get(sample_class)
+    return bool(allowed and required in hit_types and hit_types <= allowed)
 
 
 def validate_auto_samples(
@@ -186,7 +255,28 @@ def validate_auto_samples(
     required_rate = float(load_yaml(config_dir / "auto-samples.yaml").get(
         "blocking_core_min_pass_rate", 0.98))
     core = categories["BLOCKING_CORE"]
-    core_pass = core["sampleCount"] > 0 and core["passRate"] >= required_rate
+    expected_core_classes = {
+        "LAND", "HIGH_SEAS", "OFFSHORE_EEZ", "TERRITORIAL",
+        "MARINE_INTERNAL", "ARCHIPELAGIC", "LAKE", "CANAL",
+    }
+    required_per_class = int(load_yaml(config_dir / "auto-samples.yaml").get(
+        "positive_per_class", 50))
+    core_classes = {}
+    for sample_class in sorted(expected_core_classes):
+        values = [item for item in results
+                  if item["validationCategory"] == "BLOCKING_CORE"
+                  and item["sampleClass"] == sample_class]
+        class_passed = sum(1 for item in values if item["passed"])
+        class_rate = class_passed / len(values) if values else 0.0
+        core_classes[sample_class] = {
+            "sampleCount": len(values),
+            "passedCount": class_passed,
+            "passRate": class_rate,
+            "status": "PASS" if len(values) >= required_per_class
+            and class_rate >= required_rate else "FAIL",
+        }
+    core_pass = core["sampleCount"] > 0 and core["passRate"] >= required_rate \
+        and all(item["status"] == "PASS" for item in core_classes.values())
     report = {
         "schemaVersion": 1,
         "status": "PASS" if core_pass else "FAIL",
@@ -203,7 +293,9 @@ def validate_auto_samples(
         },
         "results": results,
         "categories": categories,
+        "blockingCoreClasses": core_classes,
         "blockingCoreMinimumPassRate": required_rate,
+        "blockingCoreMinimumSamplesPerClass": required_per_class,
         "notGeographicTruth": True,
     }
     write_json(release_dir / "validation" / "auto-samples-report.json", report)
