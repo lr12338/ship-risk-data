@@ -1324,6 +1324,8 @@ public class ShipAlongsideDetector {
             json.put("targetShipMinTypeRaw", null);
             json.put("targetProfileMissing", context.getTargetShipType() == null);
             json.put("targetImoPresent", false);
+            json.put("targetLength", null);
+            json.put("targetDwt", null);
             json.put("merchantPair", context.isMerchantPair());
             return json.toJSONString();
         }
