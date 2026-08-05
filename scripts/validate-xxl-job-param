@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import pathlib
+import sys
+
+parser = argparse.ArgumentParser(description="Validate a short Behavior Platform XXL-JOB parameter")
+source = parser.add_mutually_exclusive_group(required=True)
+source.add_argument("--file")
+source.add_argument("--json")
+parser.add_argument("--field-length", type=int, required=True)
+args = parser.parse_args()
+
+raw = pathlib.Path(args.file).read_text(encoding="utf-8") if args.file else args.json
+try:
+    value = json.loads(raw)
+except json.JSONDecodeError as error:
+    print(json.dumps({"valid": False, "error": str(error)}, ensure_ascii=False))
+    sys.exit(1)
+if not isinstance(value, dict):
+    print(json.dumps({"valid": False, "error": "top-level JSON must be an object"}, ensure_ascii=False))
+    sys.exit(1)
+compact = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+characters = len(compact)
+utf8_bytes = len(compact.encode("utf-8"))
+margin = args.field_length - utf8_bytes
+result = {
+    "valid": margin >= 0,
+    "characters": characters,
+    "utf8Bytes": utf8_bytes,
+    "targetFieldLength": args.field_length,
+    "safetyMarginBytes": margin,
+    "compactJson": compact,
+    "tailComplete": compact.endswith("}"),
+}
+print(json.dumps(result, ensure_ascii=False, indent=2))
+sys.exit(0 if result["valid"] else 2)

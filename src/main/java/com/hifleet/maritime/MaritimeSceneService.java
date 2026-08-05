@@ -276,13 +276,21 @@ public class MaritimeSceneService {
     }
 
     public java.util.Map<String, Object> preflight() {
-        java.util.Map<String, Object> result = new java.util.LinkedHashMap<String, Object>();
-        result.put("enabled", enabled);
-        result.put("mode", mode);
-        result.putAll(snapshotManager.preflight());
-        result.put("policyVersion", policyVersion);
-        result.put("snapshotPolicyVersion", snapshotPolicyVersion);
-        return result;
+        return preflightResult().toLegacyMap();
+    }
+
+    public ScenePreflightResult preflightResult() {
+        java.util.Map<String, Object> snapshot = snapshotManager.preflight();
+        String manifestPolicy = text(snapshot.get("policyVersion"));
+        return new ScenePreflightResult(
+                new SceneRuntimeInfo(enabled, mode, policyVersion),
+                new SceneSnapshotInfo(Boolean.TRUE.equals(snapshot.get("available")),
+                        text(snapshot.get("releaseVersion")),
+                        text(snapshot.get("snapshotFingerprint")),
+                        snapshotPolicyVersion == null ? manifestPolicy : snapshotPolicyVersion,
+                        text(snapshot.get("checksumStatus")) == null
+                                && Boolean.TRUE.equals(snapshot.get("available"))
+                                ? "PASS" : text(snapshot.get("checksumStatus"))));
     }
 
     public boolean isEnabled() { return enabled; }
@@ -302,5 +310,9 @@ public class MaritimeSceneService {
 
     private static String blankToNull(String value) {
         return value == null || value.trim().isEmpty() ? null : value.trim();
+    }
+
+    private static String text(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 }

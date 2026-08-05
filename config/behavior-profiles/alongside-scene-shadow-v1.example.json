@@ -1,0 +1,1 @@
+{"profileId":"alongside-scene-shadow-local-v1","version":1,"behaviorType":"ALONGSIDE","ruleSetId":"alongside-insurance-v1","ruleSetVersion":1,"sceneMode":"SHADOW","writeMode":"FILE_AUDIT","primaryShipTypePolicy":"MERCHANT_STRICT","counterpartyShipTypePolicy":"STRICT_SAME_AS_PRIMARY","unknownShipTypeAction":"REVIEW_REQUIRED"}

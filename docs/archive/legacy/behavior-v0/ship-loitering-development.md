@@ -51,7 +51,7 @@ XXL-Job Handler：
 
 代码位置：
 
-- [ShipBehaviorJob.java](../src/main/java/com/hifleet/xxljob/ShipBehaviorJob.java)
+- [ShipBehaviorJob.java](../../../../src/main/java/com/hifleet/xxljob/ShipBehaviorJob.java)
 
 推荐 JSON 参数：
 
@@ -92,11 +92,11 @@ shipLoiteringJobHandler
 
 关键类：
 
-- [ShipBehaviorAnalysisService.java](../src/main/java/com/hifleet/job/services/ShipBehaviorAnalysisService.java)
-- [TrajectoryLoaderService.java](../src/main/java/com/hifleet/trajectory/TrajectoryLoaderService.java)
-- [ShipLoiteringDetector.java](../src/main/java/com/hifleet/service/ShipLoiteringDetector.java)
-- [ShipBehaviorEventRepository.java](../src/main/java/com/hifleet/repository/ShipBehaviorEventRepository.java)
-- [ShipBehaviorTableInitializer.java](../src/main/java/com/hifleet/repository/ShipBehaviorTableInitializer.java)
+- [ShipBehaviorAnalysisService.java](../../../../src/main/java/com/hifleet/job/services/ShipBehaviorAnalysisService.java)
+- [TrajectoryLoaderService.java](../../../../src/main/java/com/hifleet/trajectory/TrajectoryLoaderService.java)
+- [ShipLoiteringDetector.java](../../../../src/main/java/com/hifleet/service/ShipLoiteringDetector.java)
+- [ShipBehaviorEventRepository.java](../../../../src/main/java/com/hifleet/repository/ShipBehaviorEventRepository.java)
+- [ShipBehaviorTableInitializer.java](../../../../src/main/java/com/hifleet/repository/ShipBehaviorTableInitializer.java)
 
 职责边界：
 
@@ -420,7 +420,7 @@ max_ais_gap_minutes <= 180
 
 源码默认配置位于：
 
-- [application.properties](../src/main/resources/application.properties)
+- [application.properties](../../../../src/main/resources/application.properties)
 
 线上以服务器 `/data/zhengyi/application.properties` 为准，源码配置只作为默认值。
 
@@ -485,12 +485,12 @@ ship.behavior.loitering.weak.max-score=20
 事件摘要表：
 
 - `dataanalysis.ship_behavior_event`
-- DDL：[ship_behavior_event.sql](../src/main/resources/sql/ship_behavior_event.sql)
+- DDL：[ship_behavior_event.sql](../../../../src/main/resources/sql/ship_behavior_event.sql)
 
 事件明细表：
 
 - `dataanalysis.ship_behavior_event_detail`
-- DDL：[ship_behavior_event_detail.sql](../src/main/resources/sql/ship_behavior_event_detail.sql)
+- DDL：[ship_behavior_event_detail.sql](../../../../src/main/resources/sql/ship_behavior_event_detail.sql)
 
 V2-lite 新增摘要字段：
 
@@ -533,7 +533,7 @@ ship_behavior_event schema ready
 
 人工排查 SQL 文件：
 
-- [ship_behavior_event_v2_loitering_alter.sql](../src/main/resources/sql/ship_behavior_event_v2_loitering_alter.sql)
+- [ship_behavior_event_v2_loitering_alter.sql](../../../../src/main/resources/sql/ship_behavior_event_v2_loitering_alter.sql)
 
 注意：程序不会整包执行这个 ALTER 文件，因为部分字段已存在时整包 ALTER 会失败。程序实际使用 `ShipBehaviorTableInitializer` 内置的逐列 migration。
 

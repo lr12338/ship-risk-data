@@ -11,8 +11,25 @@ import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class ShipBehaviorTableInitializerTest {
+
+    @Test
+    public void autoMigrationIsFailClosedWhenDisabled() throws Exception {
+        StubJdbcTemplate jdbcTemplate = new StubJdbcTemplate();
+        jdbcTemplate.eventTableExists = false;
+        ShipBehaviorTableInitializer initializer = new ShipBehaviorTableInitializer();
+        setField(initializer, "newDataanalysisJdbcTemplate", jdbcTemplate);
+
+        try {
+            initializer.ensureTableReady();
+            fail("expected missing table to be rejected");
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("automatic behavior schema migration is disabled"));
+            assertEquals(0, jdbcTemplate.executedSql.size());
+        }
+    }
 
     @Test
     public void createsTableWhenMissing() throws Exception {
@@ -156,6 +173,7 @@ public class ShipBehaviorTableInitializerTest {
     private ShipBehaviorTableInitializer newInitializer(StubJdbcTemplate jdbcTemplate) throws Exception {
         ShipBehaviorTableInitializer initializer = new ShipBehaviorTableInitializer();
         setField(initializer, "newDataanalysisJdbcTemplate", jdbcTemplate);
+        setField(initializer, "autoMigrationEnabled", true);
         return initializer;
     }
 

@@ -99,11 +99,11 @@ XXL-Job Handler：
 
 入口代码：
 
-- [ShipBehaviorJob.java](../src/main/java/com/hifleet/xxljob/ShipBehaviorJob.java)
+- [ShipBehaviorJob.java](../../../../src/main/java/com/hifleet/xxljob/ShipBehaviorJob.java)
 
 核心服务：
 
-- [ShipBehaviorAnalysisService.java](../src/main/java/com/hifleet/job/services/ShipBehaviorAnalysisService.java)
+- [ShipBehaviorAnalysisService.java](../../../../src/main/java/com/hifleet/job/services/ShipBehaviorAnalysisService.java)
 
 ## 4. PAIR 模式
 
@@ -338,7 +338,7 @@ updated_at
 
 检测器位置：
 
-- [ShipAlongsideDetector.java](../src/main/java/com/hifleet/service/ShipAlongsideDetector.java)
+- [ShipAlongsideDetector.java](../../../../src/main/java/com/hifleet/service/ShipAlongsideDetector.java)
 
 ### 6.1 轨迹清洗
 
@@ -694,7 +694,7 @@ ship_behavior_alongside_score_yearly
 
 配置位置：
 
-- [application.properties](../src/main/resources/application.properties)
+- [application.properties](../../../../src/main/resources/application.properties)
 
 当前默认配置：
 
@@ -960,7 +960,7 @@ ALONGSIDE_BATCH annual_score mmsi=... eventCount=... validEventCount=... highRis
 
 测试类：
 
-- [ShipAlongsideDetectorTest.java](../src/test/java/com/hifleet/service/ShipAlongsideDetectorTest.java)
+- [ShipAlongsideDetectorTest.java](../../../../src/test/java/com/hifleet/service/ShipAlongsideDetectorTest.java)
 
 覆盖：
 

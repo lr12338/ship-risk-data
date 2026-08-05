@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -48,6 +49,9 @@ public class ShipBehaviorTableInitializer {
     @Autowired
     @Qualifier("newDataanalysisJdbcTemplate")
     private JdbcTemplate newDataanalysisJdbcTemplate;
+
+    @Value("${ship.behavior.schema-auto-migration-enabled:false}")
+    private boolean autoMigrationEnabled;
 
     @PostConstruct
     public void init() {
@@ -132,6 +136,7 @@ public class ShipBehaviorTableInitializer {
         }
         String alterSql = "ALTER TABLE dataanalysis." + tableName
                 + " MODIFY COLUMN batch_no VARCHAR(64) DEFAULT NULL COMMENT '计算批次'";
+        requireMigrationEnabled(tableName + ".batch_no length is " + length);
         log.info("{}.batch_no column length insufficient: {}, applying migration", tableName, length);
         try {
             newDataanalysisJdbcTemplate.execute(alterSql);
@@ -148,6 +153,8 @@ public class ShipBehaviorTableInitializer {
             log.info("{} exists, skip ddl", tableName);
             return;
         }
+
+        requireMigrationEnabled("missing table " + TABLE_SCHEMA + "." + tableName);
 
         String ddl = loadDdl(ddlPath, tableName);
         executeStatements(ddl);
@@ -167,6 +174,8 @@ public class ShipBehaviorTableInitializer {
             }
             log.info("{} column missing, applying migration: {}",
                     tableName, migration.getColumnName());
+            requireMigrationEnabled("missing column " + TABLE_SCHEMA + "." + tableName
+                    + "." + migration.getColumnName());
             try {
                 newDataanalysisJdbcTemplate.execute(migration.getAlterSql());
             } catch (Exception ex) {
@@ -179,6 +188,13 @@ public class ShipBehaviorTableInitializer {
                         + TABLE_SCHEMA + "." + tableName + "." + migration.getColumnName());
             }
             log.info("{} column ready: {}", tableName, migration.getColumnName());
+        }
+    }
+
+    private void requireMigrationEnabled(String reason) {
+        if (!autoMigrationEnabled) {
+            throw new IllegalStateException(reason + "; automatic behavior schema migration is disabled; "
+                    + "apply the versioned SQL manually after review");
         }
     }
 

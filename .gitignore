@@ -8,6 +8,10 @@ dist/
 .settings/
 logs/
 *.log
+config/behavior-profiles/*.local.json
+config/behavior-profiles/*.secret.json
+application-external*.properties
+secrets/
 .DS_Store
 __pycache__/
 *.py[cod]

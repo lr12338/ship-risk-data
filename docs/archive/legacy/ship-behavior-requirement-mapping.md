@@ -2,7 +2,7 @@
 
 > 归档说明：本文描述早期接入状态，尚未覆盖固定名单和两个 production-test
 > JobHandler。当前导航见[项目文档索引](../../README.md)，生产进度见
-> [0731液货船/集装箱船测试维护手册](../../liquid-container-behavior-test-20260731.md)。
+> [0731液货船/集装箱船测试维护手册](behavior-v0/liquid-container-behavior-test-20260731.md)。
 
 ## 1. 文档目的
 
@@ -58,7 +58,7 @@ XXL-Job Handler
 
 ### 4.1 任务入口
 
-- [ShipBehaviorJob.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/xxljob/ShipBehaviorJob.java:1)
+- [ShipBehaviorJob.java](../../../src/main/java/com/hifleet/xxljob/ShipBehaviorJob.java:1)
   - `shipLoiteringJobHandler`
   - `shipAlongsideJobHandler`
 
@@ -70,7 +70,7 @@ XXL-Job Handler
 
 ### 4.2 业务服务层
 
-- [ShipBehaviorAnalysisService.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/job/services/ShipBehaviorAnalysisService.java:1)
+- [ShipBehaviorAnalysisService.java](../../../src/main/java/com/hifleet/job/services/ShipBehaviorAnalysisService.java:1)
 
 职责：
 
@@ -104,8 +104,8 @@ src/main/java/com/hifleet/trajectory
 
 ### 4.4 规则检测层
 
-- [ShipLoiteringDetector.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/service/ShipLoiteringDetector.java:1)
-- [ShipAlongsideDetector.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/service/ShipAlongsideDetector.java:1)
+- [ShipLoiteringDetector.java](../../../src/main/java/com/hifleet/service/ShipLoiteringDetector.java:1)
+- [ShipAlongsideDetector.java](../../../src/main/java/com/hifleet/service/ShipAlongsideDetector.java:1)
 
 当前职责边界：
 
@@ -116,17 +116,17 @@ src/main/java/com/hifleet/trajectory
 
 ### 4.5 结果落库层
 
-- [ShipBehaviorEventRepository.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/repository/ShipBehaviorEventRepository.java:1)
+- [ShipBehaviorEventRepository.java](../../../src/main/java/com/hifleet/repository/ShipBehaviorEventRepository.java:1)
   - 写事件摘要表 `ship_behavior_event`
-- [ShipBehaviorEventDetailRepository.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/repository/ShipBehaviorEventDetailRepository.java:1)
+- [ShipBehaviorEventDetailRepository.java](../../../src/main/java/com/hifleet/repository/ShipBehaviorEventDetailRepository.java:1)
   - 写事件轨迹快照表 `ship_behavior_event_detail`
-- [ShipBehaviorTableInitializer.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/repository/ShipBehaviorTableInitializer.java:1)
+- [ShipBehaviorTableInitializer.java](../../../src/main/java/com/hifleet/repository/ShipBehaviorTableInitializer.java:1)
   - 自动检查并创建两张表
   - 自动检查并补齐 `ship_behavior_event` 的 V2-lite 必需字段
 
 ### 4.6 中间 DTO
 
-- [ShipBehaviorTrace.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/domain/ShipBehaviorTrace.java:1)
+- [ShipBehaviorTrace.java](../../../src/main/java/com/hifleet/domain/ShipBehaviorTrace.java:1)
 
 作用：
 
@@ -159,7 +159,7 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 
 ### 6.1 事件摘要表
 
-- SQL： [ship_behavior_event.sql](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/resources/sql/ship_behavior_event.sql:1)
+- SQL： [ship_behavior_event.sql](../../../src/main/resources/sql/ship_behavior_event.sql:1)
 - 表名：`dataanalysis.ship_behavior_event`
 
 主要字段：
@@ -201,7 +201,7 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 
 ### 6.2 事件轨迹快照明细表
 
-- SQL： [ship_behavior_event_detail.sql](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/resources/sql/ship_behavior_event_detail.sql:1)
+- SQL： [ship_behavior_event_detail.sql](../../../src/main/resources/sql/ship_behavior_event_detail.sql:1)
 - 表名：`dataanalysis.ship_behavior_event_detail`
 
 主要字段：
@@ -230,7 +230,7 @@ shipLoiteringJobHandler / shipAlongsideJobHandler
 
 ### 6.3 自动建表与补列机制
 
-- 入口类： [ShipBehaviorTableInitializer.java](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/java/com/hifleet/repository/ShipBehaviorTableInitializer.java:1)
+- 入口类： [ShipBehaviorTableInitializer.java](../../../src/main/java/com/hifleet/repository/ShipBehaviorTableInitializer.java:1)
 
 当前行为：
 
@@ -255,7 +255,7 @@ ship_behavior_event schema ready
 
 配置位置：
 
-- [application.properties](/Users/raymondlu/LocalProject/船舶风险评估数据服务/ship-risk-data/src/main/resources/application.properties:129)
+- [application.properties](../../../src/main/resources/application.properties:129)
 
 注意：
 

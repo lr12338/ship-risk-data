@@ -1,0 +1,1 @@
+{"profileId":"loitering-control-off-v1","version":1,"behaviorType":"LOITERING","ruleSetId":"loitering-insurance-v1","ruleSetVersion":1,"sceneMode":"OFF","writeMode":"NONE","primaryShipTypePolicy":"MERCHANT_STRICT","counterpartyShipTypePolicy":"STRICT_SAME_AS_PRIMARY","unknownShipTypeAction":"REVIEW_REQUIRED"}
