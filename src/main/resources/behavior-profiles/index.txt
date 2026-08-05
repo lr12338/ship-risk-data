@@ -5,5 +5,14 @@ alongside-counterparty-extended-v1.json
 alongside-scene-ab-v1.json
 loitering-control-off-v1.json
 loitering-scene-shadow-v1.json
+alongside-control-off-v2.json
+alongside-scene-shadow-v2.json
+alongside-scene-filter-v2.json
+alongside-scene-ab-v2.json
+alongside-counterparty-extended-v2.json
+loitering-control-off-v2.json
+loitering-scene-shadow-v2.json
+loitering-scene-filter-v2.json
+loitering-scene-ab-v2.json
 loitering-scene-filter-v1.json
 loitering-scene-ab-v1.json

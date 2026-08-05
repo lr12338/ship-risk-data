@@ -8,6 +8,10 @@ public final class BehaviorRunProfile {
     private final BehaviorType behaviorType;
     private final String ruleSetId;
     private final int ruleSetVersion;
+    private final String behaviorRuleSetId;
+    private final int behaviorRuleSetVersion;
+    private final String sceneRuleSetId;
+    private final int sceneRuleSetVersion;
     private final SceneMode sceneMode;
     private final WriteMode writeMode;
     private final PrimaryShipTypePolicy primaryShipTypePolicy;
@@ -23,6 +27,14 @@ public final class BehaviorRunProfile {
         behaviorType = enumValue(BehaviorType.class, value.getString("behaviorType"));
         ruleSetId = value.getString("ruleSetId");
         ruleSetVersion = value.getIntValue("ruleSetVersion");
+        behaviorRuleSetId = value.getString("behaviorRuleSetId") == null
+                ? ruleSetId : value.getString("behaviorRuleSetId");
+        behaviorRuleSetVersion = value.getInteger("behaviorRuleSetVersion") == null
+                ? ruleSetVersion : value.getIntValue("behaviorRuleSetVersion");
+        sceneRuleSetId = value.getString("sceneRuleSetId") == null
+                ? behaviorRuleSetId : value.getString("sceneRuleSetId");
+        sceneRuleSetVersion = value.getInteger("sceneRuleSetVersion") == null
+                ? behaviorRuleSetVersion : value.getIntValue("sceneRuleSetVersion");
         sceneMode = enumValue(SceneMode.class, value.getString("sceneMode"));
         writeMode = enumValue(WriteMode.class, value.getString("writeMode"));
         primaryShipTypePolicy = enumValue(PrimaryShipTypePolicy.class,
@@ -57,6 +69,10 @@ public final class BehaviorRunProfile {
     public BehaviorType getBehaviorType() { return behaviorType; }
     public String getRuleSetId() { return ruleSetId; }
     public int getRuleSetVersion() { return ruleSetVersion; }
+    public String getBehaviorRuleSetId() { return behaviorRuleSetId; }
+    public int getBehaviorRuleSetVersion() { return behaviorRuleSetVersion; }
+    public String getSceneRuleSetId() { return sceneRuleSetId; }
+    public int getSceneRuleSetVersion() { return sceneRuleSetVersion; }
     public SceneMode getSceneMode() { return sceneMode; }
     public WriteMode getWriteMode() { return writeMode; }
     public PrimaryShipTypePolicy getPrimaryShipTypePolicy() { return primaryShipTypePolicy; }

@@ -22,8 +22,10 @@ public final class BehaviorPlatformRegistries {
         profiles = new BehaviorRunProfileLoader().loadClasspathAndExternal(
                 loader, "behavior-profiles/index.txt", external);
         ruleSets = new RuleSetLoader().loadClasspath(loader, "behavior-rule-sets/index.txt");
-        for (BehaviorRunProfile profile : profiles.all())
-            ruleSets.require(profile.getRuleSetId(), profile.getRuleSetVersion());
+        for (BehaviorRunProfile profile : profiles.all()) {
+            ruleSets.require(profile.getBehaviorRuleSetId(), profile.getBehaviorRuleSetVersion());
+            ruleSets.require(profile.getSceneRuleSetId(), profile.getSceneRuleSetVersion());
+        }
     }
 
     public BehaviorRunProfileRegistry profiles() { return profiles; }

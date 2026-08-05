@@ -21,7 +21,8 @@ public final class ShipTypePolicyEvaluator {
         if (merchant == null) return unknown(unknownAction);
         String normalized = normalize(shipType, merchant);
         List<String> tags = new ArrayList<String>();
-        boolean normalRole = contains(shipType, "tug", "拖", "service", "服务", "pilot", "工程");
+        boolean normalRole = contains(shipType, "tug", "拖", "service", "服务", "pilot", "引航",
+                "工程", "supply", "补给", "barge", "驳", "bunker", "加油");
         if (normalRole) tags.add("NORMAL_TOWING_POSSIBLE");
         boolean allowed;
         switch (policy) {

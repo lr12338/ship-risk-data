@@ -5,6 +5,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.util.Arrays;
+import java.nio.file.Files;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.*;
@@ -36,6 +37,9 @@ public class BehaviorResultWriterTest {
         assertEquals(1, writer.write(manifest(), Arrays.asList(result())));
         assertTrue(writer.outputDirectory(manifest()).toString().contains("profile-v1"));
         assertEquals(1, writer.readResults(writer.outputDirectory(manifest())).size());
+        assertTrue(Files.exists(writer.outputDirectory(manifest()).resolve("resolved-rules.json")));
+        assertTrue(Files.exists(writer.outputDirectory(manifest()).resolve("progress.ndjson")));
+        assertTrue(Files.exists(writer.outputDirectory(manifest()).resolve("failures.ndjson")));
     }
 
     private BehaviorRunManifest manifest() {

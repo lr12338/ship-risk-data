@@ -28,4 +28,16 @@ public class CounterpartyShipTypePolicyTest {
         assertTrue(value.isShadowOnly());
         assertFalse(value.isFormalEligible());
     }
+
+    @Test
+    public void extendedPolicyChangesSupplyCandidateCoverage() {
+        ShipTypePolicyEvaluator evaluator = new ShipTypePolicyEvaluator(new ShipTypeClassifier());
+        assertFalse(evaluator.counterparty("补给服务船", CounterpartyShipTypePolicy.STRICT_SAME_AS_PRIMARY,
+                UnknownShipTypeAction.REJECT).isAllowed());
+        CounterpartyTypeEvidence extended = evaluator.counterparty("补给服务船",
+                CounterpartyShipTypePolicy.COMMERCIAL_EXTENDED, UnknownShipTypeAction.REVIEW_REQUIRED);
+        assertTrue(extended.isAllowed());
+        assertTrue(extended.isReviewRequired());
+        assertNotNull(extended.getReviewReason());
+    }
 }

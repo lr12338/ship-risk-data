@@ -20,6 +20,13 @@ public final class FileAuditBehaviorResultWriter implements BehaviorResultWriter
     public WriteMode mode() { return WriteMode.FILE_AUDIT; }
 
     public synchronized int write(BehaviorRunManifest manifest, List<BehaviorAuditResult> results) {
+        return write(manifest, results, java.util.Collections.<BehaviorFailureRecord>emptyList(),
+                java.util.Collections.<BehaviorProgressRecord>emptyList());
+    }
+
+    public synchronized int write(BehaviorRunManifest manifest, List<BehaviorAuditResult> results,
+                                  List<BehaviorFailureRecord> failures,
+                                  List<BehaviorProgressRecord> progress) {
         Path directory = outputDirectory(manifest);
         try {
             Files.createDirectories(directory);
@@ -31,6 +38,11 @@ public final class FileAuditBehaviorResultWriter implements BehaviorResultWriter
                     JSON.toJSONString(manifest, true).getBytes(StandardCharsets.UTF_8));
             writeAtomic(directory.resolve("resolved-profile.json"),
                     manifest.getResolvedProfileSnapshot().getBytes(StandardCharsets.UTF_8));
+            writeAtomic(directory.resolve("resolved-rules.json"),
+                    (manifest.getResolvedRulesSnapshot() == null ? "{}" : manifest.getResolvedRulesSnapshot())
+                            .getBytes(StandardCharsets.UTF_8));
+            writeAtomic(directory.resolve("progress.ndjson"), ndjsonObjects(progress));
+            writeAtomic(directory.resolve("failures.ndjson"), ndjsonObjects(failures));
             writeChecksums(directory);
             return results.size();
         } catch (IOException ex) {
@@ -46,6 +58,8 @@ public final class FileAuditBehaviorResultWriter implements BehaviorResultWriter
                     JSON.toJSONString(manifest, true).getBytes(StandardCharsets.UTF_8));
             writeAtomic(directory.resolve("resolved-profile.json"),
                     manifest.getResolvedProfileSnapshot().getBytes(StandardCharsets.UTF_8));
+            if (manifest.getResolvedRulesSnapshot() != null) writeAtomic(directory.resolve("resolved-rules.json"),
+                    manifest.getResolvedRulesSnapshot().getBytes(StandardCharsets.UTF_8));
             writeChecksums(directory);
         } catch (IOException ex) {
             throw new IllegalStateException("cannot write behavior run manifest", ex);
@@ -82,9 +96,16 @@ public final class FileAuditBehaviorResultWriter implements BehaviorResultWriter
         return result.toString().getBytes(StandardCharsets.UTF_8);
     }
 
+    private byte[] ndjsonObjects(Iterable<?> values) {
+        StringBuilder result = new StringBuilder();
+        for (Object value : values) result.append(JSON.toJSONString(value)).append('\n');
+        return result.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
     private void writeChecksums(Path directory) throws IOException {
         StringBuilder value = new StringBuilder();
-        for (String name : new String[]{"manifest.json", "resolved-profile.json", "results.ndjson"}) {
+        for (String name : new String[]{"manifest.json", "resolved-profile.json", "resolved-rules.json",
+                "progress.ndjson", "results.ndjson", "failures.ndjson"}) {
             if (!Files.exists(directory.resolve(name))) continue;
             byte[] bytes = Files.readAllBytes(directory.resolve(name));
             value.append(BehaviorHashes.sha256(new String(bytes, StandardCharsets.UTF_8)))

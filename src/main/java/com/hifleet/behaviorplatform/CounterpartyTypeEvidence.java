@@ -15,6 +15,7 @@ public final class CounterpartyTypeEvidence {
     private final boolean allowed;
     private final boolean reviewRequired;
     private final boolean shadowOnly;
+    private final String reviewReason;
 
     CounterpartyTypeEvidence(String normalizedShipType, double confidence, List<String> tags,
                              double adjustment, double normalLikelihood, boolean allowed,
@@ -29,6 +30,8 @@ public final class CounterpartyTypeEvidence {
         this.allowed = allowed;
         this.reviewRequired = reviewRequired;
         this.shadowOnly = shadowOnly;
+        this.reviewReason = reviewRequired ? ("UNKNOWN".equals(normalizedShipType)
+                ? "UNKNOWN_COUNTERPARTY_TYPE" : "NORMAL_OPERATION_ROLE_REVIEW") : null;
     }
     public String getNormalizedShipType() { return normalizedShipType; }
     public String getShipTypeSource() { return shipTypeSource; }
@@ -40,5 +43,6 @@ public final class CounterpartyTypeEvidence {
     public boolean isAllowed() { return allowed; }
     public boolean isReviewRequired() { return reviewRequired; }
     public boolean isShadowOnly() { return shadowOnly; }
+    public String getReviewReason() { return reviewReason; }
     public boolean isFormalEligible() { return allowed && !reviewRequired && !shadowOnly && !"UNKNOWN".equals(normalizedShipType); }
 }

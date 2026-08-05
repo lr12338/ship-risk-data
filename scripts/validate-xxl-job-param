@@ -8,10 +8,13 @@ parser = argparse.ArgumentParser(description="Validate a short Behavior Platform
 source = parser.add_mutually_exclusive_group(required=True)
 source.add_argument("--file")
 source.add_argument("--json")
-parser.add_argument("--field-length", type=int, required=True)
+parser.add_argument("--field-length", type=int, default=420)
 args = parser.parse_args()
 
 raw = pathlib.Path(args.file).read_text(encoding="utf-8") if args.file else args.json
+if "\n" in raw.rstrip("\n") or "\r" in raw:
+    print(json.dumps({"valid": False, "error": "parameter must be single-line JSON"}, ensure_ascii=False))
+    sys.exit(1)
 try:
     value = json.loads(raw)
 except json.JSONDecodeError as error:
@@ -20,16 +23,23 @@ except json.JSONDecodeError as error:
 if not isinstance(value, dict):
     print(json.dumps({"valid": False, "error": "top-level JSON must be an object"}, ensure_ascii=False))
     sys.exit(1)
+for key in value:
+    normalized = str(key).lower()
+    if any(item in normalized for item in
+           ("polygonwkt", "sql", "table", "where", "password", "token", "secret")):
+        print(json.dumps({"valid": False, "error": "forbidden field: " + str(key)}, ensure_ascii=False))
+        sys.exit(1)
 compact = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 characters = len(compact)
 utf8_bytes = len(compact.encode("utf-8"))
 margin = args.field_length - utf8_bytes
 result = {
-    "valid": margin >= 0,
+    "valid": margin >= 0 and utf8_bytes * 5 <= args.field_length * 4,
     "characters": characters,
     "utf8Bytes": utf8_bytes,
     "targetFieldLength": args.field_length,
     "safetyMarginBytes": margin,
+    "safetyMarginAtLeast20Percent": utf8_bytes * 5 <= args.field_length * 4,
     "compactJson": compact,
     "tailComplete": compact.endswith("}"),
 }

@@ -567,10 +567,26 @@ public class ShipBehaviorAnalysisService {
                 true, false, false, true);
     }
 
+    public AlongsideWindowResult analysisAlongsideProductionWindow(
+            String mmsi, String startTime, String endTime, String batchNo,
+            ShipAlongsideDetector.AlongsideRule rule,
+            java.util.function.Predicate<String> counterpartyTypePolicy) {
+        JobParams jobParams = new JobParams();
+        jobParams.setMmsi(mmsi); jobParams.setStartTime(startTime); jobParams.setEndTime(endTime);
+        jobParams.setBatchNo(batchNo); jobParams.setMode("AUTO");
+        return analysisAlongsideOneWindow(jobParams, rule, true, false, false, true,
+                counterpartyTypePolicy);
+    }
+
     public List<ShipBehaviorTrace> analysisLoiteringV2Production(
             String mmsi, List<TrajectoryPoint> points, String batchNo) {
+        return analysisLoiteringV2Production(mmsi, points, batchNo, buildLoiteringConfig());
+    }
+
+    public List<ShipBehaviorTrace> analysisLoiteringV2Production(
+            String mmsi, List<TrajectoryPoint> points, String batchNo,
+            ShipLoiteringDetector.LoiteringConfig config) {
         ShipLoiteringDetector detector = new ShipLoiteringDetector();
-        ShipLoiteringDetector.LoiteringConfig config = buildLoiteringConfig();
         List<ShipBehaviorTrace> traces = detector.detectWithTrace(
                 mmsi, points, config);
         for (ShipBehaviorTrace trace : traces) {
@@ -696,6 +712,17 @@ public class ShipBehaviorAnalysisService {
                                                              boolean enableInsert,
                                                              boolean replaceExisting,
                                                              boolean conciseLog) {
+        return analysisAlongsideOneWindow(jobParams, rule, safeLoad, enableInsert, replaceExisting,
+                conciseLog, null);
+    }
+
+    private AlongsideWindowResult analysisAlongsideOneWindow(JobParams jobParams,
+                                                             ShipAlongsideDetector.AlongsideRule rule,
+                                                             boolean safeLoad,
+                                                             boolean enableInsert,
+                                                             boolean replaceExisting,
+                                                             boolean conciseLog,
+                                                             java.util.function.Predicate<String> counterpartyTypePolicy) {
         List<TrajectoryPoint> ownPoints = safeLoad
                 ? trajectoryLoaderService.loadSafely(jobParams.getMmsi(), jobParams.getStartTime(),
                 jobParams.getEndTime(), trajectorySimplifyZoom, alongsideBatchTrajectoryLoadSliceHours,
@@ -723,13 +750,21 @@ public class ShipBehaviorAnalysisService {
                     + ", maxReplayQueries=" + alongsideBatchMaxReplayQueriesPerWindow);
         }
         List<AlongsideCandidateTarget> candidates = replaySearchResult.getCandidates();
-        int candidateTargetCount = countUniqueTargets(candidates);
+        int prePolicyCandidateTargetCount = countUniqueTargets(candidates);
         Set<String> candidateMmsis = new HashSet<String>();
         candidateMmsis.add(jobParams.getMmsi());
         for (AlongsideCandidateTarget candidate : candidates) {
             candidateMmsis.add(candidate.getTargetMmsi());
         }
         Map<String, String> shipTypes = loadShipTypes(candidateMmsis);
+        if (counterpartyTypePolicy != null) {
+            List<AlongsideCandidateTarget> allowed = new ArrayList<AlongsideCandidateTarget>();
+            for (AlongsideCandidateTarget candidate : candidates) {
+                if (counterpartyTypePolicy.test(shipTypes.get(candidate.getTargetMmsi()))) allowed.add(candidate);
+            }
+            candidates = allowed;
+        }
+        int candidateTargetCount = countUniqueTargets(candidates);
         if (!conciseLog) {
             XxlJobLogger.log("ALONGSIDE_V3 low_speed_summary mmsi=" + jobParams.getMmsi()
                     + " points=" + ownPoints.size()
@@ -824,7 +859,8 @@ public class ShipBehaviorAnalysisService {
                     + " safeLoad=" + safeLoad
                     + " batchNo=" + jobParams.getBatchNo());
         }
-        return new AlongsideWindowResult(ownPoints.size(), windows.size(), candidateTargetCount,
+        return new AlongsideWindowResult(ownPoints.size(), windows.size(), prePolicyCandidateTargetCount,
+                candidateTargetCount,
                 candidates.size(), replaySearchResult.getReplayQueryCount(),
                 replaySearchResult.getReplayFailures(),
                 replaySearchResult.getTruncatedQueries(), detected.size(),
@@ -1778,6 +1814,7 @@ public class ShipBehaviorAnalysisService {
         private final int points;
         private final int lowSpeedWindows;
         private final int candidateTargets;
+        private final int prePolicyCandidateTargets;
         private final int candidatePairs;
         private final int replayQueries;
         private final int replayFailures;
@@ -1801,8 +1838,19 @@ public class ShipBehaviorAnalysisService {
                                      int truncatedQueries, int events, int confirmedEvents,
                                      int highRiskEvents, int failed,
                                      List<ShipBehaviorTrace> traces) {
+            this(points, lowSpeedWindows, candidateTargets, candidateTargets, candidatePairs,
+                    replayQueries, replayFailures, truncatedQueries, events, confirmedEvents,
+                    highRiskEvents, failed, traces);
+        }
+
+        public AlongsideWindowResult(int points, int lowSpeedWindows, int prePolicyCandidateTargets,
+                                     int candidateTargets, int candidatePairs, int replayQueries,
+                                     int replayFailures, int truncatedQueries, int events,
+                                     int confirmedEvents, int highRiskEvents, int failed,
+                                     List<ShipBehaviorTrace> traces) {
             this.points = points;
             this.lowSpeedWindows = lowSpeedWindows;
+            this.prePolicyCandidateTargets = prePolicyCandidateTargets;
             this.candidateTargets = candidateTargets;
             this.candidatePairs = candidatePairs;
             this.replayQueries = replayQueries;
@@ -1827,6 +1875,8 @@ public class ShipBehaviorAnalysisService {
         public int getCandidateTargets() {
             return candidateTargets;
         }
+
+        public int getPrePolicyCandidateTargets() { return prePolicyCandidateTargets; }
 
         public int getCandidatePairs() {
             return candidatePairs;

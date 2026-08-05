@@ -1,2 +1,5 @@
 alongside-insurance-v1.json
 loitering-insurance-v1.json
+alongside-runtime-v2.json
+loitering-runtime-v2.json
+maritime-scene-v2.json

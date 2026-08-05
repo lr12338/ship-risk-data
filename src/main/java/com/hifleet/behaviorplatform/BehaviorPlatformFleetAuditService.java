@@ -1,240 +1,203 @@
 package com.hifleet.behaviorplatform;
 
 import com.alibaba.fastjson.JSONObject;
-import com.hifleet.domain.ShipBehaviorTrace;
-import com.hifleet.domain.TargetShip;
-import com.hifleet.job.services.RegionProductionEventFilterAdapter;
-import com.hifleet.job.services.ShipBehaviorAnalysisService;
 import com.hifleet.maritime.MaritimeSceneService;
 import com.hifleet.maritime.ScenePreflightResult;
-import com.hifleet.repository.TargetShipRepository;
-import com.hifleet.service.ShipTypeClassifier;
-import com.hifleet.trajectory.TrajectoryLoaderService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
-import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 @Service
 public final class BehaviorPlatformFleetAuditService {
     private final BehaviorPlatformRegistries registries;
-    private final TargetShipRepository targetShips;
-    private final ShipBehaviorAnalysisService analysis;
-    private final TrajectoryLoaderService trajectories;
     private final MaritimeSceneService sceneService;
-    private final ShipTypePolicyEvaluator shipTypes;
     private final ShadowBehaviorResultSink shadowSink;
+    private final List<BehaviorScopeExecutor> scopeExecutors;
+    private final RegionDefinitionRegistryComponent regionDefinitions;
 
     @Value("${ship.behavior.audit-output-dir:var/behavior-runs}") private String outputDirectory;
     @Value("${ship.behavior.shadow-write-enabled:false}") private boolean shadowWriteEnabled;
     @Value("${ship.behavior.formal-write-enabled:false}") private boolean formalWriteEnabled;
-    @Value("${ship.behavior.trajectory.simplify-zoom:15}") private int simplifyZoom;
-    @Value("${ship.behavior.audit.trajectory-slice-hours:6}") private int trajectorySliceHours;
-    @Value("${ship.behavior.audit.max-points-per-ship:500000}") private int maxPointsPerShip;
+    @Value("${ship.behavior.input.inline.max-ships:10}") private int maxInlineShips;
+    @Value("${ship.behavior.input.list.max-ships:5000}") private int maxListShips;
+    @Value("${ship.behavior.input.max-param-bytes:420}") private int maxParamBytes;
+    @Value("${ship.behavior.audit.max-parallelism:1}") private int maxParallelism;
     @Value("${ship.behavior.build.git-commit:UNKNOWN}") private String gitCommit;
     @Value("${ship.behavior.build.jar-sha256:UNKNOWN}") private String jarSha256;
 
-    @Autowired
     public BehaviorPlatformFleetAuditService(BehaviorPlatformRegistries registries,
-                                              TargetShipRepository targetShips,
-                                              ShipBehaviorAnalysisService analysis,
-                                              TrajectoryLoaderService trajectories,
-                                              MaritimeSceneService sceneService,
-                                              ShipTypeClassifier shipTypeClassifier,
-                                              ShadowBehaviorResultSink shadowSink) {
-        this.registries = registries;
-        this.targetShips = targetShips;
-        this.analysis = analysis;
-        this.trajectories = trajectories;
-        this.sceneService = sceneService;
-        this.shipTypes = new ShipTypePolicyEvaluator(shipTypeClassifier);
-        this.shadowSink = shadowSink;
+                                             MaritimeSceneService sceneService,
+                                             ShadowBehaviorResultSink shadowSink,
+                                             List<BehaviorScopeExecutor> scopeExecutors,
+                                             RegionDefinitionRegistryComponent regionDefinitions) {
+        this.registries = registries; this.sceneService = sceneService; this.shadowSink = shadowSink;
+        this.scopeExecutors = scopeExecutors; this.regionDefinitions = regionDefinitions;
     }
 
     public JSONObject preflight(String raw, boolean dedicatedFormalHandler) {
-        BehaviorJobEnvelope envelope = BehaviorJobEnvelope.parse(raw);
-        BehaviorRunProfile profile = registries.profiles().require(envelope.getProfileId());
-        RuleSetDefinition rules = registries.ruleSets().require(
-                profile.getRuleSetId(), profile.getRuleSetVersion());
-        SceneMode sceneMode = BehaviorPermissionResolver.resolveScene(
-                profile.getSceneMode(), envelope.getSceneModeOverride());
-        WriteMode writeMode = BehaviorPermissionResolver.resolveWrite(
-                profile.getWriteMode(), envelope.getWriteModeOverride(), envelope.isDryRun());
-        int targetCount = targetShips.countEnabled(envelope.getListBatchNo());
-        if (targetCount <= envelope.getStartSeq())
-            throw new IllegalStateException("target list has no rows after startSeq");
-        if (targetCount - envelope.getStartSeq() < envelope.getShipLimit())
-            throw new IllegalStateException("target list is shorter than requested shipLimit after startSeq");
-        ScenePreflightResult scene = sceneService.preflightResult();
-        if (sceneMode != SceneMode.OFF && !scene.isAvailable())
-            throw new IllegalStateException("scene snapshot is unavailable");
-        if (writeMode == WriteMode.SHADOW_DB && !shadowWriteEnabled)
-            throw new IllegalStateException("SHADOW_DB is disabled by server configuration");
-        BehaviorWriteGate gate = new BehaviorWriteGate(formalWriteEnabled, dedicatedFormalHandler,
-                rules.isProductionApproved(), sceneMode == SceneMode.OFF || scene.isAvailable(), true);
-        BehaviorWriteGate.requireAllowed(writeMode, gate);
+        Resolved resolved = resolve(raw, dedicatedFormalHandler);
+        JSONObject scope = resolved.executor.preflight(resolved.context(null));
         JSONObject result = new JSONObject(true);
         result.put("status", "PASS");
-        result.put("profileId", profile.getProfileId());
-        result.put("profileHash", profile.getProfileHash());
-        result.put("ruleSetId", rules.getRuleSetId());
-        result.put("ruleSetVersion", rules.getRuleSetVersion());
-        result.put("ruleSetHash", rules.getRuleSetHash());
-        result.put("sceneMode", sceneMode.name());
-        result.put("scene", scene.toLegacyMap());
-        result.put("writeModeRequested", profile.getWriteMode().name());
-        result.put("writeModeEffective", writeMode.name());
-        result.put("targetShipCount", targetCount);
-        result.put("estimatedOutput", Paths.get(outputDirectory, envelope.getBatchNo(),
-                profile.getProfileId(), profile.getProfileHash()).toString());
-        result.put("databaseWriteCount", 0);
-        result.put("formalWriteCount", 0);
+        result.put("sourceType", resolved.envelope.getSourceType().name());
+        result.put("profileId", resolved.profile.getProfileId());
+        result.put("profileHash", resolved.profile.getProfileHash());
+        result.put("behaviorRuleSetHash", resolved.behaviorRules.getRuleSetHash());
+        result.put("sceneRuleSetHash", resolved.sceneRules.getRuleSetHash());
+        result.put("ruleSetHash", resolved.behaviorRules.getRuleSetHash());
+        result.put("sceneMode", resolved.sceneMode.name());
+        result.put("scene", resolved.scene.toLegacyMap());
+        result.put("writeModeRequested", resolved.profile.getWriteMode().name());
+        result.put("writeModeEffective", resolved.writeMode.name());
+        result.put("gitCommit", gitCommit); result.put("jarSha256", jarSha256);
+        result.putAll(scope);
+        result.put("estimatedOutput", Paths.get(outputDirectory, resolved.envelope.getBatchNo(),
+                resolved.profile.getProfileId(), resolved.profile.getProfileHash()).toString());
+        result.put("databaseWriteCount", 0); result.put("formalWriteCount", 0);
         return result;
     }
 
     public BehaviorRunManifest run(String raw, boolean dedicatedFormalHandler) {
-        preflight(raw, dedicatedFormalHandler);
-        BehaviorJobEnvelope envelope = BehaviorJobEnvelope.parse(raw);
-        BehaviorRunProfile profile = registries.profiles().require(envelope.getProfileId());
-        RuleSetDefinition rules = registries.ruleSets().require(profile.getRuleSetId(), profile.getRuleSetVersion());
-        SceneMode sceneMode = BehaviorPermissionResolver.resolveScene(profile.getSceneMode(), envelope.getSceneModeOverride());
-        WriteMode writeMode = BehaviorPermissionResolver.resolveWrite(profile.getWriteMode(), envelope.getWriteModeOverride(), envelope.isDryRun());
-        BehaviorRunManifest manifest = manifest(envelope, profile, rules, sceneMode, writeMode);
+        Resolved resolved = resolve(raw, dedicatedFormalHandler);
+        JSONObject scopePreflight = resolved.executor.preflight(resolved.context(null));
+        BehaviorRunManifest manifest = manifest(resolved, scopePreflight);
+        FileAuditBehaviorResultWriter fileWriter = new FileAuditBehaviorResultWriter(Paths.get(outputDirectory));
+        Path directory = fileWriter.outputDirectory(manifest);
+        BehaviorRunCheckpointStore checkpoints = new BehaviorRunCheckpointStore();
+        checkpoints.load(directory, manifest.getParameterHash(), resolved.envelope.isResume());
         long started = System.currentTimeMillis();
-        List<BehaviorAuditResult> audit = new ArrayList<BehaviorAuditResult>();
-        int afterSeq = envelope.getStartSeq();
-        int seen = 0, success = 0, failed = 0, candidates = 0, accepted = 0, reviews = 0;
-        while (seen < envelope.getShipLimit()) {
-            int limit = Math.min(envelope.getPageSize(), envelope.getShipLimit() - seen);
-            List<TargetShip> page = targetShips.selectPage(envelope.getListBatchNo(), afterSeq, limit);
-            if (page.isEmpty()) break;
-            afterSeq = page.get(page.size() - 1).getSeqNo();
-            for (ShipRun result : runPage(page, envelope.getParallelism(), profile,
-                    envelope, sceneMode, rules)) {
-                seen++;
-                if (!result.success) { failed++; continue; }
-                success++;
-                audit.addAll(result.result.getAuditResults());
-                BehaviorComparison comparison = result.result.getComparison();
-                candidates += comparison.getControlCandidateCount();
-                accepted += comparison.getRetainedCount();
-                reviews += comparison.getReviewCount();
-            }
-            if (page.size() < limit) break;
-        }
-        manifest.setProcessedShips(seen);
-        manifest.setSuccessfulShips(success);
-        manifest.setFailedShips(failed);
-        manifest.setCandidateCount(candidates);
-        manifest.setAcceptedCount(accepted);
-        manifest.setReviewCount(reviews);
-        int writes = writeMode == WriteMode.SHADOW_DB || writeMode == WriteMode.FORMAL_DB
-                ? writer(writeMode).write(manifest, audit) : 0;
-        manifest.setDatabaseWriteCount(writes);
-        manifest.setFormalWriteCount(writeMode == WriteMode.FORMAL_DB ? writes : 0);
+        BehaviorScopeExecutionResult executed = resolved.executor.execute(resolved.context(checkpoints));
+        manifest.setProcessedShips(executed.getProcessed());
+        manifest.setSuccessfulShips(executed.getSuccessful());
+        manifest.setFailedShips(executed.getFailures().size());
+        manifest.setSkippedShips(executed.getSkipped()); manifest.setRetriedShips(executed.getRetried());
+        manifest.setCandidateCount(executed.getCandidates()); manifest.setAcceptedCount(executed.getRetained());
+        manifest.setReviewCount(executed.getReviews());
+        applyScopeMetrics(manifest, executed.getMetrics());
+        Map<String, Integer> failures = new LinkedHashMap<String, Integer>();
+        for (BehaviorFailureRecord value : executed.getFailures())
+            failures.put(value.getStage(), failures.containsKey(value.getStage())
+                    ? failures.get(value.getStage()) + 1 : 1);
+        manifest.setFailureCountByStage(failures);
+        int writes = resolved.writeMode == WriteMode.SHADOW_DB
+                ? writer(resolved.writeMode).write(manifest, executed.getAuditResults()) : 0;
+        manifest.setDatabaseWriteCount(writes); manifest.setFormalWriteCount(0);
         manifest.setFinishedAt(Instant.now().toString());
         manifest.setDurationMillis(System.currentTimeMillis() - started);
-        FileAuditBehaviorResultWriter fileWriter = new FileAuditBehaviorResultWriter(Paths.get(outputDirectory));
-        if (writeMode == WriteMode.FILE_AUDIT) fileWriter.write(manifest, audit);
+        if (resolved.writeMode == WriteMode.FILE_AUDIT) fileWriter.write(manifest,
+                executed.getAuditResults(), executed.getFailures(), checkpoints.records());
         else fileWriter.writeManifestOnly(manifest);
         return manifest;
     }
 
-    private List<ShipRun> runPage(List<TargetShip> page, int parallelism,
-                                  final BehaviorRunProfile profile,
-                                  final BehaviorJobEnvelope envelope,
-                                  final SceneMode sceneMode, final RuleSetDefinition rules) {
-        ExecutorService executor = Executors.newFixedThreadPool(parallelism);
-        List<Future<ShipRun>> futures = new ArrayList<Future<ShipRun>>();
-        try {
-            for (final TargetShip ship : page) futures.add(executor.submit(new Callable<ShipRun>() {
-                @Override public ShipRun call() { return runShip(ship, profile, envelope, sceneMode, rules); }
-            }));
-            List<ShipRun> result = new ArrayList<ShipRun>();
-            for (Future<ShipRun> future : futures) {
-                try { result.add(future.get()); }
-                catch (Exception ex) { result.add(ShipRun.failed()); }
-            }
-            return result;
-        } finally {
-            executor.shutdown();
-        }
-    }
-
-    private ShipRun runShip(TargetShip ship, BehaviorRunProfile profile,
-                            BehaviorJobEnvelope envelope, SceneMode sceneMode,
-                            RuleSetDefinition rules) {
-        if (!shipTypes.primaryAllowed(ship.getShipType(), profile.getPrimaryShipTypePolicy()))
-            return ShipRun.success(new BehaviorOrchestrationResult(
-                    new BehaviorComparison(), new ArrayList<BehaviorAuditResult>()));
-        try {
-            List<ShipBehaviorTrace> traces = compute(profile.getBehaviorType(), ship.getMmsi(), envelope);
-            return ShipRun.success(new BehaviorRunOrchestrator().evaluate(
-                    profile.getBehaviorType(), sceneMode, rules, traces,
-                    new MaritimeSceneTraceEvaluator(sceneService)));
-        } catch (RuntimeException ex) {
-            return ShipRun.failed();
-        }
-    }
-
-    private List<ShipBehaviorTrace> compute(BehaviorType type, String mmsi, BehaviorJobEnvelope envelope) {
-        if (type == BehaviorType.ALONGSIDE) {
-            ShipBehaviorAnalysisService.AlongsideWindowResult value = analysis.analysisAlongsideProductionWindow(
-                    mmsi, envelope.getStartTime(), envelope.getEndTime(), envelope.getBatchNo());
-            if (value.getFailed() > 0 || value.getReplayFailures() > 0 || value.getTruncatedQueries() > 0)
-                throw new IllegalStateException("incomplete alongside replay");
-            return RegionProductionEventFilterAdapter.validNonWeakAlongside(value.getTraces());
-        }
-        List<com.hifleet.trajectory.TrajectoryPoint> points = trajectories.loadSafely(mmsi,
-                envelope.getStartTime(), envelope.getEndTime(), simplifyZoom,
-                trajectorySliceHours, maxPointsPerShip);
-        return RegionProductionEventFilterAdapter.validNonWeakLoitering(
-                analysis.analysisLoiteringV2Production(mmsi, points, envelope.getBatchNo()));
-    }
-
-    private BehaviorResultWriter writer(WriteMode mode) {
-        if (mode == WriteMode.NONE) return new NoopBehaviorResultWriter();
-        if (mode == WriteMode.FILE_AUDIT) return new FileAuditBehaviorResultWriter(Paths.get(outputDirectory));
-        if (mode == WriteMode.SHADOW_DB) return new ShadowDatabaseBehaviorResultWriter(shadowSink, value -> {
-            throw new IllegalStateException("shadow writer cannot use formal sink");
-        });
-        throw new IllegalStateException("FORMAL_DB writer is not wired into Fleet Audit");
-    }
-
-    private BehaviorRunManifest manifest(BehaviorJobEnvelope envelope, BehaviorRunProfile profile,
-                                         RuleSetDefinition rules, SceneMode sceneMode, WriteMode writeMode) {
-        BehaviorRunManifest value = new BehaviorRunManifest();
+    private Resolved resolve(String raw, boolean dedicatedFormalHandler) {
+        if (dedicatedFormalHandler) throw new IllegalStateException("shipBehaviorFormalJobHandler remains disabled");
+        BehaviorJobEnvelope envelope = BehaviorJobEnvelope.parse(raw, maxInlineShips, maxListShips, maxParamBytes);
+        if (envelope.getParallelism() > maxParallelism)
+            throw new IllegalArgumentException("parallelism exceeds server max=" + maxParallelism);
+        BehaviorRunProfile profile = registries.profiles().require(envelope.getProfileId());
+        RuleSetDefinition behaviorRules = registries.ruleSets().require(
+                profile.getBehaviorRuleSetId(), profile.getBehaviorRuleSetVersion());
+        RuleSetDefinition sceneRules = registries.ruleSets().require(
+                profile.getSceneRuleSetId(), profile.getSceneRuleSetVersion());
+        SceneRuleConfig.from(sceneRules);
+        SceneMode sceneMode = BehaviorPermissionResolver.resolveScene(profile.getSceneMode(), envelope.getSceneModeOverride());
+        WriteMode writeMode = BehaviorPermissionResolver.resolveWrite(
+                profile.getWriteMode(), envelope.getWriteModeOverride(), envelope.isDryRun());
         ScenePreflightResult scene = sceneService.preflightResult();
-        value.setRunId(UUID.randomUUID().toString()); value.setBatchNo(envelope.getBatchNo());
-        value.setBehaviorType(profile.getBehaviorType().name()); value.setProfileId(profile.getProfileId());
-        value.setProfileHash(profile.getProfileHash()); value.setResolvedProfileSnapshot(profile.getResolvedSnapshot());
-        value.setRuleSetId(rules.getRuleSetId()); value.setRuleSetVersion(rules.getRuleSetVersion());
-        value.setRuleSetHash(rules.getRuleSetHash()); value.setSceneMode(sceneMode.name());
-        value.setSceneSnapshotVersion(scene.getSnapshotVersion()); value.setSceneFingerprint(scene.getSnapshotFingerprint());
-        value.setRuntimePolicyVersion(scene.getRuntimePolicyVersion()); value.setSnapshotPolicyVersion(scene.getSnapshotPolicyVersion());
-        value.setWriteModeRequested(profile.getWriteMode().name()); value.setWriteModeEffective(writeMode.name());
-        value.setGitCommit(gitCommit); value.setJarSha256(jarSha256); value.setListBatchNo(envelope.getListBatchNo());
-        value.setStartTime(envelope.getStartTime()); value.setEndTime(envelope.getEndTime());
-        value.setShipLimit(envelope.getShipLimit()); value.setStartedAt(Instant.now().toString());
+        if (sceneMode != SceneMode.OFF && !scene.isAvailable()) throw new IllegalStateException("scene snapshot is unavailable");
+        if (writeMode == WriteMode.SHADOW_DB && !shadowWriteEnabled)
+            throw new IllegalStateException("SHADOW_DB is disabled by server configuration");
+        BehaviorWriteGate.requireAllowed(writeMode, new BehaviorWriteGate(formalWriteEnabled, false,
+                behaviorRules.isProductionApproved(), sceneMode == SceneMode.OFF || scene.isAvailable(), true));
+        BehaviorScopeExecutor executor = null;
+        for (BehaviorScopeExecutor value : scopeExecutors) if (value.supports(envelope.getSourceType())) executor = value;
+        if (executor == null) throw new IllegalStateException("no scope executor for " + envelope.getSourceType());
+        return new Resolved(envelope, profile, behaviorRules, sceneRules, sceneMode, writeMode, scene, executor);
+    }
+
+    private BehaviorRunManifest manifest(Resolved resolved, JSONObject scope) {
+        BehaviorRunManifest value = new BehaviorRunManifest();
+        RegionDefinition region = resolved.envelope.getSourceType() == BehaviorTargetSourceType.REGION
+                ? regionDefinitions.resolve(resolved.envelope) : null;
+        BehaviorInputSpec input = BehaviorInputSpec.from(resolved.envelope, region);
+        value.setRunId(UUID.randomUUID().toString()); value.setBatchNo(resolved.envelope.getBatchNo());
+        value.setBehaviorType(resolved.profile.getBehaviorType().name()); value.setProfileId(resolved.profile.getProfileId());
+        value.setProfileHash(resolved.profile.getProfileHash()); value.setResolvedProfileSnapshot(resolved.profile.getResolvedSnapshot());
+        value.setRuleSetId(resolved.behaviorRules.getRuleSetId()); value.setRuleSetVersion(resolved.behaviorRules.getRuleSetVersion());
+        value.setRuleSetHash(resolved.behaviorRules.getRuleSetHash()); value.setBehaviorRuleSetHash(resolved.behaviorRules.getRuleSetHash());
+        value.setSceneRuleSetHash(resolved.sceneRules.getRuleSetHash()); value.setResolvedRulesSnapshot(rulesSnapshot(resolved));
+        value.setSceneMode(resolved.sceneMode.name()); value.setSceneSnapshotVersion(resolved.scene.getSnapshotVersion());
+        value.setSceneFingerprint(resolved.scene.getSnapshotFingerprint()); value.setRuntimePolicyVersion(resolved.scene.getRuntimePolicyVersion());
+        value.setSnapshotPolicyVersion(resolved.scene.getSnapshotPolicyVersion());
+        value.setWriteModeRequested(resolved.profile.getWriteMode().name()); value.setWriteModeEffective(resolved.writeMode.name());
+        value.setGitCommit(gitCommit); value.setJarSha256(jarSha256); value.setSourceType(input.getSourceType().name());
+        value.setSourceSnapshot(input.getSnapshot()); value.setSourceFingerprint(input.getFingerprint());
+        value.setListBatchNo(resolved.envelope.getListBatchNo()); value.setStartSeq(resolved.envelope.getStartSeq());
+        value.setPageSize(resolved.envelope.getPageSize()); value.setParallelism(resolved.envelope.getParallelism());
+        value.setResume(resolved.envelope.isResume()); value.setInlineShipCount(resolved.envelope.getShips().size());
+        value.setListEnabledCount(scope.getIntValue("listEnabledCount"));
+        if (region != null) {
+            value.setRegionId(region.getRegionId()); value.setRegionVersion(region.getVersion());
+            value.setRegionFingerprint(region.getFingerprint()); value.setRegionAreaSqKm(region.getAreaSqKm());
+            value.setQuerySliceCount(scope.getIntValue("querySlices"));
+        }
+        value.setStartTime(resolved.envelope.getStartTime()); value.setEndTime(resolved.envelope.getEndTime());
+        value.setShipLimit(resolved.envelope.getShipLimit()); value.setStartedAt(Instant.now().toString());
+        value.setParameterHash(BehaviorHashes.sha256(input.getFingerprint() + "|" + value.getProfileHash()
+                + "|" + value.getBehaviorRuleSetHash() + "|" + value.getSceneRuleSetHash() + "|"
+                + value.getStartTime() + "|" + value.getEndTime() + "|" + value.getBatchNo()));
         return value;
     }
 
-    private static final class ShipRun {
-        private final boolean success;
-        private final BehaviorOrchestrationResult result;
-        private ShipRun(boolean success, BehaviorOrchestrationResult result) {
-            this.success = success; this.result = result;
+    private String rulesSnapshot(Resolved resolved) {
+        Map<String, Object> value = new LinkedHashMap<String, Object>();
+        value.put("behaviorRuleSet", resolved.behaviorRules); value.put("sceneRuleSet", resolved.sceneRules);
+        return BehaviorHashes.canonicalJson(value);
+    }
+
+    private void applyScopeMetrics(BehaviorRunManifest manifest, JSONObject metrics) {
+        if (BehaviorTargetSourceType.REGION.name().equals(manifest.getSourceType())) {
+            manifest.setCandidateVesselCount(metrics.getIntValue("rawVessels"));
+            manifest.setQuerySliceCount(metrics.getIntValue("querySlices"));
+            manifest.setQueryCompleteness(metrics.getBooleanValue("queryComplete") ? "COMPLETE" : "PARTIAL");
         }
-        static ShipRun success(BehaviorOrchestrationResult result) { return new ShipRun(true, result); }
-        static ShipRun failed() { return new ShipRun(false, null); }
+    }
+
+    private BehaviorResultWriter writer(WriteMode mode) {
+        if (mode == WriteMode.SHADOW_DB) return new ShadowDatabaseBehaviorResultWriter(shadowSink, value -> {
+            throw new IllegalStateException("shadow writer cannot use formal sink");
+        });
+        throw new IllegalStateException("database writer is unavailable for " + mode);
+    }
+
+    private static final class Resolved {
+        private final BehaviorJobEnvelope envelope;
+        private final BehaviorRunProfile profile;
+        private final RuleSetDefinition behaviorRules;
+        private final RuleSetDefinition sceneRules;
+        private final SceneMode sceneMode;
+        private final WriteMode writeMode;
+        private final ScenePreflightResult scene;
+        private final BehaviorScopeExecutor executor;
+        private Resolved(BehaviorJobEnvelope envelope, BehaviorRunProfile profile,
+                         RuleSetDefinition behaviorRules, RuleSetDefinition sceneRules,
+                         SceneMode sceneMode, WriteMode writeMode, ScenePreflightResult scene,
+                         BehaviorScopeExecutor executor) {
+            this.envelope = envelope; this.profile = profile;
+            this.behaviorRules = behaviorRules; this.sceneRules = sceneRules; this.sceneMode = sceneMode;
+            this.writeMode = writeMode; this.scene = scene; this.executor = executor;
+        }
+        private BehaviorScopeContext context(BehaviorRunCheckpointStore checkpoints) {
+            return new BehaviorScopeContext(envelope, profile, behaviorRules, sceneRules, sceneMode,
+                    checkpoints == null ? new BehaviorRunCheckpointStore() : checkpoints);
+        }
     }
 }

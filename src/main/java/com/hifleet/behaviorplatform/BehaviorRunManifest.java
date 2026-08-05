@@ -10,6 +10,9 @@ public final class BehaviorRunManifest {
     private String ruleSetId;
     private int ruleSetVersion;
     private String ruleSetHash;
+    private String behaviorRuleSetHash;
+    private String sceneRuleSetHash;
+    private String resolvedRulesSnapshot;
     private String sceneMode;
     private String sceneSnapshotVersion;
     private String sceneFingerprint;
@@ -20,6 +23,27 @@ public final class BehaviorRunManifest {
     private String gitCommit;
     private String jarSha256;
     private String listBatchNo;
+    private String sourceType;
+    private String sourceFingerprint;
+    private String sourceSnapshot;
+    private String parameterHash;
+    private int startSeq;
+    private int pageSize;
+    private int parallelism;
+    private boolean resume;
+    private int inlineShipCount;
+    private int listEnabledCount;
+    private String regionId;
+    private int regionVersion;
+    private String regionFingerprint;
+    private double regionAreaSqKm;
+    private String regionBbox;
+    private int querySliceCount;
+    private int candidateVesselCount;
+    private String queryCompleteness;
+    private int skippedShips;
+    private int retriedShips;
+    private java.util.Map<String, Integer> failureCountByStage = new java.util.LinkedHashMap<String, Integer>();
     private String startTime;
     private String endTime;
     private int shipLimit;
@@ -44,6 +68,9 @@ public final class BehaviorRunManifest {
     public String getRuleSetId() { return ruleSetId; } public void setRuleSetId(String v) { ruleSetId = v; }
     public int getRuleSetVersion() { return ruleSetVersion; } public void setRuleSetVersion(int v) { ruleSetVersion = v; }
     public String getRuleSetHash() { return ruleSetHash; } public void setRuleSetHash(String v) { ruleSetHash = v; }
+    public String getBehaviorRuleSetHash() { return behaviorRuleSetHash; } public void setBehaviorRuleSetHash(String v) { behaviorRuleSetHash = v; }
+    public String getSceneRuleSetHash() { return sceneRuleSetHash; } public void setSceneRuleSetHash(String v) { sceneRuleSetHash = v; }
+    public String getResolvedRulesSnapshot() { return resolvedRulesSnapshot; } public void setResolvedRulesSnapshot(String v) { resolvedRulesSnapshot = v; }
     public String getSceneMode() { return sceneMode; } public void setSceneMode(String v) { sceneMode = v; }
     public String getSceneSnapshotVersion() { return sceneSnapshotVersion; } public void setSceneSnapshotVersion(String v) { sceneSnapshotVersion = v; }
     public String getSceneFingerprint() { return sceneFingerprint; } public void setSceneFingerprint(String v) { sceneFingerprint = v; }
@@ -54,6 +81,28 @@ public final class BehaviorRunManifest {
     public String getGitCommit() { return gitCommit; } public void setGitCommit(String v) { gitCommit = v; }
     public String getJarSha256() { return jarSha256; } public void setJarSha256(String v) { jarSha256 = v; }
     public String getListBatchNo() { return listBatchNo; } public void setListBatchNo(String v) { listBatchNo = v; }
+    public String getSourceType() { return sourceType; } public void setSourceType(String v) { sourceType = v; }
+    public String getSourceFingerprint() { return sourceFingerprint; } public void setSourceFingerprint(String v) { sourceFingerprint = v; }
+    public String getSourceSnapshot() { return sourceSnapshot; } public void setSourceSnapshot(String v) { sourceSnapshot = v; }
+    public String getParameterHash() { return parameterHash; } public void setParameterHash(String v) { parameterHash = v; }
+    public int getStartSeq() { return startSeq; } public void setStartSeq(int v) { startSeq = v; }
+    public int getPageSize() { return pageSize; } public void setPageSize(int v) { pageSize = v; }
+    public int getParallelism() { return parallelism; } public void setParallelism(int v) { parallelism = v; }
+    public boolean isResume() { return resume; } public void setResume(boolean v) { resume = v; }
+    public int getInlineShipCount() { return inlineShipCount; } public void setInlineShipCount(int v) { inlineShipCount = v; }
+    public int getListEnabledCount() { return listEnabledCount; } public void setListEnabledCount(int v) { listEnabledCount = v; }
+    public String getRegionId() { return regionId; } public void setRegionId(String v) { regionId = v; }
+    public int getRegionVersion() { return regionVersion; } public void setRegionVersion(int v) { regionVersion = v; }
+    public String getRegionFingerprint() { return regionFingerprint; } public void setRegionFingerprint(String v) { regionFingerprint = v; }
+    public double getRegionAreaSqKm() { return regionAreaSqKm; } public void setRegionAreaSqKm(double v) { regionAreaSqKm = v; }
+    public String getRegionBbox() { return regionBbox; } public void setRegionBbox(String v) { regionBbox = v; }
+    public int getQuerySliceCount() { return querySliceCount; } public void setQuerySliceCount(int v) { querySliceCount = v; }
+    public int getCandidateVesselCount() { return candidateVesselCount; } public void setCandidateVesselCount(int v) { candidateVesselCount = v; }
+    public String getQueryCompleteness() { return queryCompleteness; } public void setQueryCompleteness(String v) { queryCompleteness = v; }
+    public int getSkippedShips() { return skippedShips; } public void setSkippedShips(int v) { skippedShips = v; }
+    public int getRetriedShips() { return retriedShips; } public void setRetriedShips(int v) { retriedShips = v; }
+    public java.util.Map<String, Integer> getFailureCountByStage() { return failureCountByStage; }
+    public void setFailureCountByStage(java.util.Map<String, Integer> v) { failureCountByStage = v; }
     public String getStartTime() { return startTime; } public void setStartTime(String v) { startTime = v; }
     public String getEndTime() { return endTime; } public void setEndTime(String v) { endTime = v; }
     public int getShipLimit() { return shipLimit; } public void setShipLimit(int v) { shipLimit = v; }

@@ -40,4 +40,8 @@ public final class RuleSetDefinition {
     public boolean isProductionApproved() { return productionApproved; }
     public List<RuleDefinition> getRules() { return rules; }
     public String getRuleSetHash() { return ruleSetHash; }
+    public double threshold(String ruleId, double fallback) {
+        for (RuleDefinition rule : rules) if (ruleId.equals(rule.getRuleId())) return rule.getThreshold();
+        return fallback;
+    }
 }

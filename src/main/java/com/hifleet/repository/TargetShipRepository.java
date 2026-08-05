@@ -1,6 +1,7 @@
 package com.hifleet.repository;
 
 import com.hifleet.domain.TargetShip;
+import com.hifleet.behaviorplatform.TargetListSnapshot;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
@@ -44,6 +45,21 @@ public class TargetShipRepository {
                 "SELECT COUNT(*) FROM dataanalysis.ship_behavior_target_ship WHERE list_batch_no=?",
                 new Object[]{listBatchNo}, Integer.class);
         return count == null ? 0 : count;
+    }
+
+    public TargetListSnapshot snapshot(String listBatchNo) {
+        tableInitializer.ensureTargetShipTableReady();
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) total_count,"
+                        + "SUM(CASE WHEN enabled=1 THEN 1 ELSE 0 END) enabled_count,"
+                        + "MIN(CASE WHEN enabled=1 THEN seq_no END) min_seq,"
+                        + "MAX(CASE WHEN enabled=1 THEN seq_no END) max_seq,"
+                        + "COUNT(DISTINCT CASE WHEN enabled=1 THEN seq_no END) distinct_seq,"
+                        + "COUNT(DISTINCT CASE WHEN enabled=1 THEN mmsi END) distinct_mmsi "
+                        + "FROM dataanalysis.ship_behavior_target_ship WHERE list_batch_no=?",
+                new Object[]{listBatchNo}, (rs, rowNum) -> new TargetListSnapshot(
+                        rs.getInt("total_count"), rs.getInt("enabled_count"),
+                        (Integer) rs.getObject("min_seq"), (Integer) rs.getObject("max_seq"),
+                        rs.getInt("distinct_seq"), rs.getInt("distinct_mmsi")));
     }
 
     public void validate(String listBatchNo, int expectedCount) {

@@ -1,0 +1,1 @@
+{"profileId":"loitering-control-off-v2","version":2,"behaviorType":"LOITERING","behaviorRuleSetId":"loitering-runtime-v2","behaviorRuleSetVersion":2,"sceneRuleSetId":"maritime-scene-v2","sceneRuleSetVersion":2,"sceneMode":"OFF","writeMode":"FILE_AUDIT","primaryShipTypePolicy":"MERCHANT_STRICT","counterpartyShipTypePolicy":"STRICT_SAME_AS_PRIMARY","unknownShipTypeAction":"REJECT"}

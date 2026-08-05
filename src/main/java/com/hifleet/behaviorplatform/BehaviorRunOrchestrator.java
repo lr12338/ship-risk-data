@@ -14,6 +14,15 @@ public final class BehaviorRunOrchestrator {
                                                  RuleSetDefinition ruleSet,
                                                  List<ShipBehaviorTrace> traces,
                                                  BehaviorTraceSceneEvaluator sceneEvaluator) {
+        return evaluate(behaviorType, sceneMode, ruleSet, traces, sceneEvaluator, null, null);
+    }
+
+    public BehaviorOrchestrationResult evaluate(BehaviorType behaviorType, SceneMode sceneMode,
+                                                 RuleSetDefinition ruleSet,
+                                                 List<ShipBehaviorTrace> traces,
+                                                 BehaviorTraceSceneEvaluator sceneEvaluator,
+                                                 ShipTypePolicyEvaluator shipTypes,
+                                                 BehaviorRunProfile profile) {
         List<BehaviorCandidate> candidates = new ArrayList<BehaviorCandidate>();
         final Map<String, SceneEvaluation> scenes = new LinkedHashMap<String, SceneEvaluation>();
         final Map<String, ShipBehaviorTrace> byKey = new LinkedHashMap<String, ShipBehaviorTrace>();
@@ -40,10 +49,13 @@ public final class BehaviorRunOrchestrator {
             sceneEvidence.put("mode", sceneMode.name());
             sceneEvidence.put("decision", decision);
             sceneEvidence.put("coverageRatio", scene == null ? 0.0 : scene.getCoverageRatio());
+            CounterpartyTypeEvidence counterparty = behaviorType == BehaviorType.ALONGSIDE
+                    && shipTypes != null && profile != null ? shipTypes.counterparty(event.getTargetShipType(),
+                    profile.getCounterpartyShipTypePolicy(), profile.getUnknownShipTypeAction()) : null;
             BehaviorRiskEvidence evidence = new BehaviorRiskEvidence(behaviorType,
                     event.getEventSubType(), event.getConfidenceLevel(),
                     new LegacyRuleEvidenceFactory().accepted(event, ruleSet, scene), sceneEvidence,
-                    null, 0.5, event.getTrackCoverageRatio() == null ? 0.0 : event.getTrackCoverageRatio(),
+                    counterparty, 0.5, event.getTrackCoverageRatio() == null ? 0.0 : event.getTrackCoverageRatio(),
                     "REVIEW".equals(disposition) ? Collections.singletonList(decision)
                             : Collections.<String>emptyList(),
                     Collections.singletonList(behaviorType.name() + "_EVIDENCE"));

@@ -23,6 +23,11 @@ public final class BehaviorPlatformJobs {
 
     @XxlJob("shipBehaviorShadowV2FleetAuditJobHandler")
     public ReturnT<String> fleetAudit(String raw) {
+        return audit(raw);
+    }
+
+    @XxlJob("shipBehaviorAuditJobHandler")
+    public ReturnT<String> audit(String raw) {
         try {
             BehaviorRunManifest result = service.run(raw, false);
             return new ReturnT<String>(ReturnT.SUCCESS_CODE, JSON.toJSONString(result));
@@ -31,10 +36,7 @@ public final class BehaviorPlatformJobs {
 
     @XxlJob("shipBehaviorFormalJobHandler")
     public ReturnT<String> formal(String raw) {
-        try {
-            BehaviorRunManifest result = service.run(raw, true);
-            return new ReturnT<String>(ReturnT.SUCCESS_CODE, JSON.toJSONString(result));
-        } catch (Exception ex) { log.error("behavior formal run rejected or failed", ex); return fail(ex); }
+        return fail(new IllegalStateException("shipBehaviorFormalJobHandler remains disabled"));
     }
 
     private ReturnT<String> fail(Exception ex) {

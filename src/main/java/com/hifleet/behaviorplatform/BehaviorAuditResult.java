@@ -1,5 +1,7 @@
 package com.hifleet.behaviorplatform;
 
+import com.alibaba.fastjson.JSONObject;
+
 public final class BehaviorAuditResult {
     private final String comparisonKey;
     private final String mmsi;
@@ -10,6 +12,9 @@ public final class BehaviorAuditResult {
     private final String sceneDecision;
     private final String filteredDisposition;
     private final BehaviorRiskEvidence riskEvidence;
+    private final JSONObject controlResult;
+    private final JSONObject shadowResult;
+    private final JSONObject filteredResult;
 
     public BehaviorAuditResult(String comparisonKey, String mmsi, String targetMmsi,
                                String startTime, String endTime, boolean controlAccepted,
@@ -24,6 +29,10 @@ public final class BehaviorAuditResult {
         this.sceneDecision = sceneDecision;
         this.filteredDisposition = filteredDisposition;
         this.riskEvidence = riskEvidence;
+        controlResult = new JSONObject(true); controlResult.put("accepted", controlAccepted);
+        shadowResult = new JSONObject(true); shadowResult.put("decision", sceneDecision);
+        shadowResult.put("candidateRetained", controlAccepted);
+        filteredResult = new JSONObject(true); filteredResult.put("disposition", filteredDisposition);
     }
     public String getComparisonKey() { return comparisonKey; }
     public String getMmsi() { return mmsi; }
@@ -34,4 +43,7 @@ public final class BehaviorAuditResult {
     public String getSceneDecision() { return sceneDecision; }
     public String getFilteredDisposition() { return filteredDisposition; }
     public BehaviorRiskEvidence getRiskEvidence() { return riskEvidence; }
+    public JSONObject getControlResult() { return controlResult; }
+    public JSONObject getShadowResult() { return shadowResult; }
+    public JSONObject getFilteredResult() { return filteredResult; }
 }

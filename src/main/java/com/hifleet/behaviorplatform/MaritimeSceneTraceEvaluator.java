@@ -9,11 +9,21 @@ import java.util.List;
 
 public final class MaritimeSceneTraceEvaluator implements BehaviorTraceSceneEvaluator {
     private final MaritimeSceneService service;
-    public MaritimeSceneTraceEvaluator(MaritimeSceneService service) { this.service = service; }
+    private final SceneRuleConfig rules;
+    public MaritimeSceneTraceEvaluator(MaritimeSceneService service) { this(service, null); }
+    public MaritimeSceneTraceEvaluator(MaritimeSceneService service, SceneRuleConfig rules) {
+        this.service = service; this.rules = rules;
+    }
     public SceneEvaluation evaluate(ShipBehaviorTrace trace) {
         List<TimedSceneObservation> points = service.classifyTimed(trace.getOwnPoints());
-        SceneEpisodeAggregator.Summary summary = service.aggregateTimed(points, 30);
-        String decision = service.shadowDecisionV2(summary, 0.8, 0.9, 60, 0.9, 0.05);
+        long gap = rules == null ? 30 : rules.getGapCapMinutes();
+        SceneEpisodeAggregator.Summary summary = service.aggregateTimed(points, gap);
+        String decision = service.shadowDecisionV2(summary,
+                rules == null ? 0.8 : rules.getMinTemporalCoverage(),
+                rules == null ? 0.9 : rules.getInlandTimeRatio(),
+                rules == null ? 60 : rules.getInlandMinDurationMinutes(),
+                rules == null ? 0.9 : rules.getOpenWaterTimeRatio(),
+                rules == null ? 0.05 : rules.getMaxUnknownTimeRatio());
         double coverage = summary == null ? 0.0 : summary.getTemporalCoverageRatio();
         if ("WOULD_REJECT_INLAND".equals(decision)) return SceneEvaluation.rejectInland(coverage);
         if ("OPEN_WATER_CONFIRMED".equals(decision)) return SceneEvaluation.openWater(coverage);

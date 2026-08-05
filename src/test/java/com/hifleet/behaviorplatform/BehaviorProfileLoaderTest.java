@@ -45,11 +45,15 @@ public class BehaviorProfileLoaderTest {
                 .loadClasspathAndExternal(loader, "behavior-profiles/index.txt", null);
         RuleSetRegistry rules = new RuleSetLoader().loadClasspath(
                 loader, "behavior-rule-sets/index.txt");
-        assertEquals(9, profiles.all().size());
+        assertEquals(18, profiles.all().size());
         for (BehaviorRunProfile profile : profiles.all()) {
-            RuleSetDefinition ruleSet = rules.require(profile.getRuleSetId(), profile.getRuleSetVersion());
-            assertEquals(64, ruleSet.getRuleSetHash().length());
-            assertFalse(ruleSet.isProductionApproved());
+            RuleSetDefinition behavior = rules.require(profile.getBehaviorRuleSetId(), profile.getBehaviorRuleSetVersion());
+            RuleSetDefinition scene = rules.require(profile.getSceneRuleSetId(), profile.getSceneRuleSetVersion());
+            assertEquals(64, behavior.getRuleSetHash().length());
+            assertEquals(64, scene.getRuleSetHash().length());
+            assertFalse(behavior.isProductionApproved());
+            assertFalse(scene.isProductionApproved());
+            if (profile.getVersion() == 2) assertEquals(WriteMode.FILE_AUDIT, profile.getWriteMode());
         }
     }
 }

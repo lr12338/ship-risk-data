@@ -1,0 +1,1 @@
+{"regionId":"test-offshore-area-v1","version":1,"regionName":"测试海域示例（不可直接部署）","polygonWkt":"POLYGON((120.000 30.000,120.010 30.000,120.010 30.010,120.000 30.010,120.000 30.000))","regionBufferNm":3.0,"discoveryTimeSliceMinutes":30,"maxCandidateVessels":50}
