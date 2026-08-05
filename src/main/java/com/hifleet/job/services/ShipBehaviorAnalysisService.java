@@ -20,6 +20,8 @@ import com.hifleet.service.ShipLoiteringDetector;
 import com.hifleet.service.ShipTypeClassifier;
 import com.hifleet.service.TraceRecipeService;
 import com.hifleet.service.AlongsideSceneService;
+import com.hifleet.service.OwnShipEligibility;
+import com.hifleet.service.TargetRoleClassification;
 import com.hifleet.trajectory.TrajectoryLoaderService;
 import com.hifleet.trajectory.TrajectoryPoint;
 import com.hifleet.trajectory.TrajectoryUtils;
@@ -229,8 +231,11 @@ public class ShipBehaviorAnalysisService {
     @Value("${ship.behavior.alongside.min-points:3}")
     private int alongsideMinPoints;
 
-    @Value("${ship.behavior.alongside.rule-version:ALONGSIDE_V3_INSURANCE}")
+    @Value("${ship.behavior.alongside.rule-version:ALONGSIDE_V3_ASYMMETRIC_COUNTERPARTY_V1}")
     private String alongsideRuleVersion;
+
+    @Value("${ship.behavior.code-commit-sha:UNKNOWN}")
+    private String codeCommitSha;
 
     @Value("${ship.behavior.alongside.mode.auto.enabled:true}")
     private boolean alongsideAutoEnabled;
@@ -599,7 +604,7 @@ public class ShipBehaviorAnalysisService {
         pair.add(targetMmsi);
         Map<String, String> shipTypes = loadShipTypes(pair);
         ShipAlongsideDetector.AlongsideContext context = buildAlongsideContext(
-                mmsi, targetMmsi, shipTypes, ownPoints, 2);
+                mmsi, targetMmsi, shipTypes, ownPoints, targetPoints, 2);
         return alongsideDetector.detectWithTrace(mmsi, ownPoints, targetMmsi,
                 targetPoints, buildAlongsideRule(), context);
     }
@@ -616,16 +621,23 @@ public class ShipBehaviorAnalysisService {
                     + " startTime=" + jobParams.getStartTime()
                     + " endTime=" + jobParams.getEndTime()
                     + " batchNo=" + jobParams.getBatchNo());
-            List<TrajectoryPoint> ownPoints = trajectoryLoaderService.load(
-                    jobParams.getMmsi(), jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
-            List<TrajectoryPoint> targetPoints = trajectoryLoaderService.load(
-                    jobParams.getTargetMmsi(), jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
             Set<String> pairMmsis = new HashSet<String>();
             pairMmsis.add(jobParams.getMmsi());
             pairMmsis.add(jobParams.getTargetMmsi());
             Map<String, String> shipTypes = loadShipTypes(pairMmsis);
+            OwnShipEligibility ownEligibility = shipTypeClassifier
+                    .classifyOwnShip(shipTypes.get(jobParams.getMmsi()));
+            if (ownEligibility != OwnShipEligibility.ELIGIBLE_MERCHANT) {
+                XxlJobLogger.log("ALONGSIDE_V3 own_ship_ineligible mmsi=" + jobParams.getMmsi()
+                        + " eligibility=" + ownEligibility + " batchNo=" + jobParams.getBatchNo());
+                return new AnalysisResult(1, 0, 0);
+            }
+            List<TrajectoryPoint> ownPoints = trajectoryLoaderService.load(
+                    jobParams.getMmsi(), jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
+            List<TrajectoryPoint> targetPoints = trajectoryLoaderService.load(
+                    jobParams.getTargetMmsi(), jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
             ShipAlongsideDetector.AlongsideContext context = buildAlongsideContext(
-                    jobParams.getMmsi(), jobParams.getTargetMmsi(), shipTypes, ownPoints, 2);
+                    jobParams.getMmsi(), jobParams.getTargetMmsi(), shipTypes, ownPoints, targetPoints, 2);
             List<ShipBehaviorTrace> traces = alongsideDetector.detectWithTrace(
                     jobParams.getMmsi(), ownPoints, jobParams.getTargetMmsi(), targetPoints, rule, context);
             ShipAlongsideDetector.DetectionStats stats = alongsideDetector.getLastStats();
@@ -696,6 +708,16 @@ public class ShipBehaviorAnalysisService {
                                                              boolean enableInsert,
                                                              boolean replaceExisting,
                                                              boolean conciseLog) {
+        Set<String> ownMmsi = Collections.singleton(jobParams.getMmsi());
+        Map<String, String> ownShipTypes = loadShipTypes(ownMmsi);
+        OwnShipEligibility ownEligibility = shipTypeClassifier
+                .classifyOwnShip(ownShipTypes.get(jobParams.getMmsi()));
+        if (ownEligibility != OwnShipEligibility.ELIGIBLE_MERCHANT) {
+            XxlJobLogger.log("ALONGSIDE_V3 own_ship_ineligible mmsi=" + jobParams.getMmsi()
+                    + " eligibility=" + ownEligibility + " batchNo=" + jobParams.getBatchNo());
+            return new AlongsideWindowResult(0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, Collections.<ShipBehaviorTrace>emptyList());
+        }
         List<TrajectoryPoint> ownPoints = safeLoad
                 ? trajectoryLoaderService.loadSafely(jobParams.getMmsi(), jobParams.getStartTime(),
                 jobParams.getEndTime(), trajectorySimplifyZoom, alongsideBatchTrajectoryLoadSliceHours,
@@ -763,7 +785,7 @@ public class ShipBehaviorAnalysisService {
                         : candidate.getReplayQueryResult().getRawVesselCount();
                 ShipAlongsideDetector.AlongsideContext context = buildAlongsideContext(
                         jobParams.getMmsi(), candidate.getTargetMmsi(), shipTypes,
-                        candidateOwnPoints, nearbyVesselCount);
+                        candidateOwnPoints, candidate.getTargetPoints(), nearbyVesselCount);
                 List<ShipBehaviorTrace> traces = alongsideDetector.detectWithTrace(jobParams.getMmsi(),
                         candidateOwnPoints, candidate.getTargetMmsi(), candidate.getTargetPoints(), rule, context);
                 for (ShipBehaviorTrace trace : traces) {
@@ -1075,6 +1097,7 @@ public class ShipBehaviorAnalysisService {
     private ShipAlongsideDetector.AlongsideRule buildAlongsideRule() {
         ShipAlongsideDetector.AlongsideRule rule = ShipAlongsideDetector.AlongsideRule.defaultRule();
         rule.setRuleVersion(alongsideRuleVersion);
+        rule.setCodeCommitSha(codeCommitSha);
         rule.setConfirmMaxDistanceNm(resolveAlongsideConfirmDistance());
         rule.setConfirmMinSpeed(alongsideConfirmMinSpeed);
         rule.setConfirmMaxSpeed(alongsideConfirmMaxSpeed);
@@ -1112,30 +1135,59 @@ public class ShipBehaviorAnalysisService {
 
     private ShipAlongsideDetector.AlongsideContext buildAlongsideContext(
             String ownMmsi, String targetMmsi, Map<String, String> shipTypes,
-            List<TrajectoryPoint> ownPoints, int nearbyVesselCount) {
+            List<TrajectoryPoint> ownPoints, List<TrajectoryPoint> targetPoints, int nearbyVesselCount) {
         String ownType = shipTypes.get(ownMmsi);
         String targetType = shipTypes.get(targetMmsi);
-        Boolean merchantPair = shipTypeClassifier.merchantPair(ownType, targetType);
         AlongsideSceneService.Scene scene = AlongsideSceneService.Scene.unknown();
-        if (ownPoints != null && !ownPoints.isEmpty()) {
-            double lon = 0.0;
-            double lat = 0.0;
-            int count = 0;
-            for (TrajectoryPoint point : ownPoints) {
-                if (point == null) {
-                    continue;
+        double[] eventLocation = pairedEventLocation(ownPoints, targetPoints);
+        if (eventLocation != null) {
+            scene = alongsideSceneService.classify(eventLocation[0], eventLocation[1]);
+        }
+        TargetRoleClassification target = shipTypeClassifier.classifyTargetShipWithReason(targetType, null);
+        return ShipAlongsideDetector.AlongsideContext.asymmetric(
+                ownType, targetType, shipTypeClassifier.classifyOwnShip(ownType), target,
+                scene.isNearPort(), scene.isNearAnchor(), scene.isOutsideKnownPortAndAnchor(),
+                scene.isDataAvailable(), nearbyVesselCount);
+    }
+
+    private double[] pairedEventLocation(List<TrajectoryPoint> ownPoints, List<TrajectoryPoint> targetPoints) {
+        if (ownPoints == null || targetPoints == null || ownPoints.isEmpty() || targetPoints.isEmpty()) {
+            return null;
+        }
+        List<double[]> midpoints = new ArrayList<double[]>();
+        int targetIndex = 0;
+        for (TrajectoryPoint own : ownPoints) {
+            int bestIndex = -1;
+            long bestGap = Long.MAX_VALUE;
+            for (int i = targetIndex; i < targetPoints.size(); i++) {
+                TrajectoryPoint target = targetPoints.get(i);
+                long gap = Math.abs(java.time.Duration.between(own.getTime(), target.getTime()).getSeconds());
+                if (gap < bestGap) {
+                    bestGap = gap;
+                    bestIndex = i;
                 }
-                lon += point.getLon();
-                lat += point.getLat();
-                count++;
+                if (target.getTime().isAfter(own.getTime())
+                        && gap > alongsideConfirmMaxTimeGapMinutes * 60L) {
+                    break;
+                }
             }
-            if (count > 0) {
-                scene = alongsideSceneService.classify(lon / count, lat / count);
+            if (bestIndex >= 0 && bestGap <= alongsideConfirmMaxTimeGapMinutes * 60L) {
+                TrajectoryPoint target = targetPoints.get(bestIndex);
+                midpoints.add(new double[]{(own.getLon() + target.getLon()) / 2.0,
+                        (own.getLat() + target.getLat()) / 2.0});
+                targetIndex = bestIndex + 1;
             }
         }
-        return ShipAlongsideDetector.AlongsideContext.of(
-                ownType, targetType, merchantPair, scene.isNearPort(), scene.isNearAnchor(),
-                scene.isOpenSea(), scene.isDataAvailable(), nearbyVesselCount);
+        if (midpoints.isEmpty()) { return null; }
+        int count = midpoints.size();
+        int[] samples = count == 1 ? new int[]{0} : new int[]{0, count / 2, count - 1};
+        double lon = 0.0;
+        double lat = 0.0;
+        for (int index : samples) {
+            lon += midpoints.get(index)[0];
+            lat += midpoints.get(index)[1];
+        }
+        return new double[]{lon / samples.length, lat / samples.length};
     }
 
     private double resolveAlongsideConfirmDistance() {

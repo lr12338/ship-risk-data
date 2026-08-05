@@ -115,12 +115,12 @@ public class ShipAlongsideDetectorTest {
 
         assertEquals("ALONGSIDE_V3_INSURANCE", event.getRuleVersion());
         assertTrue(event.getEventScore() > 50.0);
-        assertTrue(event.getOpenSea());
+        assertFalse(event.getOpenSea());
         assertFalse(event.getNearPort());
         assertFalse(event.getNearAnchor());
         assertTrue(event.getParallelRatio() >= 0.8);
         assertTrue(event.getDistanceVarianceNm2() >= 0.0);
-        assertTrue(event.getScoreDetailJson().contains("\"openSea\":true"));
+        assertTrue(event.getScoreDetailJson().contains("\"outsideKnownPortAndAnchor\":true"));
     }
 
     @Test
@@ -151,7 +151,7 @@ public class ShipAlongsideDetectorTest {
     }
 
     @Test
-    public void v3RejectsSpeedBelowBehaviorBand() {
+    public void v3RoutesSpeedBelowUnderwayBandToStationaryReview() {
         List<ShipBehaviorTrace> traces = detector.detectWithTrace("413433610",
                 points("413433610", 0.0, 0.0, 13, 5, 0.5, 90.0, null),
                 "413193000",
@@ -159,7 +159,8 @@ public class ShipAlongsideDetectorTest {
                 v3Rule(), ShipAlongsideDetector.AlongsideContext.merchantPair(
                         "油轮", "集装箱船", false, false, true, 2));
 
-        assertTrue(traces.isEmpty());
+        assertEquals(1, traces.size());
+        assertTrue(traces.get(0).getEvent().getScoreDetailJson().contains("STATIONARY_SIDE_BY_SIDE_REVIEW"));
     }
 
     @Test
@@ -182,14 +183,77 @@ public class ShipAlongsideDetectorTest {
     }
 
     @Test
-    public void v3RejectsNonMerchantPair() {
+    public void v3KeepsNonMerchantCounterpartyForReview() {
         List<ShipBehaviorTrace> traces = detector.detectWithTrace("413433610",
                 points("413433610", 0.0, 0.0, 13, 5, 1.8, 90.0, null),
                 "413193000",
                 points("413193000", 0.001, 0.001, 13, 5, 1.7, 92.0, null),
                 v3Rule(), ShipAlongsideDetector.AlongsideContext.nonMerchantPair("油轮", "渔船"));
 
-        assertTrue(traces.isEmpty());
+        assertEquals(1, traces.size());
+        String detail = traces.get(0).getEvent().getScoreDetailJson();
+        assertTrue(detail.contains("\"targetVesselRole\":\"FISHING_OR_SMALL_CRAFT\""));
+        assertTrue(detail.contains("\"decisionStatus\":\"REVIEW\""));
+    }
+
+    @Test
+    public void unknownTargetDoesNotLowerHighBehaviorConfidence() {
+        TargetRoleClassification target = new ShipTypeClassifier().classifyTargetShipWithReason(null, null);
+        ShipAlongsideDetector.AlongsideContext context = ShipAlongsideDetector.AlongsideContext.asymmetric(
+                "油轮", null, OwnShipEligibility.ELIGIBLE_MERCHANT, target,
+                false, false, true, true, 2);
+        ShipBehaviorEvent event = detector.detectWithTrace("413433610",
+                points("413433610", 0.0, 0.0, 13, 5, 1.8, 90.0, null), "413193000",
+                points("413193000", 0.001, 0.001, 13, 5, 1.7, 92.0, null), v3Rule(), context)
+                .get(0).getEvent();
+        assertEquals("HIGH", event.getConfidenceLevel());
+        assertTrue(event.getScoreDetailJson().contains("\"targetTypeConfidence\":\"LOW\""));
+        assertTrue(event.getScoreDetailJson().contains("\"decisionStatus\":\"REVIEW\""));
+    }
+
+    @Test
+    public void doesNotReuseOneTargetPointAsSustainedEvidence() {
+        List<TrajectoryPoint> oneTarget = points("413193000", 0.001, 0.001, 1, 5, 1.7, 92.0, null);
+        assertTrue(detector.detectWithTrace("413433610",
+                points("413433610", 0.0, 0.0, 13, 5, 1.8, 90.0, null),
+                "413193000", oneTarget, v3Rule()).isEmpty());
+    }
+
+    @Test
+    public void stationaryPairIsReviewRatherThanHighConfidenceParallelMotion() {
+        ShipBehaviorEvent event = detector.detectWithTrace("413433610",
+                points("413433610", 0.0, 0.0, 13, 5, 0.2, -1.0, null), "413193000",
+                points("413193000", 0.001, 0.001, 13, 5, 0.1, -1.0, null), v3Rule(),
+                ShipAlongsideDetector.AlongsideContext.nonMerchantPair("油轮", "拖轮")).get(0).getEvent();
+        assertTrue(event.getScoreDetailJson().contains("STATIONARY_SIDE_BY_SIDE_REVIEW"));
+        assertTrue(event.getScoreDetailJson().contains("\"decisionStatus\":\"REVIEW\""));
+    }
+
+    @Test
+    public void roleAndSceneProduceAuditableNonLegalInterpretations() {
+        assertInterpretation("小型加油船", false, "BUNKER_OR_SUPPLY", "OFF_PORT_BUNKERING_REVIEW", "REVIEW");
+        assertInterpretation("驳船", false, "BARGE_OR_LIGHTER", "POSSIBLE_LIGHTERING", "REVIEW");
+        assertInterpretation("拖轮", true, "TUG_OR_SERVICE", "PORT_ASSISTANCE_LIKELY", "REVIEW");
+        assertInterpretation("拖轮", false, "TUG_OR_SERVICE", "OFF_PORT_SERVICE_CONTACT_REVIEW", "REVIEW");
+        assertInterpretation(null, false, "UNKNOWN", "UNKNOWN_COUNTERPARTY_CONTACT", "REVIEW");
+    }
+
+    private void assertInterpretation(String targetType, boolean nearPort, String role,
+                                      String interpretation, String decision) {
+        TargetRoleClassification target = new ShipTypeClassifier()
+                .classifyTargetShipWithReason(targetType, null);
+        ShipAlongsideDetector.AlongsideContext context = ShipAlongsideDetector.AlongsideContext.asymmetric(
+                "油轮", targetType, OwnShipEligibility.ELIGIBLE_MERCHANT, target,
+                nearPort, false, !nearPort, true, 2);
+        String detail = detector.detectWithTrace("413433610",
+                points("413433610", 0.0, 0.0, 13, 5, 1.8, 90.0, null), "413193000",
+                points("413193000", 0.001, 0.001, 13, 5, 1.7, 92.0, null), v3Rule(), context)
+                .get(0).getEvent().getScoreDetailJson();
+        assertTrue(detail, detail.contains("\"targetVesselRole\":\"" + role + "\""));
+        assertTrue(detail, detail.contains("\"riskInterpretation\":\"" + interpretation + "\""));
+        assertTrue(detail, detail.contains("\"decisionStatus\":\"" + decision + "\""));
+        assertFalse(detail.contains("ILLEGAL_STS"));
+        assertFalse(detail.contains("SMUGGLING"));
     }
 
     private ShipAlongsideDetector.AlongsideRule rule() {

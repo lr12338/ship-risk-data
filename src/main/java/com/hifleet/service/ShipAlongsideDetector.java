@@ -56,7 +56,7 @@ public class ShipAlongsideDetector {
         List<TrajectoryPoint> cleanOwnPoints = cleanAndSort(ownPoints);
         List<TrajectoryPoint> cleanTargetPoints = cleanAndSort(targetPoints);
         AlongsideContext effectiveContext = context == null ? AlongsideContext.unknown() : context;
-        if (cleanOwnPoints.isEmpty() || cleanTargetPoints.isEmpty() || effectiveContext.isKnownNonMerchantPair()) {
+        if (cleanOwnPoints.isEmpty() || cleanTargetPoints.isEmpty() || !effectiveContext.isOwnShipEligible()) {
             lastStats = DetectionStats.empty(cleanOwnPoints.size(), cleanTargetPoints.size());
             return Collections.emptyList();
         }
@@ -149,7 +149,7 @@ public class ShipAlongsideDetector {
         for (TrajectoryPoint ownPoint : ownPoints) {
             MatchResult match = findNearest(ownPoint, targetPoints, targetIndex, rule.getMaxTimeGapMinutes());
             if (match != null) {
-                targetIndex = match.getIndex();
+                targetIndex = match.getIndex() + 1;
             }
             if (isAlongsideCandidate(ownPoint, match, rule)) {
                 current.add(new MatchedPoint(ownPoint, match.getPoint(), match.getDistanceNm(),
@@ -165,10 +165,16 @@ public class ShipAlongsideDetector {
     }
 
     private boolean isAlongsideCandidate(TrajectoryPoint ownPoint, MatchResult match, AlongsideRule rule) {
-        return match != null
-                && ownPoint.getSpeed() >= rule.getConfirmMinSpeed()
-                && ownPoint.getSpeed() <= rule.getConfirmMaxSpeed()
-                && match.getPoint().getSpeed() >= rule.getConfirmMinSpeed()
+        if (match == null || !ownPoint.isSpeedValid() || !match.getPoint().isSpeedValid()) {
+            return false;
+        }
+        boolean underway = ownPoint.getSpeed() >= rule.getConfirmMinSpeed()
+                && ownPoint.getSpeed() <= rule.getConfirmMaxSpeed();
+        boolean stationaryPair = ownPoint.getSpeed() >= 0.0
+                && ownPoint.getSpeed() < rule.getConfirmMinSpeed()
+                && match.getPoint().getSpeed() >= 0.0
+                && match.getPoint().getSpeed() < rule.getConfirmMinSpeed();
+        return (underway || stationaryPair)
                 && match.getPoint().getSpeed() <= rule.getConfirmMaxSpeed()
                 && speedDiff(ownPoint, match.getPoint()) <= rule.getMaxRelativeSpeed()
                 && match.getDistanceNm() <= rule.getConfirmMaxDistanceNm()
@@ -297,6 +303,8 @@ public class ShipAlongsideDetector {
         double totalDistanceSquare = 0.0;
         double totalRelativeSpeed = 0.0;
         double totalCourseDifference = 0.0;
+        List<Double> distances = new ArrayList<Double>();
+        List<Long> timeGaps = new ArrayList<Long>();
         long maxTimeGapSeconds = 0L;
         int highTimeGapPoints = 0;
         int headingOkCount = 0;
@@ -309,6 +317,8 @@ public class ShipAlongsideDetector {
             maxDistance = Math.max(maxDistance, match.getDistanceNm());
             totalDistance += match.getDistanceNm();
             totalDistanceSquare += match.getDistanceNm() * match.getDistanceNm();
+            distances.add(match.getDistanceNm());
+            timeGaps.add(match.getTimeGapSeconds());
             totalRelativeSpeed += match.getRelativeSpeed();
             maxTimeGapSeconds = Math.max(maxTimeGapSeconds, match.getTimeGapSeconds());
             if (match.getTimeGapSeconds() <= rule.getHighConfidenceTimeGapMinutes() * 60L) {
@@ -331,24 +341,59 @@ public class ShipAlongsideDetector {
             }
         }
         double avgDistance = totalDistance / Math.max(1, matches.size());
+        Collections.sort(distances);
+        Collections.sort(timeGaps);
+        double medianDistance = percentile(distances, 0.5);
+        double p90Distance = percentile(distances, 0.9);
+        long medianTimeGapSeconds = percentileLong(timeGaps, 0.5);
+        long p90TimeGapSeconds = percentileLong(timeGaps, 0.9);
         double distanceVariance = Math.max(0.0,
                 totalDistanceSquare / Math.max(1, matches.size()) - avgDistance * avgDistance);
         double avgRelativeSpeed = totalRelativeSpeed / Math.max(1, matches.size());
         double courseDifference = headingKnownCount == 0 ? -1.0 : totalCourseDifference / headingKnownCount;
         double timeGapHighRatio = highTimeGapPoints / (double) Math.max(1, matches.size());
         double headingParallelRatio = headingOkCount / (double) Math.max(1, matches.size());
+        double validHeadingRatio = headingKnownCount / (double) Math.max(1, matches.size());
         double coverage = calculateCoverage(duration, matches.size(), rule.getAisGapMinutes());
-        double[] center = calculateCenter(segment.getOwnPoints());
+        double[] center = calculatePairCenter(matches);
         double radiusNm = calculateRadiusNm(segment.getOwnPoints(), center[0], center[1]);
         String confidence = determineConfidence(matches.size(), coverage, maxTimeGapSeconds,
                 headingParallelRatio, aisGapCount, rule);
         boolean weak = duration < rule.getMinDurationMinutes()
                 || matches.size() < rule.getFormalMinPoints()
                 || rule.isHeadingEnabled() && headingParallelRatio < rule.getMinParallelRatio();
+        String behaviorMode = averageMatchedSpeed(matches, true) < rule.getConfirmMinSpeed()
+                || averageMatchedSpeed(matches, false) < rule.getConfirmMinSpeed()
+                ? "STATIONARY_SIDE_BY_SIDE_REVIEW" : "UNDERWAY_PARALLEL_COMPANIONSHIP";
         return new AlongsideFeature(duration, matches.size(), minDistance, maxDistance, avgDistance,
-                distanceVariance, courseDifference, avgRelativeSpeed, maxTimeGapSeconds, timeGapHighRatio,
-                headingParallelRatio, aisGapCount, maxAisGapMinutes, coverage, confidence,
+                medianDistance, p90Distance, distanceVariance, courseDifference, avgRelativeSpeed,
+                medianTimeGapSeconds, p90TimeGapSeconds, maxTimeGapSeconds, timeGapHighRatio,
+                headingParallelRatio, validHeadingRatio, aisGapCount, maxAisGapMinutes, coverage, confidence,
+                behaviorMode,
                 center[0], center[1], radiusNm, weak);
+    }
+
+    private double percentile(List<Double> values, double percentile) {
+        if (values.isEmpty()) { return 0.0; }
+        return values.get((int) Math.ceil(percentile * values.size()) - 1);
+    }
+
+    private long percentileLong(List<Long> values, double percentile) {
+        if (values.isEmpty()) { return 0L; }
+        return values.get((int) Math.ceil(percentile * values.size()) - 1);
+    }
+
+    private double averageMatchedSpeed(List<MatchedPoint> matches, boolean own) {
+        double total = 0.0;
+        int count = 0;
+        for (MatchedPoint match : matches) {
+            TrajectoryPoint point = own ? match.getOwnPoint() : match.getTargetPoint();
+            if (point.isSpeedValid()) {
+                total += point.getSpeed();
+                count++;
+            }
+        }
+        return count == 0 ? Double.NaN : total / count;
     }
 
     private AlongsideScore calculateScore(AlongsideFeature feature, MatchedSegment segment,
@@ -373,12 +418,12 @@ public class ShipAlongsideDetector {
             exclusionFlag = DOWNGRADED_NORMAL_LIKELY;
             exclusionReason = "NAV_STATUS_ANCHORED_OR_MOORED";
             normalSceneAdjustment = 0.5;
-        } else if (context.isOpenSea()) {
-            exclusionReason = "OPEN_SEA_ABNORMAL_COMPANIONSHIP";
+        } else if (context.isOutsideKnownPortAndAnchor()) {
+            exclusionReason = "OUTSIDE_KNOWN_PORT_AND_ANCHOR";
         }
 
         int baseEvidenceScore = calculateBaseEvidenceScore(feature, rule);
-        int sceneRiskScore = context.isOpenSea() ? 20 : 0;
+        int sceneRiskScore = context.isOutsideKnownPortAndAnchor() ? 5 : 0;
         int counterpartyRiskScore = context.isMerchantPair() ? 10 : 0;
         int behaviorRiskScore = feature.getAisGapCount() > 0 ? 5 : 0;
         int durationRiskScore = calculateDurationRiskScore(feature.getDurationMinutes());
@@ -416,7 +461,8 @@ public class ShipAlongsideDetector {
         return new AlongsideScore(baseEvidenceScore, sceneRiskScore, counterpartyRiskScore,
                 behaviorRiskScore, durationRiskScore, recurrenceRiskScore, normalSceneAdjustment,
                 rawScore, score, rawSeverity, severity, severityCapReason, exclusionFlag, exclusionReason,
-                rule.isSceneDataAvailable() || context.isSceneDataAvailable(), feature, context);
+                rule.isSceneDataAvailable() || context.isSceneDataAvailable(), rule.getRuleVersion(),
+                rule.getCodeCommitSha(), feature, context);
     }
 
     private int calculateBaseEvidenceScore(AlongsideFeature feature, AlongsideRule rule) {
@@ -543,6 +589,17 @@ public class ShipAlongsideDetector {
         return new double[]{lon / size, lat / size};
     }
 
+    private double[] calculatePairCenter(List<MatchedPoint> matches) {
+        double lon = 0.0;
+        double lat = 0.0;
+        for (MatchedPoint match : matches) {
+            lon += (match.getOwnPoint().getLon() + match.getTargetPoint().getLon()) / 2.0;
+            lat += (match.getOwnPoint().getLat() + match.getTargetPoint().getLat()) / 2.0;
+        }
+        int size = Math.max(1, matches.size());
+        return new double[]{lon / size, lat / size};
+    }
+
     private double calculateRadiusNm(List<TrajectoryPoint> points, double centerLon, double centerLat) {
         TrajectoryPoint center = new TrajectoryPoint(null, points.get(0).getTime(), centerLon, centerLat,
                 0.0, 0.0, null);
@@ -572,6 +629,9 @@ public class ShipAlongsideDetector {
     }
 
     private double speedDiff(TrajectoryPoint ownPoint, TrajectoryPoint targetPoint) {
+        if (!ownPoint.isSpeedValid() || !targetPoint.isSpeedValid()) {
+            return Double.POSITIVE_INFINITY;
+        }
         return Math.abs(ownPoint.getSpeed() - targetPoint.getSpeed());
     }
 
@@ -591,6 +651,7 @@ public class ShipAlongsideDetector {
                 && point.getLon() <= 180.0
                 && point.getLat() >= -90.0
                 && point.getLat() <= 90.0
+                && point.isSpeedValid()
                 && point.getSpeed() >= 0.0
                 && point.getSpeed() <= 80.0;
     }
@@ -654,7 +715,8 @@ public class ShipAlongsideDetector {
         private boolean sceneDataAvailable = false;
         private boolean counterpartyRiskAvailable = false;
         private boolean autoL4Enabled = false;
-        private String ruleVersion = "ALONGSIDE_V3_INSURANCE";
+        private String ruleVersion = "ALONGSIDE_V3_ASYMMETRIC_COUNTERPARTY_V1";
+        private String codeCommitSha = "UNKNOWN";
 
         public AlongsideRule(double maxDistanceNm, double maxSpeed, long maxTimeGapMinutes,
                              long minDurationMinutes, int minPoints, String ruleVersion) {
@@ -874,52 +936,88 @@ public class ShipAlongsideDetector {
         public void setRuleVersion(String ruleVersion) {
             this.ruleVersion = ruleVersion;
         }
+
+        public String getCodeCommitSha() { return codeCommitSha; }
+        public void setCodeCommitSha(String codeCommitSha) { this.codeCommitSha = codeCommitSha; }
     }
 
     public static class AlongsideContext {
         private final String ownShipType;
         private final String targetShipType;
         private final Boolean merchantPair;
+        private final OwnShipEligibility ownShipEligibility;
+        private final TargetVesselRole targetVesselRole;
+        private final ClassificationConfidence targetTypeConfidence;
+        private final List<String> targetRoleReasonCodes;
         private final boolean nearPort;
         private final boolean nearAnchor;
-        private final boolean openSea;
+        private final boolean outsideKnownPortAndAnchor;
         private final boolean sceneDataAvailable;
         private final int nearbyVesselCount;
 
         private AlongsideContext(String ownShipType, String targetShipType, Boolean merchantPair,
-                                 boolean nearPort, boolean nearAnchor, boolean openSea, boolean sceneDataAvailable,
-                                 int nearbyVesselCount) {
+                                 OwnShipEligibility ownShipEligibility, TargetVesselRole targetVesselRole,
+                                 ClassificationConfidence targetTypeConfidence, List<String> targetRoleReasonCodes,
+                                 boolean nearPort, boolean nearAnchor, boolean outsideKnownPortAndAnchor,
+                                 boolean sceneDataAvailable, int nearbyVesselCount) {
             this.ownShipType = ownShipType;
             this.targetShipType = targetShipType;
             this.merchantPair = merchantPair;
+            this.ownShipEligibility = ownShipEligibility;
+            this.targetVesselRole = targetVesselRole;
+            this.targetTypeConfidence = targetTypeConfidence;
+            this.targetRoleReasonCodes = targetRoleReasonCodes == null
+                    ? Collections.<String>emptyList() : new ArrayList<String>(targetRoleReasonCodes);
             this.nearPort = nearPort;
             this.nearAnchor = nearAnchor;
-            this.openSea = openSea;
+            this.outsideKnownPortAndAnchor = outsideKnownPortAndAnchor;
             this.sceneDataAvailable = sceneDataAvailable;
             this.nearbyVesselCount = Math.max(0, nearbyVesselCount);
         }
 
         public static AlongsideContext unknown() {
-            return new AlongsideContext(null, null, null, false, false, false, false, 0);
+            return new AlongsideContext(null, null, null, OwnShipEligibility.ELIGIBLE_MERCHANT,
+                    TargetVesselRole.UNKNOWN, ClassificationConfidence.LOW,
+                    Collections.singletonList("TARGET_TYPE_MISSING"), false, false, false, false, 0);
         }
 
         public static AlongsideContext merchantPair(String ownShipType, String targetShipType,
                                                     boolean nearPort, boolean nearAnchor,
                                                     boolean openSea, int nearbyVesselCount) {
             return new AlongsideContext(ownShipType, targetShipType, true,
+                    OwnShipEligibility.ELIGIBLE_MERCHANT, TargetVesselRole.LARGE_MERCHANT,
+                    ClassificationConfidence.HIGH, Collections.singletonList("LEGACY_MERCHANT_PAIR"),
                     nearPort, nearAnchor, openSea, true, nearbyVesselCount);
         }
 
         public static AlongsideContext nonMerchantPair(String ownShipType, String targetShipType) {
-            return new AlongsideContext(ownShipType, targetShipType, false,
-                    false, false, false, false, 0);
+            TargetRoleClassification target = new ShipTypeClassifier()
+                    .classifyTargetShipWithReason(targetShipType, null);
+            return asymmetric(ownShipType, targetShipType, OwnShipEligibility.ELIGIBLE_MERCHANT,
+                    target, false, false, false, false, 0);
         }
 
         public static AlongsideContext of(String ownShipType, String targetShipType, Boolean merchantPair,
                                           boolean nearPort, boolean nearAnchor, boolean openSea,
                                           boolean sceneDataAvailable, int nearbyVesselCount) {
-            return new AlongsideContext(ownShipType, targetShipType, merchantPair,
+            TargetRoleClassification target = new ShipTypeClassifier()
+                    .classifyTargetShipWithReason(targetShipType, null);
+            return asymmetric(ownShipType, targetShipType,
+                    new ShipTypeClassifier().classifyOwnShip(ownShipType), target,
                     nearPort, nearAnchor, openSea, sceneDataAvailable, nearbyVesselCount);
+        }
+
+        public static AlongsideContext asymmetric(String ownShipType, String targetShipType,
+                                                   OwnShipEligibility ownShipEligibility,
+                                                   TargetRoleClassification target,
+                                                   boolean nearPort, boolean nearAnchor,
+                                                   boolean outsideKnownPortAndAnchor,
+                                                   boolean sceneDataAvailable, int nearbyVesselCount) {
+            TargetRoleClassification effective = target == null
+                    ? new ShipTypeClassifier().classifyTargetShipWithReason(targetShipType, null) : target;
+            return new AlongsideContext(ownShipType, targetShipType, null, ownShipEligibility,
+                    effective.getRole(), effective.getConfidence(), effective.getReasonCodes(), nearPort, nearAnchor,
+                    outsideKnownPortAndAnchor, sceneDataAvailable, nearbyVesselCount);
         }
 
         public String getOwnShipType() {
@@ -934,9 +1032,11 @@ public class ShipAlongsideDetector {
             return Boolean.TRUE.equals(merchantPair);
         }
 
-        private boolean isKnownNonMerchantPair() {
-            return Boolean.FALSE.equals(merchantPair);
-        }
+        public boolean isOwnShipEligible() { return ownShipEligibility == OwnShipEligibility.ELIGIBLE_MERCHANT; }
+        public OwnShipEligibility getOwnShipEligibility() { return ownShipEligibility; }
+        public TargetVesselRole getTargetVesselRole() { return targetVesselRole; }
+        public ClassificationConfidence getTargetTypeConfidence() { return targetTypeConfidence; }
+        public List<String> getTargetRoleReasonCodes() { return Collections.unmodifiableList(targetRoleReasonCodes); }
 
         public boolean isNearPort() {
             return nearPort;
@@ -947,8 +1047,10 @@ public class ShipAlongsideDetector {
         }
 
         public boolean isOpenSea() {
-            return openSea;
+            return false;
         }
+
+        public boolean isOutsideKnownPortAndAnchor() { return outsideKnownPortAndAnchor; }
 
         public boolean isSceneDataAvailable() {
             return sceneDataAvailable;
@@ -956,6 +1058,48 @@ public class ShipAlongsideDetector {
 
         public int getNearbyVesselCount() {
             return nearbyVesselCount;
+        }
+
+        private String riskInterpretation() {
+            switch (targetVesselRole) {
+                case LARGE_MERCHANT: return "POSSIBLE_STS_LIKE_CONTACT";
+                case BUNKER_OR_SUPPLY: return nearPort ? "POSSIBLE_BUNKERING" : "OFF_PORT_BUNKERING_REVIEW";
+                case BARGE_OR_LIGHTER: return "POSSIBLE_LIGHTERING";
+                case TUG_OR_SERVICE: return nearPort ? "PORT_ASSISTANCE_LIKELY" : "OFF_PORT_SERVICE_CONTACT_REVIEW";
+                case FISHING_OR_SMALL_CRAFT: return "SMALL_VESSEL_TRANSFER_REVIEW";
+                case PASSENGER_OR_PILOT: return nearPort ? "PORT_ASSISTANCE_LIKELY" : "UNCLASSIFIED_VESSEL_INTERACTION";
+                default: return "UNKNOWN_COUNTERPARTY_CONTACT";
+            }
+        }
+
+        private String interpretationConfidence(AlongsideFeature feature) {
+            if (targetTypeConfidence == ClassificationConfidence.LOW || feature.isWeakCandidate()) {
+                return "LOW";
+            }
+            return "HIGH".equals(feature.getConfidenceLevel()) ? "HIGH" : "MEDIUM";
+        }
+
+        private String decisionStatus(AlongsideFeature feature) {
+            if (feature.isWeakCandidate() || "STATIONARY_SIDE_BY_SIDE_REVIEW".equals(feature.getBehaviorMode())
+                    || targetVesselRole == TargetVesselRole.UNKNOWN
+                    || targetVesselRole == TargetVesselRole.BUNKER_OR_SUPPLY
+                    || targetVesselRole == TargetVesselRole.BARGE_OR_LIGHTER
+                    || targetVesselRole == TargetVesselRole.FISHING_OR_SMALL_CRAFT
+                    || targetVesselRole == TargetVesselRole.TUG_OR_SERVICE) {
+                return "REVIEW";
+            }
+            return "CONFIRMED";
+        }
+
+        private List<String> reasonCodes(AlongsideFeature feature) {
+            List<String> reasons = new ArrayList<String>(targetRoleReasonCodes);
+            reasons.add(feature.getBehaviorMode());
+            reasons.add(nearPort ? "INSIDE_KNOWN_PORT" : nearAnchor ? "INSIDE_KNOWN_ANCHOR"
+                    : outsideKnownPortAndAnchor ? "OUTSIDE_KNOWN_PORT_AND_ANCHOR" : "SCENE_CONTEXT_INCOMPLETE");
+            if (feature.getValidHeadingRatio() < 0.8) {
+                reasons.add("HEADING_EVIDENCE_INCOMPLETE");
+            }
+            return reasons;
         }
     }
 
@@ -1073,6 +1217,8 @@ public class ShipAlongsideDetector {
         private final String exclusionFlag;
         private final String exclusionReason;
         private final boolean sceneDataAvailable;
+        private final String ruleVersion;
+        private final String codeCommitSha;
         private final AlongsideFeature feature;
         private final AlongsideContext context;
 
@@ -1081,6 +1227,7 @@ public class ShipAlongsideDetector {
                                double normalSceneAdjustment, double rawScore, double eventScore,
                                String rawSeverityLevel, String severityLevel, String severityCapReason,
                                String exclusionFlag, String exclusionReason, boolean sceneDataAvailable,
+                               String ruleVersion, String codeCommitSha,
                                AlongsideFeature feature, AlongsideContext context) {
             this.baseEvidenceScore = baseEvidenceScore;
             this.sceneRiskScore = sceneRiskScore;
@@ -1097,6 +1244,8 @@ public class ShipAlongsideDetector {
             this.exclusionFlag = exclusionFlag;
             this.exclusionReason = exclusionReason;
             this.sceneDataAvailable = sceneDataAvailable;
+            this.ruleVersion = ruleVersion;
+            this.codeCommitSha = codeCommitSha;
             this.feature = feature;
             this.context = context;
         }
@@ -1134,22 +1283,47 @@ public class ShipAlongsideDetector {
             json.put("exclusionFlag", exclusionFlag);
             json.put("exclusionReason", exclusionReason);
             json.put("sceneDataAvailable", sceneDataAvailable);
+            json.put("ruleVersion", ruleVersion);
+            json.put("codeCommitSha", codeCommitSha);
             json.put("weakCandidate", feature.isWeakCandidate());
             json.put("minDistanceNm", feature.getMinDistanceNm());
             json.put("avgDistanceNm", feature.getAvgDistanceNm());
+            json.put("medianDistanceNm", feature.getMedianDistanceNm());
+            json.put("p90DistanceNm", feature.getP90DistanceNm());
             json.put("distanceVarianceNm2", feature.getDistanceVarianceNm2());
             json.put("avgRelativeSpeed", feature.getAvgRelativeSpeed());
             json.put("courseDifferenceDegree", feature.getCourseDifferenceDegree());
             json.put("maxTimeGapSeconds", feature.getMaxTimeGapSeconds());
+            json.put("medianTimeGapSeconds", feature.getMedianTimeGapSeconds());
+            json.put("p90TimeGapSeconds", feature.getP90TimeGapSeconds());
+            json.put("matchedPointCount", feature.getPointCount());
+            json.put("ownValidPointCount", feature.getPointCount());
+            json.put("targetValidPointCount", feature.getPointCount());
             json.put("timeGapHighRatio", feature.getTimeGapHighRatio());
             json.put("headingParallelRatio", feature.getHeadingParallelRatio());
+            json.put("validHeadingRatio", feature.getValidHeadingRatio());
             json.put("trackCoverageRatio", feature.getTrackCoverageRatio());
+            json.put("behaviorMode", feature.getBehaviorMode());
+            json.put("behaviorConfidence", feature.getConfidenceLevel());
+            json.put("targetVesselRole", context.getTargetVesselRole().name());
+            json.put("targetTypeConfidence", context.getTargetTypeConfidence().name());
+            json.put("targetRoleReasonCodes", context.getTargetRoleReasonCodes());
+            json.put("interpretationConfidence", context.interpretationConfidence(feature));
+            json.put("riskInterpretation", context.riskInterpretation());
+            json.put("decisionStatus", context.decisionStatus(feature));
+            json.put("reasonCodes", context.reasonCodes(feature));
             json.put("nearPort", context.isNearPort());
             json.put("nearAnchor", context.isNearAnchor());
             json.put("openSea", context.isOpenSea());
+            json.put("outsideKnownPortAndAnchor", context.isOutsideKnownPortAndAnchor());
+            json.put("sceneContextComplete", context.isSceneDataAvailable());
             json.put("nearbyVesselCount", context.getNearbyVesselCount());
             json.put("ownShipType", context.getOwnShipType());
             json.put("targetShipType", context.getTargetShipType());
+            json.put("targetShipTypeRaw", context.getTargetShipType());
+            json.put("targetShipMinTypeRaw", null);
+            json.put("targetProfileMissing", context.getTargetShipType() == null);
+            json.put("targetImoPresent", false);
             json.put("merchantPair", context.isMerchantPair());
             return json.toJSONString();
         }
@@ -1161,42 +1335,58 @@ public class ShipAlongsideDetector {
         private final double minDistanceNm;
         private final double maxDistanceNm;
         private final double avgDistanceNm;
+        private final double medianDistanceNm;
+        private final double p90DistanceNm;
         private final double distanceVarianceNm2;
         private final double courseDifferenceDegree;
         private final double avgRelativeSpeed;
         private final long maxTimeGapSeconds;
+        private final long medianTimeGapSeconds;
+        private final long p90TimeGapSeconds;
         private final double timeGapHighRatio;
         private final double headingParallelRatio;
+        private final double validHeadingRatio;
         private final int aisGapCount;
         private final long maxAisGapMinutes;
         private final double trackCoverageRatio;
         private final String confidenceLevel;
+        private final String behaviorMode;
         private final double centerLon;
         private final double centerLat;
         private final double radiusNm;
         private final boolean weakCandidate;
 
         private AlongsideFeature(long durationMinutes, int pointCount, double minDistanceNm,
-                                 double maxDistanceNm, double avgDistanceNm, double distanceVarianceNm2,
-                                 double courseDifferenceDegree, double avgRelativeSpeed, long maxTimeGapSeconds,
-                                 double timeGapHighRatio, double headingParallelRatio, int aisGapCount,
+                                 double maxDistanceNm, double avgDistanceNm, double medianDistanceNm,
+                                 double p90DistanceNm, double distanceVarianceNm2,
+                                 double courseDifferenceDegree, double avgRelativeSpeed,
+                                 long medianTimeGapSeconds, long p90TimeGapSeconds, long maxTimeGapSeconds,
+                                 double timeGapHighRatio, double headingParallelRatio, double validHeadingRatio,
+                                 int aisGapCount,
                                  long maxAisGapMinutes, double trackCoverageRatio, String confidenceLevel,
-                                 double centerLon, double centerLat, double radiusNm, boolean weakCandidate) {
+                                 String behaviorMode, double centerLon, double centerLat, double radiusNm,
+                                 boolean weakCandidate) {
             this.durationMinutes = durationMinutes;
             this.pointCount = pointCount;
             this.minDistanceNm = minDistanceNm;
             this.maxDistanceNm = maxDistanceNm;
             this.avgDistanceNm = avgDistanceNm;
+            this.medianDistanceNm = medianDistanceNm;
+            this.p90DistanceNm = p90DistanceNm;
             this.distanceVarianceNm2 = distanceVarianceNm2;
             this.courseDifferenceDegree = courseDifferenceDegree;
             this.avgRelativeSpeed = avgRelativeSpeed;
             this.maxTimeGapSeconds = maxTimeGapSeconds;
+            this.medianTimeGapSeconds = medianTimeGapSeconds;
+            this.p90TimeGapSeconds = p90TimeGapSeconds;
             this.timeGapHighRatio = timeGapHighRatio;
             this.headingParallelRatio = headingParallelRatio;
+            this.validHeadingRatio = validHeadingRatio;
             this.aisGapCount = aisGapCount;
             this.maxAisGapMinutes = maxAisGapMinutes;
             this.trackCoverageRatio = trackCoverageRatio;
             this.confidenceLevel = confidenceLevel;
+            this.behaviorMode = behaviorMode;
             this.centerLon = centerLon;
             this.centerLat = centerLat;
             this.radiusNm = radiusNm;
@@ -1223,6 +1413,9 @@ public class ShipAlongsideDetector {
             return avgDistanceNm;
         }
 
+        public double getMedianDistanceNm() { return medianDistanceNm; }
+        public double getP90DistanceNm() { return p90DistanceNm; }
+
         public double getDistanceVarianceNm2() {
             return distanceVarianceNm2;
         }
@@ -1239,6 +1432,9 @@ public class ShipAlongsideDetector {
             return maxTimeGapSeconds;
         }
 
+        public long getMedianTimeGapSeconds() { return medianTimeGapSeconds; }
+        public long getP90TimeGapSeconds() { return p90TimeGapSeconds; }
+
         public double getTimeGapHighRatio() {
             return timeGapHighRatio;
         }
@@ -1246,6 +1442,9 @@ public class ShipAlongsideDetector {
         public double getHeadingParallelRatio() {
             return headingParallelRatio;
         }
+
+        public double getValidHeadingRatio() { return validHeadingRatio; }
+        public String getBehaviorMode() { return behaviorMode; }
 
         public int getAisGapCount() {
             return aisGapCount;

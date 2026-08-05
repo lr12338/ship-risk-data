@@ -12,6 +12,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -32,6 +34,8 @@ import java.util.Set;
 public class ShipAlongsideReplayCandidateProvider {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final Logger LOG = LoggerFactory.getLogger(ShipAlongsideReplayCandidateProvider.class);
+    private static volatile boolean legacyWarningLogged;
 
     @Value("${ship.behavior.alongside.replay.enabled:true}")
     private boolean replayEnabled;
@@ -69,6 +73,9 @@ public class ShipAlongsideReplayCandidateProvider {
     @Value("${ship.behavior.alongside.candidate.merchant-filter-enabled:true}")
     private boolean merchantFilterEnabled;
 
+    @Value("${ship.behavior.alongside.target-ship.filter-mode:NONE}")
+    private String targetShipFilterMode;
+
     @Autowired
     private SpatialAisReplayClient spatialAisReplayClient;
 
@@ -94,6 +101,7 @@ public class ShipAlongsideReplayCandidateProvider {
                                                        String batchNo,
                                                        boolean logQueries) {
         AlongsideReplaySearchResult result = new AlongsideReplaySearchResult();
+        warnLegacyMerchantFilterOnce();
         if (!replayEnabled || windows == null || windows.isEmpty()) {
             return result;
         }
@@ -181,14 +189,9 @@ public class ShipAlongsideReplayCandidateProvider {
                                    List<TrajectoryPoint> ownWindowPoints, ReplayQueryResult queryResult,
                                    Map<String, AlongsideCandidateTarget> candidatesByTargetAndWindow,
                                    AlongsideReplaySearchResult searchResult) {
-        Map<String, String> shipTypes = loadShipTypes(queryResult.getTracksByMmsi().keySet());
         for (Map.Entry<String, List<TrajectoryPoint>> entry : queryResult.getTracksByMmsi().entrySet()) {
             String targetMmsi = entry.getKey();
-            if (StringUtils.isBlank(targetMmsi) || targetMmsi.equals(ownMmsi)) {
-                continue;
-            }
-            if (merchantFilterEnabled && shipTypeClassifier != null
-                    && Boolean.FALSE.equals(shipTypeClassifier.isMerchant(shipTypes.get(targetMmsi)))) {
+            if (!isValidMmsi(targetMmsi) || targetMmsi.equals(ownMmsi)) {
                 continue;
             }
             List<TrajectoryPoint> targetPoints = cleanAndSort(entry.getValue());
@@ -219,14 +222,20 @@ public class ShipAlongsideReplayCandidateProvider {
         }
     }
 
-    private Map<String, String> loadShipTypes(Set<String> mmsis) {
-        if (!merchantFilterEnabled || ais41GeneralQueryRepository == null || shipTypeClassifier == null) {
-            return Collections.emptyMap();
-        }
-        try {
-            return ais41GeneralQueryRepository.selectShipTypes(mmsis);
-        } catch (Exception ex) {
-            return Collections.emptyMap();
+    private boolean isValidMmsi(String mmsi) {
+        return StringUtils.isNotBlank(mmsi) && mmsi.matches("\\d{7,9}");
+    }
+
+    private void warnLegacyMerchantFilterOnce() {
+        if (merchantFilterEnabled && !legacyWarningLogged) {
+            synchronized (ShipAlongsideReplayCandidateProvider.class) {
+                if (!legacyWarningLogged) {
+                    LOG.warn("ship.behavior.alongside.candidate.merchant-filter-enabled is deprecated; "
+                            + "target vessels are no longer filtered by merchant type; use target-ship.filter-mode={}",
+                            targetShipFilterMode);
+                    legacyWarningLogged = true;
+                }
+            }
         }
     }
 
@@ -235,16 +244,18 @@ public class ShipAlongsideReplayCandidateProvider {
         if (targetPoints.size() < candidateMinPoints || !hasLowSpeedPoint(targetPoints)) {
             return stats;
         }
+        int targetIndex = 0;
         for (TrajectoryPoint ownPoint : ownPoints) {
-            TrajectoryPoint best = findNearestTimePoint(ownPoint, targetPoints);
+            IndexedPoint best = findNearestTimePoint(ownPoint, targetPoints, targetIndex);
             if (best == null) {
                 continue;
             }
-            long gap = Math.abs(Duration.between(ownPoint.getTime(), best.getTime()).toMinutes());
+            targetIndex = best.index + 1;
+            long gap = Math.abs(Duration.between(ownPoint.getTime(), best.point.getTime()).toMinutes());
             if (gap > candidateMaxTimeGapMinutes) {
                 continue;
             }
-            double distanceNm = TrajectoryUtils.distanceNm(ownPoint, best);
+            double distanceNm = TrajectoryUtils.distanceNm(ownPoint, best.point);
             if (distanceNm > candidateMaxDistanceNm) {
                 continue;
             }
@@ -253,22 +264,30 @@ public class ShipAlongsideReplayCandidateProvider {
         return stats;
     }
 
-    private TrajectoryPoint findNearestTimePoint(TrajectoryPoint ownPoint, List<TrajectoryPoint> targetPoints) {
-        TrajectoryPoint best = null;
+    private IndexedPoint findNearestTimePoint(TrajectoryPoint ownPoint, List<TrajectoryPoint> targetPoints,
+                                              int startIndex) {
+        IndexedPoint best = null;
         long bestGapSeconds = Long.MAX_VALUE;
-        for (TrajectoryPoint targetPoint : targetPoints) {
+        for (int i = Math.max(0, startIndex); i < targetPoints.size(); i++) {
+            TrajectoryPoint targetPoint = targetPoints.get(i);
             long gapSeconds = Math.abs(Duration.between(ownPoint.getTime(), targetPoint.getTime()).getSeconds());
             if (gapSeconds < bestGapSeconds) {
                 bestGapSeconds = gapSeconds;
-                best = targetPoint;
+                best = new IndexedPoint(i, targetPoint);
             }
         }
         return best;
     }
 
+    private static class IndexedPoint {
+        private final int index;
+        private final TrajectoryPoint point;
+        private IndexedPoint(int index, TrajectoryPoint point) { this.index = index; this.point = point; }
+    }
+
     private boolean hasLowSpeedPoint(List<TrajectoryPoint> points) {
         for (TrajectoryPoint point : points) {
-            if (point.getSpeed() >= candidateMinSpeed && point.getSpeed() <= candidateMaxSpeed) {
+            if (point.isSpeedValid() && point.getSpeed() >= 0.0 && point.getSpeed() <= candidateMaxSpeed) {
                 return true;
             }
         }
@@ -292,7 +311,7 @@ public class ShipAlongsideReplayCandidateProvider {
             if (point == null || point.getTime() == null
                     || point.getLon() < -180.0 || point.getLon() > 180.0
                     || point.getLat() < -90.0 || point.getLat() > 90.0
-                    || point.getSpeed() < 0.0 || point.getSpeed() > 80.0) {
+                    || !point.isSpeedValid() || point.getSpeed() < 0.0 || point.getSpeed() > 80.0) {
                 continue;
             }
             String key = point.getMmsi() + "|" + point.getTime() + "|" + point.getLon() + "|" + point.getLat();

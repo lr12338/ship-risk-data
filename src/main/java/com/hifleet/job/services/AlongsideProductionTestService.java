@@ -42,7 +42,7 @@ public class AlongsideProductionTestService {
     @Autowired
     private BehaviorEventTransactionStore eventStore;
 
-    @Value("${ship.behavior.alongside.rule-version:ALONGSIDE_V3_INSURANCE}")
+    @Value("${ship.behavior.alongside.rule-version:ALONGSIDE_V3_ASYMMETRIC_COUNTERPARTY_V1}")
     private String ruleVersion;
 
     public Result run(String rawParams) {
