@@ -21,6 +21,7 @@ import java.util.List;
 public final class TraceRecipeService {
 
     public static final int RECIPE_VERSION = 1;
+    public static final String PERSIST_POLICY_VALID_NON_WEAK = "VALID_NON_WEAK";
     public static final String SOURCE_HBASE = "HBASE_HISTORY";
     public static final String SOURCE_SPATIAL_REPLAY = "SPATIAL_AIS_REPLAY";
     private static final DateTimeFormatter TIME_FORMATTER =
@@ -82,6 +83,29 @@ public final class TraceRecipeService {
         }
         JSONObject root = JSON.parseObject(scoreDetailJson);
         return root == null ? null : root.getJSONObject("traceRecipe");
+    }
+
+    public static void attachPersistPolicy(ShipBehaviorTrace trace,
+                                           String persistPolicy) {
+        if (trace == null || trace.getEvent() == null) {
+            return;
+        }
+        ShipBehaviorEvent event = trace.getEvent();
+        JSONObject root;
+        try {
+            root = StringUtils.isBlank(event.getScoreDetailJson())
+                    ? null : JSON.parseObject(event.getScoreDetailJson());
+        } catch (Exception ex) {
+            throw new IllegalStateException(
+                    "cannot attach persist policy to invalid trace recipe", ex);
+        }
+        JSONObject recipe = root == null ? null : root.getJSONObject("traceRecipe");
+        if (recipe == null) {
+            throw new IllegalStateException(
+                    "cannot attach persist policy: traceRecipe is missing");
+        }
+        recipe.put("persistPolicy", persistPolicy);
+        event.setScoreDetailJson(root.toJSONString());
     }
 
     public static String configHash(Object config) {
