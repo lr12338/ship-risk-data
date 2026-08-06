@@ -125,7 +125,7 @@ cat >"$staging_dir/release-manifest.json" <<EOF
   "sourceFileSha256": "de7d39f8e652721796d64ce8697bb036da30280500940de8ece70ece4914266b",
   "originalStageFingerprint": "81c810a9db7d319fdfbf9a17805a61493d3beda23b09154958ce2a2b3a31fd1e",
   "repairedGeometryFingerprint": "31dd89bd4968f8f436135b57cdb81e870ac7b827d4dc2c086282e7dfe91ab9c6",
-  "repairedStageTable": "ship_behavior_world_sea_stage_20260806_175527",
+  "repairedStageTable": "ship_behavior_world_sea_stage_20260806_180406",
   "formalTablePublished": false,
   "activeDatasetVersion": null,
   "reviewStatus": "PENDING_REVIEW",

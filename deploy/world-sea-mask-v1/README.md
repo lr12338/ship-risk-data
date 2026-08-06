@@ -7,7 +7,7 @@
 ## 固定数据身份
 
 - 原始 stage：`dataanalysis.ship_behavior_world_sea_stage_20260806_155556`
-- repaired stage：`dataanalysis.ship_behavior_world_sea_stage_20260806_175527`
+- repaired stage：`dataanalysis.ship_behavior_world_sea_stage_20260806_180406`
 - 原始文件 SHA-256：`de7d39f8e652721796d64ce8697bb036da30280500940de8ece70ece4914266b`
 - 原始 stage 指纹：`81c810a9db7d319fdfbf9a17805a61493d3beda23b09154958ce2a2b3a31fd1e`
 - repaired 指纹：`31dd89bd4968f8f436135b57cdb81e870ac7b827d4dc2c086282e7dfe91ab9c6`
@@ -27,7 +27,7 @@
 文件必须为 `APPROVED`，审核人和时间非空，7 个 ID 完整，且指纹严格匹配 repaired stage。随后串行执行，每一步后运行只读 `STATE`：
 
 ```bash
-stage=ship_behavior_world_sea_stage_20260806_175527
+stage=ship_behavior_world_sea_stage_20260806_180406
 jar=/data/zhengyi/ship-risk-data-0.0.1-SNAPSHOT.jar.uploading
 
 java -Dloader.main=com.hifleet.worldsea.WorldSeaImportTool -cp "$jar" \

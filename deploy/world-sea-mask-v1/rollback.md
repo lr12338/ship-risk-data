@@ -3,7 +3,7 @@
 先停止新的 WORLD_SEA 批次调度并运行只读 `STATE`。不要手工 DROP 或 RENAME formal、stage、backup、failed 表；数据库恢复只使用 `ROLLBACK_RELEASE`。
 
 ```bash
-stage=ship_behavior_world_sea_stage_20260806_175527
+stage=ship_behavior_world_sea_stage_20260806_180406
 java -Dloader.main=com.hifleet.worldsea.WorldSeaImportTool \
   -cp /data/zhengyi/ship-risk-data-0.0.1-SNAPSHOT.jar \
   org.springframework.boot.loader.PropertiesLauncher STATE "$stage"
