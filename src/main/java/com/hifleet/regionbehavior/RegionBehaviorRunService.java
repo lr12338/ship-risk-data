@@ -5,6 +5,8 @@ import com.hifleet.domain.ShipBehaviorTrace;
 import org.locationtech.jts.geom.Envelope;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.hifleet.worldsea.WorldSeaMaskService;
+import com.hifleet.worldsea.WorldSeaMaskSnapshot;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,6 +31,8 @@ public class RegionBehaviorRunService {
     private RegionBehaviorStateRepository stateRepository;
     @Autowired(required = false)
     private RegionFormalEventStore formalEventStore;
+    @Autowired(required = false)
+    private WorldSeaMaskService worldSeaMaskService;
 
     @Autowired
     public RegionBehaviorRunService(RegionBehaviorConfig config,
@@ -86,6 +90,19 @@ public class RegionBehaviorRunService {
             return blocked(result, RegionBehaviorStatus.BLOCKED_REGION_TOO_LARGE,
                     "areaSqKm=" + region.getAreaSqKm() + " max=" + config.getMaxRegionAreaSqKm());
         }
+        WorldSeaMaskSnapshot mask = null;
+        if (worldSeaMaskService != null) {
+            try {
+                mask = worldSeaMaskService.requireSnapshot();
+            } catch (RuntimeException ex) {
+                return blocked(result, RegionBehaviorStatus.BLOCKED_REGION_OUTSIDE_WORLD_SEA,
+                        "WORLD_SEA_MASK_UNAVAILABLE: " + ex.getMessage());
+            }
+            if (!mask.intersects(region.getCoreRegion())) {
+                return blocked(result, RegionBehaviorStatus.BLOCKED_REGION_OUTSIDE_WORLD_SEA,
+                        "region does not intersect WORLD_SEA_NAMED_AREA");
+            }
+        }
         RegionQueryPlan plan;
         try {
             plan = new RegionQueryPlanner(config).plan(params, region);
@@ -108,6 +125,15 @@ public class RegionBehaviorRunService {
         result.put("candidateRisk", candidateRisk(region.getAreaSqKm(), params.runHours()));
         result.put("outputRoot", Paths.get(config.getOutputRoot()).toAbsolutePath().normalize().toString());
         result.put("requiredBeansPresent", true);
+        if (mask != null) {
+            result.put("worldSeaMaskAvailable", true);
+            result.put("worldSeaMaskVersion", mask.getDatasetVersion());
+            result.put("worldSeaMaskFingerprint", mask.getGeometryFingerprint());
+            result.put("regionIntersectsWorldSea", true);
+            if (!mask.coversAllCoordinates(region.getCoreRegion())) {
+                result.put("worldSeaWarning", "PARTIAL_WORLD_SEA_COVERAGE");
+            }
+        }
         result.put("realAisQueryExecuted", false);
         result.put("databaseWrites", 0);
         return result;
@@ -217,7 +243,8 @@ public class RegionBehaviorRunService {
                 + "|" + params.effectiveContextBeforeHours(config) + "|"
                 + params.effectiveContextAfterHours(config) + "|"
                 + params.effectiveRegionBufferNm(config) + "|"
-                + params.effectiveMaxCandidateVessels(config) + "|" + params.getWriteMode();
+                + params.effectiveMaxCandidateVessels(config) + "|" + params.getWriteMode()
+                + "|" + (worldSeaMaskService == null ? "" : worldSeaMaskService.requireSnapshot().getGeometryFingerprint());
         try {
             byte[] bytes = MessageDigest.getInstance("SHA-256")
                     .digest(value.getBytes(StandardCharsets.UTF_8));

@@ -164,10 +164,15 @@ public class ProductionTestParams {
     public List<String> getEngines() { return Collections.unmodifiableList(engines); }
 
     public String configHash(String behaviorType, String ruleVersion) {
+        return configHash(behaviorType, ruleVersion, "");
+    }
+
+    public String configHash(String behaviorType, String ruleVersion, String worldSeaMaskIdentity) {
         String value = behaviorType + "|" + listBatchNo + "|" + expectedShipCount + "|"
                 + shipLimit + "|" + pageSize + "|" + parallelism + "|" + startTime + "|"
                 + endTime + "|" + retryCount + "|" + enableInsert + "|" + storeDetails + "|"
-                + windowDays + "|" + trajectorySliceHours + "|" + engines + "|" + ruleVersion;
+                + windowDays + "|" + trajectorySliceHours + "|" + engines + "|" + ruleVersion
+                + "|WORLD_SEA_MASK|" + worldSeaMaskIdentity;
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(value.getBytes(StandardCharsets.UTF_8));

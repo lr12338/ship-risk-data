@@ -6,8 +6,13 @@ import com.hifleet.domain.TargetShip;
 import com.hifleet.repository.ShipBehaviorAlongsideBatchStatusRepository;
 import com.hifleet.repository.TargetShipRepository;
 import com.hifleet.repository.ShipBehaviorRunBatchRepository;
+import com.hifleet.repository.WorldSeaMaskAuditRepository;
+import com.hifleet.worldsea.WorldSeaEventGate;
 import com.hifleet.service.BehaviorEventTransactionStore;
 import com.hifleet.service.ShipAlongsideDetector;
+import com.hifleet.worldsea.WorldSeaMaskProperties;
+import com.hifleet.worldsea.WorldSeaMaskService;
+import com.hifleet.worldsea.WorldSeaMaskSnapshot;
 import com.xxl.job.core.log.XxlJobLogger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,17 +51,24 @@ public class AlongsideProductionTestService {
     @Autowired
     private ShipBehaviorRunBatchRepository runBatchRepository;
 
+    @Autowired private WorldSeaMaskService worldSeaMaskService;
+    @Autowired private WorldSeaMaskProperties worldSeaMaskProperties;
+    @Autowired(required = false) private WorldSeaMaskAuditRepository worldSeaMaskAuditRepository;
+    @Autowired(required = false) private WorldSeaEventGate worldSeaEventGate;
+
     @Value("${ship.behavior.alongside.rule-version:ALONGSIDE_V3_ASYMMETRIC_COUNTERPARTY_V1}")
     private String ruleVersion;
 
     public Result run(String rawParams) {
         final ProductionTestParams params = ProductionTestParams.parse(rawParams);
         params.validateAlongside();
+        WorldSeaMaskSnapshot mask = worldSeaMaskService == null ? null : worldSeaMaskService.requireSnapshot();
         if (runBatchRepository != null) {
             runBatchRepository.claim(params.getBatchNo(), ShipBehaviorEvent.TYPE_ALONGSIDE,
                     params.getListBatchNo(), params.getStartTime(), params.getEndTime(),
                     ruleVersion, params.isEnableInsert(),
-                    params.configHash(ShipBehaviorEvent.TYPE_ALONGSIDE, ruleVersion));
+                    params.configHash(ShipBehaviorEvent.TYPE_ALONGSIDE, ruleVersion,
+                            mask == null ? "" : worldSeaMaskProperties.identity(mask)));
         }
         targetShipRepository.validate(params.getListBatchNo(), params.getExpectedShipCount());
         final List<Window> windows = windows(params);
@@ -144,6 +156,12 @@ public class AlongsideProductionTestService {
                 ShipBehaviorAnalysisService.AlongsideWindowResult computed =
                         executeWithRetry(params, ship.getMmsi(), window);
                 List<ShipBehaviorTrace> strict = strict(computed.getTraces());
+                if (worldSeaMaskAuditRepository != null && worldSeaEventGate != null) {
+                    worldSeaMaskAuditRepository.record(params.getBatchNo(), ship.getMmsi(),
+                            ShipBehaviorEvent.TYPE_ALONGSIDE, window.start, window.end,
+                            worldSeaEventGate.getLastStats(), computed.getWorldSeaRejectedWindows(),
+                            computed.getSavedReplayQueries());
+                }
                 if (params.isEnableInsert()) {
                     final ShipBehaviorAnalysisService.AlongsideWindowResult saved = computed;
                     final int eventCount = strict.size();

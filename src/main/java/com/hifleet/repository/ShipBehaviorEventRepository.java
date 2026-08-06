@@ -2,6 +2,7 @@ package com.hifleet.repository;
 
 import com.hifleet.domain.ShipBehaviorEvent;
 import com.hifleet.domain.AlongsideDailyStats;
+import com.hifleet.worldsea.WorldSeaEventGate;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -50,9 +51,15 @@ public class ShipBehaviorEventRepository {
     @Autowired
     private ShipBehaviorTableInitializer shipBehaviorTableInitializer;
 
+    @Autowired(required = false)
+    private WorldSeaEventGate worldSeaEventGate;
+
     public void saveEvents(List<ShipBehaviorEvent> events) {
         if (!storeEnabled || events == null || events.isEmpty()) {
             return;
+        }
+        if (worldSeaEventGate != null) {
+            worldSeaEventGate.requireEventsPassed(events);
         }
         shipBehaviorTableInitializer.ensureTableReady();
         List<ShipBehaviorEvent> validEvents = filterValid(events);

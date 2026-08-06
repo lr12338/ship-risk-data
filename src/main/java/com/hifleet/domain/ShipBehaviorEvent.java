@@ -28,6 +28,12 @@ public class ShipBehaviorEvent {
     private Boolean nearPort;
     private Boolean nearAnchor;
     private Boolean openSea;
+    private Boolean insideWorldSea;
+    private Integer worldSeaAreaId;
+    private String worldSeaAreaName;
+    private String worldSeaAreaCnName;
+    private String worldSeaMaskDecision;
+    private String waterMaskType;
     private String ownShipType;
     private String targetShipType;
     private Double avgSpeed;
@@ -223,6 +229,19 @@ public class ShipBehaviorEvent {
     public void setOpenSea(Boolean openSea) {
         this.openSea = openSea;
     }
+
+    public Boolean getInsideWorldSea() { return insideWorldSea; }
+    public void setInsideWorldSea(Boolean value) { insideWorldSea = value; }
+    public Integer getWorldSeaAreaId() { return worldSeaAreaId; }
+    public void setWorldSeaAreaId(Integer value) { worldSeaAreaId = value; }
+    public String getWorldSeaAreaName() { return worldSeaAreaName; }
+    public void setWorldSeaAreaName(String value) { worldSeaAreaName = value; }
+    public String getWorldSeaAreaCnName() { return worldSeaAreaCnName; }
+    public void setWorldSeaAreaCnName(String value) { worldSeaAreaCnName = value; }
+    public String getWorldSeaMaskDecision() { return worldSeaMaskDecision; }
+    public void setWorldSeaMaskDecision(String value) { worldSeaMaskDecision = value; }
+    public String getWaterMaskType() { return waterMaskType; }
+    public void setWaterMaskType(String value) { waterMaskType = value; }
 
     public String getOwnShipType() {
         return ownShipType;

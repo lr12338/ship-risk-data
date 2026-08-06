@@ -26,6 +26,9 @@ import com.hifleet.service.ZoneSpatialMatcher;
 import com.hifleet.service.TraceRecipeService;
 import com.hifleet.trajectory.TrajectoryLoaderService;
 import com.hifleet.trajectory.TrajectoryPoint;
+import com.hifleet.worldsea.WorldSeaEventGate;
+import com.hifleet.worldsea.WorldSeaTrackSegmenter;
+import com.hifleet.worldsea.WorldSeaMaskService;
 import com.xxl.job.core.log.XxlJobLogger;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -73,6 +76,7 @@ public class ShipLoiteringV3BatchService {
     private final int maxPageSize;
     private final int windowHours;
     private ZoneLoaderService productionZoneLoaderService;
+    private WorldSeaMaskService productionMaskService;
 
     @Value("${ship.behavior.loitering.production.scene-ready:false}")
     private boolean productionSceneReady;
@@ -87,6 +91,9 @@ public class ShipLoiteringV3BatchService {
             ShipBehaviorEventRepository eventRepository,
             ShipBehaviorEventDetailRepository detailRepository,
             ShipBehaviorLoiteringBatchStatusRepository statusRepository,
+            WorldSeaTrackSegmenter worldSeaTrackSegmenter,
+            WorldSeaEventGate worldSeaEventGate,
+            WorldSeaMaskService worldSeaMaskService,
             @Value("${ship.behavior.loitering.v3.batch.test-ship-limit:100}") int testShipLimit,
             @Value("${ship.behavior.loitering.v3.batch.page-size:500}") int pageSize,
             @Value("${ship.behavior.loitering.v3.batch.max-page-size:500}") int maxPageSize,
@@ -96,14 +103,15 @@ public class ShipLoiteringV3BatchService {
             @Value("${ship.behavior.loitering.v3.batch.max-points-per-window:100000}")
                     int maxPointsPerWindow) {
         this(new JdbcShipPageSource(ais41JdbcTemplate),
-                new DefaultShipWindowAnalyzer(trajectoryLoaderService, zoneLoaderService,
+                new DefaultShipWindowAnalyzer(trajectoryLoaderService, zoneLoaderService, worldSeaTrackSegmenter,
                         trajectorySliceHours, maxPointsPerWindow),
                 new ReplacingEventStore(dataanalysisJdbcTemplate, dataanalysisDataSource,
-                        eventRepository, detailRepository),
+                        eventRepository, detailRepository, worldSeaEventGate),
                 new JdbcProgressStore(dataanalysisJdbcTemplate, statusRepository),
                 new XxlJobLog(), Clock.system(BUSINESS_ZONE),
                 testShipLimit, pageSize, maxPageSize, windowHours);
         this.productionZoneLoaderService = zoneLoaderService;
+        this.productionMaskService = worldSeaMaskService;
     }
 
     ShipLoiteringV3BatchService(ShipPageSource shipPageSource,
@@ -129,6 +137,7 @@ public class ShipLoiteringV3BatchService {
     }
 
     public BatchResult execute(String params) {
+        if (productionMaskService != null) productionMaskService.requireSnapshot();
         JobRequest request = parseRequest(
                 params, clock, testShipLimit, pageSize, maxPageSize);
         long startedAt = System.currentTimeMillis();
@@ -656,15 +665,18 @@ public class ShipLoiteringV3BatchService {
 
         private final LoiteringV3HBaseTrajectorySource trajectorySource;
         private final PortContextProvider portContextProvider;
+        private final WorldSeaTrackSegmenter worldSeaTrackSegmenter;
 
         private DefaultShipWindowAnalyzer(TrajectoryLoaderService trajectoryLoaderService,
                                           ZoneLoaderService zoneLoaderService,
+                                          WorldSeaTrackSegmenter worldSeaTrackSegmenter,
                                           int trajectorySliceHours,
                                           int maxPointsPerWindow) {
             this.trajectorySource = new LoiteringV3HBaseTrajectorySource(
                     trajectoryLoaderService, Math.max(1, trajectorySliceHours),
                     Math.max(1, maxPointsPerWindow));
             this.portContextProvider = new ScenePortContextProvider(zoneLoaderService);
+            this.worldSeaTrackSegmenter = worldSeaTrackSegmenter;
         }
 
         @Override
@@ -673,27 +685,22 @@ public class ShipLoiteringV3BatchService {
             if (ship == null || StringUtils.isBlank(ship.getMmsi())) {
                 throw new IllegalArgumentException("ship MMSI must not be blank");
             }
-            final int[] pointCount = new int[1];
-            TrajectorySource boundedSource = new TrajectorySource() {
-                @Override
-                public List<TrajectoryPoint> load(String mmsi,
-                                                  LocalDateTime ignoredStart,
-                                                  LocalDateTime ignoredEnd) {
-                    List<TrajectoryPoint> points =
-                            trajectorySource.load(mmsi, startTime, endTime);
-                    pointCount[0] = points == null ? 0 : points.size();
-                    return points;
+            List<TrajectoryPoint> raw = trajectorySource.load(ship.getMmsi(), startTime, endTime);
+            final int pointCount = raw == null ? 0 : raw.size();
+            List<AnalyzedEvent> events = new ArrayList<AnalyzedEvent>();
+            for (final List<TrajectoryPoint> segment : worldSeaTrackSegmenter.splitInside(raw)) {
+                TrajectorySource boundedSource = (mmsi, ignoredStart, ignoredEnd) -> segment;
+                LoiteringV3AnalyzerService analyzer = new LoiteringV3AnalyzerService(
+                        (ignoredStart, ignoredEnd) -> Collections.singletonList(ship),
+                        boundedSource, portContextProvider);
+                RunResult result = analyzer.analyze(endTime);
+                if (result.getFailedShipCount() > 0) {
+                    throw new IllegalStateException(
+                            "Loitering V3 analyzer failed for " + result.getFailedMmsi());
                 }
-            };
-            LoiteringV3AnalyzerService analyzer = new LoiteringV3AnalyzerService(
-                    (ignoredStart, ignoredEnd) -> Collections.singletonList(ship),
-                    boundedSource, portContextProvider);
-            RunResult result = analyzer.analyze(endTime);
-            if (result.getFailedShipCount() > 0) {
-                throw new IllegalStateException(
-                        "Loitering V3 analyzer failed for " + result.getFailedMmsi());
+                events.addAll(result.getEvents());
             }
-            return new WindowResult(pointCount[0], result.getEvents());
+            return new WindowResult(pointCount, events);
         }
     }
 
@@ -787,15 +794,24 @@ public class ShipLoiteringV3BatchService {
         private final TransactionTemplate transactionTemplate;
         private final ShipBehaviorEventRepository eventRepository;
         private final ShipBehaviorEventDetailRepository detailRepository;
+        private final WorldSeaEventGate worldSeaEventGate;
 
         ReplacingEventStore(JdbcTemplate jdbcTemplate, DataSource dataSource,
                             ShipBehaviorEventRepository eventRepository,
-                            ShipBehaviorEventDetailRepository detailRepository) {
+                            ShipBehaviorEventDetailRepository detailRepository,
+                            WorldSeaEventGate worldSeaEventGate) {
             this.jdbcTemplate = jdbcTemplate;
             this.transactionTemplate = new TransactionTemplate(
                     new DataSourceTransactionManager(dataSource));
             this.eventRepository = eventRepository;
             this.detailRepository = detailRepository;
+            this.worldSeaEventGate = worldSeaEventGate;
+        }
+
+        ReplacingEventStore(JdbcTemplate jdbcTemplate, DataSource dataSource,
+                            ShipBehaviorEventRepository eventRepository,
+                            ShipBehaviorEventDetailRepository detailRepository) {
+            this(jdbcTemplate, dataSource, eventRepository, detailRepository, null);
         }
 
         @Override
@@ -804,10 +820,25 @@ public class ShipLoiteringV3BatchService {
                             final LocalDateTime endTime,
                             final String batchNo,
                             final List<AnalyzedEvent> analyzedEvents) {
+            final List<AnalyzedEvent> passed = new ArrayList<AnalyzedEvent>();
+            if (worldSeaEventGate == null) passed.addAll(analyzedEvents);
+            for (AnalyzedEvent analyzed : analyzedEvents) {
+                if (worldSeaEventGate == null) break;
+                List<ShipBehaviorEvent> events = toEvents(Collections.singletonList(analyzed), batchNo);
+                if (events.isEmpty()) continue;
+                ShipBehaviorTrace trace = new ShipBehaviorTrace(events.get(0), analyzed.getTrajectory(),
+                        Collections.<TrajectoryPoint>emptyList());
+                if (!worldSeaEventGate.filterAndAnnotate(Collections.singletonList(trace)).isEmpty()) passed.add(analyzed);
+            }
+            final List<ShipBehaviorEvent> passedEvents = toEvents(passed, batchNo);
+            for (int i = 0; worldSeaEventGate != null && i < passedEvents.size(); i++) {
+                worldSeaEventGate.filterAndAnnotate(Collections.singletonList(new ShipBehaviorTrace(
+                        passedEvents.get(i), passed.get(i).getTrajectory(), Collections.<TrajectoryPoint>emptyList())));
+            }
             transactionTemplate.execute(status -> {
                 deleteExisting(ship.getMmsi(), startTime, endTime);
-                eventRepository.saveEvents(toEvents(analyzedEvents, batchNo));
-                detailRepository.saveDetails(toDetails(analyzedEvents, batchNo));
+                eventRepository.saveEvents(passedEvents);
+                detailRepository.saveDetails(toDetails(passed, batchNo));
                 return null;
             });
         }

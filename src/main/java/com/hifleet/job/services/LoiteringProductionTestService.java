@@ -6,9 +6,15 @@ import com.hifleet.domain.TargetShip;
 import com.hifleet.repository.ShipBehaviorLoiteringBatchStatusRepository;
 import com.hifleet.repository.TargetShipRepository;
 import com.hifleet.repository.ShipBehaviorRunBatchRepository;
+import com.hifleet.repository.WorldSeaMaskAuditRepository;
 import com.hifleet.service.BehaviorEventTransactionStore;
 import com.hifleet.trajectory.TrajectoryLoaderService;
 import com.hifleet.trajectory.TrajectoryPoint;
+import com.hifleet.worldsea.WorldSeaMaskProperties;
+import com.hifleet.worldsea.WorldSeaMaskService;
+import com.hifleet.worldsea.WorldSeaMaskSnapshot;
+import com.hifleet.worldsea.WorldSeaEventGate;
+import com.hifleet.worldsea.WorldSeaTrackSegmenter;
 import com.xxl.job.core.log.XxlJobLogger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,6 +57,12 @@ public class LoiteringProductionTestService {
     @Autowired
     private ShipBehaviorRunBatchRepository runBatchRepository;
 
+    @Autowired private WorldSeaMaskService worldSeaMaskService;
+    @Autowired private WorldSeaMaskProperties worldSeaMaskProperties;
+    @Autowired private WorldSeaTrackSegmenter worldSeaTrackSegmenter;
+    @Autowired private WorldSeaEventGate worldSeaEventGate;
+    @Autowired(required = false) private WorldSeaMaskAuditRepository worldSeaMaskAuditRepository;
+
     @Value("${ship.behavior.trajectory.simplify-zoom:15}")
     private int simplifyZoom;
 
@@ -60,12 +72,14 @@ public class LoiteringProductionTestService {
     public Result run(String rawParams) {
         final ProductionTestParams params = ProductionTestParams.parse(rawParams);
         params.validateLoitering();
+        WorldSeaMaskSnapshot mask = worldSeaMaskService == null ? null : worldSeaMaskService.requireSnapshot();
         if (runBatchRepository != null) {
             String versions = selectedVersions(params).toString();
             runBatchRepository.claim(params.getBatchNo(), ShipBehaviorEvent.TYPE_LOITERING,
                     params.getListBatchNo(), params.getStartTime(), params.getEndTime(),
                     versions, params.isEnableInsert(),
-                    params.configHash(ShipBehaviorEvent.TYPE_LOITERING, versions));
+                    params.configHash(ShipBehaviorEvent.TYPE_LOITERING, versions,
+                            mask == null ? "" : worldSeaMaskProperties.identity(mask)));
         }
         targetShipRepository.validate(params.getListBatchNo(), params.getExpectedShipCount());
         if (params.getEngines().contains("V3")) {
@@ -160,6 +174,11 @@ public class LoiteringProductionTestService {
                             simplifyZoom, params.getTrajectorySliceHours(), maxPointsPerShip);
                     List<ShipBehaviorTrace> traces = analyze(params, ship, points);
                     traces = startsInWindow(traces, window);
+                    if (worldSeaMaskAuditRepository != null && worldSeaEventGate != null) {
+                        worldSeaMaskAuditRepository.record(params.getBatchNo(), ship.getMmsi(),
+                                ShipBehaviorEvent.TYPE_LOITERING, window.start, window.end,
+                                worldSeaEventGate.getLastStats(), 0, 0);
+                    }
                     if (params.isEnableInsert()) {
                         final int pointCount = points.size();
                         final int eventCount = traces.size();
@@ -207,12 +226,16 @@ public class LoiteringProductionTestService {
                     ship.getMmsi(), points, params.getBatchNo()));
         }
         if (params.getEngines().contains("V3")) {
-            traces.addAll(v3Service.analyzeV3Production(
-                    new ShipLoiteringV3BatchService.TargetShipAdapter(
-                            ship.getMmsi(), ship.getImo(), ship.getShipName(), ship.getShipType()),
-                    points, params.getBatchNo(), simplifyZoom));
+            List<List<TrajectoryPoint>> seaSegments = worldSeaTrackSegmenter == null
+                    ? java.util.Collections.singletonList(points) : worldSeaTrackSegmenter.splitInside(points);
+            for (List<TrajectoryPoint> segment : seaSegments) {
+                traces.addAll(v3Service.analyzeV3Production(
+                        new ShipLoiteringV3BatchService.TargetShipAdapter(
+                                ship.getMmsi(), ship.getImo(), ship.getShipName(), ship.getShipType()),
+                        segment, params.getBatchNo(), simplifyZoom));
+            }
         }
-        return traces;
+        return worldSeaEventGate == null ? traces : worldSeaEventGate.filterAndAnnotate(traces);
     }
 
     private List<ShipBehaviorTrace> startsInWindow(List<ShipBehaviorTrace> traces, Window window) {
