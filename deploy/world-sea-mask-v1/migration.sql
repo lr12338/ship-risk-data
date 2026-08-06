@@ -38,8 +38,13 @@ PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
 CREATE TABLE IF NOT EXISTS dataanalysis.ship_behavior_world_sea_release (
   release_id VARCHAR(96) NOT NULL,
   dataset_version VARCHAR(64) NOT NULL,
+  parent_dataset_version VARCHAR(64) DEFAULT NULL,
   source_file_sha256 VARCHAR(64) NOT NULL,
+  original_stage_fingerprint VARCHAR(64) DEFAULT NULL,
   geometry_fingerprint VARCHAR(64) NOT NULL,
+  repair_tool_git_sha VARCHAR(40) DEFAULT NULL,
+  repair_release_id VARCHAR(96) DEFAULT NULL,
+  review_status VARCHAR(32) DEFAULT NULL,
   stage_table_name VARCHAR(128) NOT NULL,
   formal_table_name VARCHAR(128) NOT NULL,
   backup_table_name VARCHAR(128) DEFAULT NULL,
@@ -71,6 +76,90 @@ SET @ws_sql = IF(@ws_release_publish_mode=0,
   'ALTER TABLE dataanalysis.ship_behavior_world_sea_release ADD COLUMN publish_mode VARCHAR(32) DEFAULT NULL AFTER failed_table_name',
   'SELECT 1');
 PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+-- V1R1 release identity columns. Compatible with a V1 migration that was already applied.
+SET @ws_schema = 'dataanalysis';
+SET @ws_table = 'ship_behavior_world_sea_release';
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='parent_dataset_version');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_release ADD COLUMN parent_dataset_version VARCHAR(64) DEFAULT NULL AFTER dataset_version',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='original_stage_fingerprint');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_release ADD COLUMN original_stage_fingerprint VARCHAR(64) DEFAULT NULL AFTER source_file_sha256',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='repair_tool_git_sha');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_release ADD COLUMN repair_tool_git_sha VARCHAR(40) DEFAULT NULL AFTER geometry_fingerprint',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='repair_release_id');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_release ADD COLUMN repair_release_id VARCHAR(96) DEFAULT NULL AFTER repair_tool_git_sha',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='review_status');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_release ADD COLUMN review_status VARCHAR(32) DEFAULT NULL AFTER repair_release_id',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+CREATE TABLE IF NOT EXISTS dataanalysis.ship_behavior_world_sea_repair_audit (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  repair_release_id VARCHAR(96) NOT NULL,
+  dataset_version_before VARCHAR(64) NOT NULL,
+  dataset_version_after VARCHAR(64) NOT NULL,
+  original_stage_fingerprint VARCHAR(64) NOT NULL,
+  repaired_geometry_fingerprint VARCHAR(64) NOT NULL,
+  feature_id INT NOT NULL,
+  feature_name VARCHAR(255) DEFAULT NULL,
+  feature_cn_name VARCHAR(100) DEFAULT NULL,
+  original_geometry_type VARCHAR(32) NOT NULL,
+  repaired_geometry_type VARCHAR(32) NOT NULL,
+  original_validity_error VARCHAR(1000) NOT NULL,
+  repaired_valid TINYINT(1) NOT NULL,
+  original_wkb_sha256 VARCHAR(64) NOT NULL,
+  repaired_wkb_sha256 VARCHAR(64) NOT NULL,
+  original_vertex_count INT NOT NULL,
+  repaired_vertex_count INT NOT NULL,
+  original_component_count INT NOT NULL,
+  repaired_component_count INT NOT NULL,
+  original_area_degree2 DOUBLE NOT NULL,
+  repaired_area_degree2 DOUBLE NOT NULL,
+  relative_area_delta DOUBLE NOT NULL,
+  original_envelope VARCHAR(255) NOT NULL,
+  repaired_envelope VARCHAR(255) NOT NULL,
+  collapsed_component_count INT NOT NULL DEFAULT 0,
+  collapsed_component_type VARCHAR(255) DEFAULT NULL,
+  collapsed_component_length DOUBLE NOT NULL DEFAULT 0,
+  collapsed_component_decision VARCHAR(64) NOT NULL,
+  polygon_component_areas TEXT NOT NULL,
+  minimum_polygon_area DOUBLE NOT NULL,
+  main_polygon_area DOUBLE NOT NULL,
+  minimum_polygon_ratio DOUBLE NOT NULL,
+  repair_method VARCHAR(64) NOT NULL,
+  repair_tool_git_sha VARCHAR(40) NOT NULL,
+  review_status VARCHAR(32) NOT NULL,
+  review_comment VARCHAR(2000) DEFAULT NULL,
+  reviewed_at DATETIME DEFAULT NULL,
+  reviewed_by VARCHAR(128) DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_world_sea_repair_feature (repair_release_id,feature_id),
+  KEY idx_world_sea_repair_dataset (dataset_version_after,review_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS dataanalysis.ship_behavior_world_sea_audit (
   id BIGINT NOT NULL AUTO_INCREMENT,
