@@ -94,6 +94,8 @@ public final class WorldSeaImportTool {
         Validation formalValue = tableExists(connection, FORMAL) ? inspectTable(connection, FORMAL, false) : null;
         Active active = active(connection);
         int activeCount = activeCount(connection);
+        RepairAuditState repairAudit = stageValue != null && tableExists(connection, REPAIR_AUDIT)
+                ? repairAuditState(connection, stage, stageValue.fingerprint) : null;
         boolean stageExists = stageValue != null;
         boolean formalExists = formalValue != null;
         boolean backupExists = release != null && release.backupTable != null
@@ -123,12 +125,16 @@ public final class WorldSeaImportTool {
                 + " activeDatasetVersion=" + value(active == null ? null : active.datasetVersion)
                 + " activeFingerprint=" + value(active == null ? null : active.fingerprint)
                 + " activeCount=" + activeCount
+                + " repairReleaseId=" + value(repairAudit == null ? null : repairAudit.repairReleaseId)
+                + " repairReviewStatus=" + value(repairAudit == null ? null : repairAudit.reviewStatus)
+                + " repairAuditRows=" + (repairAudit == null ? 0 : repairAudit.rows)
                 + " metaExists=" + tableExists(connection, META)
                 + " auditExists=" + tableExists(connection, AUDIT)
+                + " repairAuditExists=" + tableExists(connection, REPAIR_AUDIT)
                 + " releaseTableExists=" + releaseTableExists
                 + " recoveryNeeded=" + (decision != null && decision.isRecoveryNeeded())
-                + " nextAllowedAction=" + (release == null
-                ? "AWAIT_APPROVAL_THEN_REGISTER_STAGE" : decision.getNextAllowedAction())
+                + " nextAllowedAction=" + (release == null ? nextBeforeRegistration(repairAudit)
+                : decision.getNextAllowedAction())
                 + " databaseWrites=0");
     }
 
@@ -277,11 +283,21 @@ public final class WorldSeaImportTool {
         ReleaseRow release = requiredRelease(connection, stage);
         WorldSeaReleaseStateMachine.require(release.status,
                 WorldSeaReleaseStateMachine.Status.PUBLISHED_INACTIVE,
-                WorldSeaReleaseStateMachine.Status.NOOP_IDENTICAL);
+                WorldSeaReleaseStateMachine.Status.NOOP_IDENTICAL,
+                WorldSeaReleaseStateMachine.Status.ACTIVE);
         WorldSeaRepairApproval.readApproved(APPROVAL_FILE, release.fingerprint);
         Validation formalValue = inspectTable(connection, FORMAL, true);
         if (formalValue.rows.size() != 102 || !release.fingerprint.equals(formalValue.fingerprint)) {
             throw new IllegalStateException("formal table does not match inactive release");
+        }
+        int activeCount = activeCount(connection);
+        Active currentActive = activeCount == 1 ? active(connection) : null;
+        if (activationAlreadyComplete(release.status, activeCount,
+                currentActive != null && DATASET_VERSION.equals(currentActive.datasetVersion)
+                        && release.fingerprint.equals(currentActive.fingerprint))) {
+            System.out.println("WORLD_SEA_IMPORT ACTIVATE_DATASET PASS releaseId=" + release.releaseId
+                    + " datasetVersion=" + DATASET_VERSION + " status=ACTIVE idempotent=true");
+            return;
         }
         connection.setAutoCommit(false);
         try {
@@ -307,6 +323,16 @@ public final class WorldSeaImportTool {
         } finally { connection.setAutoCommit(true); }
         System.out.println("WORLD_SEA_IMPORT ACTIVATE_DATASET PASS releaseId=" + release.releaseId
                 + " datasetVersion=" + DATASET_VERSION + " status=ACTIVE");
+    }
+
+    static boolean activationAlreadyComplete(WorldSeaReleaseStateMachine.Status status,
+                                             int activeCount, boolean activeMatchesRelease) {
+        if (activeCount > 1) throw new IllegalStateException("multiple ACTIVE WORLD_SEA datasets");
+        if (status != WorldSeaReleaseStateMachine.Status.ACTIVE) return false;
+        if (activeCount != 1 || !activeMatchesRelease) {
+            throw new IllegalStateException("ACTIVE release metadata differs from formal table");
+        }
+        return true;
     }
 
     private static void resumeRelease(Connection connection, String stage) throws Exception {
@@ -507,6 +533,32 @@ public final class WorldSeaImportTool {
                 return value;
             }
         }
+    }
+
+    private static RepairAuditState repairAuditState(Connection connection, String stage,
+                                                     String fingerprint) throws Exception {
+        String sql = "SELECT repair_release_id,MIN(review_status),MAX(review_status),COUNT(*),"
+                + "COUNT(DISTINCT feature_id) FROM `" + SCHEMA + "`.`" + REPAIR_AUDIT + "` "
+                + "WHERE repaired_stage_table=? AND repaired_geometry_fingerprint=? GROUP BY repair_release_id";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, stage); statement.setString(2, fingerprint);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) return null;
+                String minimumStatus = rs.getString(2), maximumStatus = rs.getString(3);
+                RepairAuditState value = new RepairAuditState(rs.getString(1), minimumStatus, rs.getInt(4));
+                if (!equal(minimumStatus, maximumStatus) || value.rows != 7 || rs.getInt(5) != 7) {
+                    throw new IllegalStateException("repair audit state/count is inconsistent");
+                }
+                if (rs.next()) throw new IllegalStateException("multiple repair audits match repaired stage");
+                return value;
+            }
+        }
+    }
+
+    private static String nextBeforeRegistration(RepairAuditState repairAudit) {
+        if (repairAudit == null) return "CREATE_REPAIRED_STAGE";
+        return "APPROVED".equals(repairAudit.reviewStatus)
+                ? "REGISTER_STAGE" : "AWAIT_APPROVAL_THEN_REGISTER_STAGE";
     }
 
     private static void requireRepairIds(Connection connection, String repairReleaseId) throws Exception {
@@ -801,6 +853,13 @@ public final class WorldSeaImportTool {
         final String repairReleaseId, repairToolGitSha;
         RepairAuditIdentity(String repairReleaseId, String repairToolGitSha) {
             this.repairReleaseId = repairReleaseId; this.repairToolGitSha = repairToolGitSha;
+        }
+    }
+    private static final class RepairAuditState {
+        final String repairReleaseId, reviewStatus;
+        final int rows;
+        RepairAuditState(String repairReleaseId, String reviewStatus, int rows) {
+            this.repairReleaseId = repairReleaseId; this.reviewStatus = reviewStatus; this.rows = rows;
         }
     }
     private WorldSeaImportTool() {}

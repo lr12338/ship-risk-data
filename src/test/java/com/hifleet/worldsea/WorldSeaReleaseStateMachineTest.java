@@ -68,6 +68,26 @@ public class WorldSeaReleaseStateMachineTest {
         assertFalse(value.isRecoveryNeeded());
     }
 
+    @Test
+    public void repeatedActivateIsIdempotentOnlyWhenSingleActiveMatches() {
+        assertTrue(WorldSeaImportTool.activationAlreadyComplete(
+                WorldSeaReleaseStateMachine.Status.ACTIVE, 1, true));
+        assertFalse(WorldSeaImportTool.activationAlreadyComplete(
+                WorldSeaReleaseStateMachine.Status.PUBLISHED_INACTIVE, 1, false));
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void activateRejectsMultipleActiveDatasets() {
+        WorldSeaImportTool.activationAlreadyComplete(
+                WorldSeaReleaseStateMachine.Status.PUBLISHED_INACTIVE, 2, false);
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void repeatedActivateRejectsMismatchedActiveIdentity() {
+        WorldSeaImportTool.activationAlreadyComplete(
+                WorldSeaReleaseStateMachine.Status.ACTIVE, 1, false);
+    }
+
     @Test(expected = IllegalStateException.class)
     public void deprecatedOneStepApplyIsDisabled() throws Exception {
         WorldSeaImportTool.main(new String[]{"APPLY", "ship_behavior_world_sea_stage_20260806_155556"});
