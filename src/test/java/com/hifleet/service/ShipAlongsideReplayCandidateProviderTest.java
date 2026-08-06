@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class ShipAlongsideReplayCandidateProviderTest {
 
@@ -36,13 +37,20 @@ public class ShipAlongsideReplayCandidateProviderTest {
         AlongsideReplaySearchResult result = provider.findCandidates(
                 "413433610", windows, ownPointsByWindow, "test-batch");
 
-        assertEquals(1, result.getCandidates().size());
-        AlongsideCandidateTarget candidate = result.getCandidates().get(0);
-        assertEquals("413193000", candidate.getTargetMmsi());
-        assertEquals(7, candidate.getTargetPoints().size());
+        assertEquals(7, result.getCandidates().size());
         assertEquals(1, result.getReplayQueryCount());
-        assertEquals(5, result.getReturnedVessels());
-        assertEquals(1, result.getPrefilteredTargets());
+        assertEquals(10, result.getReturnedVessels());
+        assertEquals(7, result.getPrefilteredTargets());
+        Set<String> recalled = new java.util.HashSet<String>();
+        for (AlongsideCandidateTarget candidate : result.getCandidates()) {
+            recalled.add(candidate.getTargetMmsi());
+        }
+        assertTrue(recalled.contains("999000003")); // fishing
+        assertTrue(recalled.contains("999000004")); // supply
+        assertTrue(recalled.contains("999000005")); // barge
+        assertTrue(recalled.contains("999000006")); // tug
+        assertTrue(recalled.contains("999000007")); // small craft
+        assertTrue(recalled.contains("999000008")); // missing type
     }
 
     private void configure(ShipAlongsideReplayCandidateProvider provider) {
@@ -56,6 +64,7 @@ public class ShipAlongsideReplayCandidateProviderTest {
         ReflectionTestUtils.setField(provider, "candidateMinPoints", 3);
         ReflectionTestUtils.setField(provider, "candidateMinDurationMinutes", 20L);
         ReflectionTestUtils.setField(provider, "merchantFilterEnabled", true);
+        ReflectionTestUtils.setField(provider, "targetShipFilterMode", "NONE");
         ReflectionTestUtils.setField(provider, "shipTypeClassifier", new ShipTypeClassifier());
         ReflectionTestUtils.setField(provider, "ais41GeneralQueryRepository", new FakeShipTypeRepository());
     }
@@ -83,10 +92,15 @@ public class ShipAlongsideReplayCandidateProviderTest {
             tracks.put("999000001", points("999000001", 0, 7, 5, 1.0, 1.0, 0.6));
             tracks.put("999000002", points("999000002", 0, 2, 5, 0.0005, 0.0005, 0.6));
             tracks.put("999000003", points("999000003", 0, 7, 5, 0.0005, 0.0005, 0.6));
+            tracks.put("999000004", points("999000004", 0, 7, 5, 0.0005, 0.0005, 0.2));
+            tracks.put("999000005", points("999000005", 0, 7, 5, 0.0005, 0.0005, 0.4));
+            tracks.put("999000006", points("999000006", 0, 7, 5, 0.0005, 0.0005, 0.5));
+            tracks.put("999000007", points("999000007", 0, 7, 5, 0.0005, 0.0005, 0.3));
+            tracks.put("999000008", points("999000008", 0, 7, 5, 0.0005, 0.0005, 0.6));
             result.setTracksByMmsi(tracks);
-            result.setRawVesselCount(5);
-            result.setRawPointCount(30);
-            result.setValidPointCount(30);
+            result.setRawVesselCount(10);
+            result.setRawPointCount(65);
+            result.setValidPointCount(65);
             return result;
         }
     }
@@ -97,6 +111,10 @@ public class ShipAlongsideReplayCandidateProviderTest {
             Map<String, String> result = new HashMap<String, String>();
             result.put("413193000", "油轮");
             result.put("999000003", "渔船");
+            result.put("999000004", "补给船");
+            result.put("999000005", "驳船");
+            result.put("999000006", "拖轮");
+            result.put("999000007", "小艇");
             return result;
         }
     }

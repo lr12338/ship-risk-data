@@ -1,0 +1,18 @@
+{
+  "mode": "region_behavior_v1",
+  "regionId": "shanghai-offshore-test-01",
+  "regionName": "上海港外小范围测试区域",
+  "polygonWkt": "POLYGON((121.70 30.85,121.85 30.85,121.85 30.95,121.70 30.95,121.70 30.85))",
+  "startTime": "2026-06-01 00:00:00",
+  "endTime": "2026-06-01 06:00:00",
+  "behaviorTypes": ["LOITERING", "ALONGSIDE"],
+  "shipTypePolicy": "EXISTING_MERCHANT_POLICY",
+  "discoveryTimeSliceMinutes": 30,
+  "analysisContextBeforeHours": 6,
+  "analysisContextAfterHours": 6,
+  "regionBufferNm": 3.0,
+  "maxCandidateVessels": 100,
+  "batchNo": "region-behavior-shanghai-20260601-v1",
+  "dryRun": true,
+  "storeCandidates": false
+}

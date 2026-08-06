@@ -5,6 +5,7 @@ import org.junit.Test;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import com.hifleet.route.beans.NewShipForm;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -38,6 +39,27 @@ public class TrajectoryLoaderServiceTest {
         }
 
         assertTrue(failed);
+    }
+
+    @Test
+    public void missingKinematicsRemainInvalidInsteadOfZero() {
+        NewShipForm raw = new NewShipForm();
+        raw.setM("414790000");
+        raw.setTi("2026-01-01 00:00:00");
+        raw.setLo("120.0");
+        raw.setLa("30.0");
+        raw.setSp(null);
+        raw.setCo("null");
+        raw.setHdg("");
+
+        TrajectoryPoint point = new TrajectoryLoaderService().convert(raw);
+
+        assertTrue(Double.isNaN(point.getSpeed()));
+        assertTrue(Double.isNaN(point.getCourse()));
+        assertTrue(Double.isNaN(point.getHeading()));
+        assertTrue(!point.isSpeedValid());
+        assertTrue(!point.isCourseValid());
+        assertTrue(!point.isHeadingValid());
     }
 
     private static class StubTrajectoryLoaderService extends TrajectoryLoaderService {

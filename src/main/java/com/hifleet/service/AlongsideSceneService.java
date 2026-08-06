@@ -8,7 +8,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 将事件中心点映射为港口、锚地或开放海域。维表不可用时返回未知，避免误升风险。
+ * 将事件位置映射为已知港口、已知锚地或已知区域之外。这里没有全球海岸线，不能判定开放海域。
  */
 @Component
 public class AlongsideSceneService {
@@ -50,13 +50,14 @@ public class AlongsideSceneService {
     public static class Scene {
         private final boolean nearPort;
         private final boolean nearAnchor;
-        private final boolean openSea;
+        private final boolean outsideKnownPortAndAnchor;
         private final boolean dataAvailable;
 
-        private Scene(boolean nearPort, boolean nearAnchor, boolean openSea, boolean dataAvailable) {
+        private Scene(boolean nearPort, boolean nearAnchor, boolean outsideKnownPortAndAnchor,
+                      boolean dataAvailable) {
             this.nearPort = nearPort;
             this.nearAnchor = nearAnchor;
-            this.openSea = openSea;
+            this.outsideKnownPortAndAnchor = outsideKnownPortAndAnchor;
             this.dataAvailable = dataAvailable;
         }
 
@@ -73,8 +74,10 @@ public class AlongsideSceneService {
         }
 
         public boolean isOpenSea() {
-            return openSea;
+            return false;
         }
+
+        public boolean isOutsideKnownPortAndAnchor() { return outsideKnownPortAndAnchor; }
 
         public boolean isDataAvailable() {
             return dataAvailable;
