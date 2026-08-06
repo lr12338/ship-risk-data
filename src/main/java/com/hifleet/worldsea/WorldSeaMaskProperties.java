@@ -41,10 +41,14 @@ public class WorldSeaMaskProperties {
         if (expectedFeatureCount <= 0) {
             throw new IllegalStateException("WORLD_SEA_MASK expected feature count must be positive");
         }
+        if (shadowMinEvidenceCoverage < 0.0d || shadowMinEvidenceCoverage > 1.0d) {
+            throw new IllegalStateException("WORLD_SEA_MASK shadow coverage must be between 0 and 1");
+        }
     }
 
     public String identity(WorldSeaMaskSnapshot snapshot) {
         return "enabled=" + enabled + "|mode=" + mode + "|coverage=" + minEvidenceCoverage
+                + "|shadowCoverage=" + shadowMinEvidenceCoverage
                 + "|datasetVersion=" + snapshot.getDatasetVersion()
                 + "|sourceSha256=" + snapshot.getSourceFileSha256()
                 + "|geometryFingerprint=" + snapshot.getGeometryFingerprint()
@@ -59,6 +63,7 @@ public class WorldSeaMaskProperties {
     public String getDatasetVersion() { return datasetVersion; }
     public int getExpectedFeatureCount() { return expectedFeatureCount; }
     public double getMinEvidenceCoverage() { return minEvidenceCoverage; }
+    public double getShadowMinEvidenceCoverage() { return shadowMinEvidenceCoverage; }
     public boolean isRequireEventCenter() { return requireEventCenter; }
     public boolean isRequireOwnPoint() { return requireOwnPoint; }
     public boolean isRequireTargetPoint() { return requireTargetPoint; }

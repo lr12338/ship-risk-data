@@ -17,6 +17,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 
 @Service
 public class WorldSeaMaskLoader {
@@ -58,10 +61,16 @@ public class WorldSeaMaskLoader {
             WKBReader reader = new WKBReader();
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             Set<Integer> ids = new HashSet<Integer>();
+            List<Row> sortedRows = new ArrayList<Row>(rows);
+            Collections.sort(sortedRows, new Comparator<Row>() {
+                @Override public int compare(Row left, Row right) {
+                    return Integer.compare(left.id, right.id);
+                }
+            });
             int polygons = 0;
             int multiPolygons = 0;
             long vertices = 0L;
-            for (Row row : rows) {
+            for (Row row : sortedRows) {
                 if (!ids.add(row.id)) throw new IllegalStateException("WORLD_SEA_MASK duplicate ID=" + row.id);
                 if (row.wkb == null || row.wkb.length == 0) throw new IllegalStateException("WORLD_SEA_MASK empty geometry ID=" + row.id);
                 Geometry geometry = reader.read(row.wkb);
@@ -96,7 +105,7 @@ public class WorldSeaMaskLoader {
                 throw new IllegalStateException("WORLD_SEA_MASK coordinate assumption mismatch");
             }
             List<String> samples = new java.util.ArrayList<String>();
-            for (int i = 0; i < Math.min(5, rows.size()); i++) samples.add(rows.get(i).name);
+            for (int i = 0; i < Math.min(5, sortedRows.size()); i++) samples.add(sortedRows.get(i).name);
             return new WorldSeaMaskSnapshot(index, rows.size(), polygons, multiPolygons, vertices,
                     string(meta.get("dataset_version")), string(meta.get("source_file_sha256")),
                     fingerprint, System.currentTimeMillis() - started, assumption, samples);
@@ -110,7 +119,13 @@ public class WorldSeaMaskLoader {
     static String fingerprint(List<Row> rows) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            for (Row row : rows) {
+            List<Row> sorted = new ArrayList<Row>(rows);
+            Collections.sort(sorted, new Comparator<Row>() {
+                @Override public int compare(Row left, Row right) {
+                    return Integer.compare(left.id, right.id);
+                }
+            });
+            for (Row row : sorted) {
                 update(digest, ByteBuffer.allocate(4).putInt(row.id).array());
                 update(digest, bytes(row.name)); update(digest, bytes(row.cnName)); update(digest, row.wkb);
             }
@@ -134,5 +149,9 @@ public class WorldSeaMaskLoader {
         Row(int id, String name, String cnName, byte[] wkb) {
             this.id = id; this.name = name; this.cnName = cnName; this.wkb = wkb;
         }
+        int getId() { return id; }
+        String getName() { return name; }
+        String getCnName() { return cnName; }
+        byte[] getWkb() { return wkb; }
     }
 }

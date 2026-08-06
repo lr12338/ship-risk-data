@@ -3,6 +3,7 @@ package com.hifleet.service;
 import com.alibaba.fastjson.JSONObject;
 import com.hifleet.domain.ShipBehaviorEvent;
 import com.hifleet.domain.ShipBehaviorTrace;
+import com.hifleet.domain.AlongsideEvidencePair;
 import com.hifleet.trajectory.TrajectoryPoint;
 import com.hifleet.trajectory.TrajectorySegment;
 import com.hifleet.trajectory.TrajectoryUtils;
@@ -13,6 +14,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 船舶搭靠 V2：识别双船低速近距离候选片段，并输出保险风控可解释字段。
@@ -64,7 +67,8 @@ public class ShipAlongsideDetector {
         List<MatchedSegment> mergedSegments = mergeSegments(rawSegments, effectiveRule);
         List<ShipBehaviorTrace> traces = new ArrayList<ShipBehaviorTrace>();
         for (MatchedSegment segment : mergedSegments) {
-            traces.add(buildTrace(mmsi, targetMmsi, segment, effectiveRule, effectiveContext));
+            traces.add(buildTrace(mmsi, targetMmsi, segment, effectiveRule, effectiveContext,
+                    cleanOwnPoints.size(), cleanTargetPoints.size()));
         }
         lastStats = DetectionStats.from(cleanOwnPoints.size(), cleanTargetPoints.size(),
                 rawSegments.size(), mergedSegments.size(), traces.size());
@@ -146,13 +150,14 @@ public class ShipAlongsideDetector {
         List<MatchedPoint> current = new ArrayList<MatchedPoint>();
         List<MatchedSegment> segments = new ArrayList<MatchedSegment>();
         int targetIndex = 0;
-        for (TrajectoryPoint ownPoint : ownPoints) {
+        for (int ownIndex = 0; ownIndex < ownPoints.size(); ownIndex++) {
+            TrajectoryPoint ownPoint = ownPoints.get(ownIndex);
             MatchResult match = findNearest(ownPoint, targetPoints, targetIndex, rule.getMaxTimeGapMinutes());
             if (match != null) {
                 targetIndex = match.getIndex() + 1;
             }
             if (isAlongsideCandidate(ownPoint, match, rule)) {
-                current.add(new MatchedPoint(ownPoint, match.getPoint(), match.getDistanceNm(),
+                current.add(new MatchedPoint(ownPoint, match.getPoint(), ownIndex, match.getIndex(), match.getDistanceNm(),
                         match.getTimeGapSeconds(), speedDiff(ownPoint, match.getPoint()),
                         headingParallelDiff(ownPoint, match.getPoint())));
             } else {
@@ -187,11 +192,11 @@ public class ShipAlongsideDetector {
         for (int i = Math.max(0, startIndex); i < targetPoints.size(); i++) {
             TrajectoryPoint targetPoint = targetPoints.get(i);
             long gapSeconds = Math.abs(Duration.between(ownPoint.getTime(), targetPoint.getTime()).getSeconds());
-            long gapMinutes = gapSeconds / 60L;
-            if (best != null && targetPoint.getTime().isAfter(ownPoint.getTime()) && gapMinutes > maxTimeGapMinutes) {
+            long maxGapSeconds = maxTimeGapMinutes * 60L;
+            if (best != null && targetPoint.getTime().isAfter(ownPoint.getTime()) && gapSeconds > maxGapSeconds) {
                 break;
             }
-            if (gapMinutes > maxTimeGapMinutes) {
+            if (gapSeconds > maxGapSeconds) {
                 continue;
             }
             double distanceNm = TrajectoryUtils.distanceNm(ownPoint, targetPoint);
@@ -243,7 +248,8 @@ public class ShipAlongsideDetector {
     }
 
     private ShipBehaviorTrace buildTrace(String mmsi, String targetMmsi, MatchedSegment segment,
-                                         AlongsideRule rule, AlongsideContext context) {
+                                         AlongsideRule rule, AlongsideContext context,
+                                         int sourceOwnPointCount, int sourceTargetPointCount) {
         List<TrajectoryPoint> ownPoints = segment.getOwnPoints();
         List<TrajectoryPoint> targetPoints = segment.getTargetPoints();
         TrajectorySegment ownSegment = new TrajectorySegment(ownPoints);
@@ -291,7 +297,9 @@ public class ShipAlongsideDetector {
         event.setCenterLat(feature.getCenterLat());
         event.setRadiusNm(feature.getRadiusNm());
         event.setScoreDetailJson(score.toJson());
-        return new ShipBehaviorTrace(event, ownPoints, targetPoints);
+        return new ShipBehaviorTrace(event, ownPoints, targetPoints, segment.getEvidencePairs(),
+                sourceOwnPointCount, sourceTargetPointCount, rule.getMaxTimeGapMinutes() * 60L,
+                "DETECTOR_CONFIRMED_PAIRS");
     }
 
     private AlongsideFeature calculateFeature(MatchedSegment segment, AlongsideRule rule) {
@@ -592,12 +600,27 @@ public class ShipAlongsideDetector {
     private double[] calculatePairCenter(List<MatchedPoint> matches) {
         double lon = 0.0;
         double lat = 0.0;
+        double referenceLon = matches.isEmpty() ? 0.0 : matches.get(0).getOwnPoint().getLon();
         for (MatchedPoint match : matches) {
-            lon += (match.getOwnPoint().getLon() + match.getTargetPoint().getLon()) / 2.0;
+            double ownLon = unwrapLon(match.getOwnPoint().getLon(), referenceLon);
+            double targetLon = unwrapLon(match.getTargetPoint().getLon(), referenceLon);
+            lon += (ownLon + targetLon) / 2.0;
             lat += (match.getOwnPoint().getLat() + match.getTargetPoint().getLat()) / 2.0;
         }
         int size = Math.max(1, matches.size());
-        return new double[]{lon / size, lat / size};
+        return new double[]{normalizeLon(lon / size), lat / size};
+    }
+
+    private double unwrapLon(double lon, double referenceLon) {
+        while (lon - referenceLon > 180.0) lon -= 360.0;
+        while (lon - referenceLon < -180.0) lon += 360.0;
+        return lon;
+    }
+
+    private double normalizeLon(double lon) {
+        while (lon > 180.0) lon -= 360.0;
+        while (lon < -180.0) lon += 360.0;
+        return lon;
     }
 
     private double calculateRadiusNm(List<TrajectoryPoint> points, double centerLon, double centerLat) {
@@ -1508,6 +1531,16 @@ public class ShipAlongsideDetector {
             return points;
         }
 
+        private List<AlongsideEvidencePair> getEvidencePairs() {
+            List<AlongsideEvidencePair> pairs = new ArrayList<AlongsideEvidencePair>();
+            for (MatchedPoint match : matches) {
+                pairs.add(new AlongsideEvidencePair(match.getOwnPoint(), match.getTargetPoint(),
+                        match.getOwnPointIndex(), match.getTargetPointIndex(),
+                        match.getTimeGapSeconds(), match.getDistanceNm()));
+            }
+            return pairs;
+        }
+
         private long getDurationMinutes() {
             return Duration.between(getStartOwnPoint().getTime(), getEndOwnPoint().getTime()).toMinutes();
         }
@@ -1532,8 +1565,24 @@ public class ShipAlongsideDetector {
         }
 
         private MatchedSegment merge(MatchedSegment other) {
-            List<MatchedPoint> merged = new ArrayList<MatchedPoint>(matches);
-            merged.addAll(other.getMatches());
+            Map<String, MatchedPoint> unique = new LinkedHashMap<String, MatchedPoint>();
+            for (MatchedPoint match : matches) unique.put(match.key(), match);
+            for (MatchedPoint match : other.getMatches()) unique.put(match.key(), match);
+            List<MatchedPoint> merged = new ArrayList<MatchedPoint>(unique.values());
+            Collections.sort(merged, new Comparator<MatchedPoint>() {
+                @Override public int compare(MatchedPoint a, MatchedPoint b) {
+                    int own = Integer.compare(a.getOwnPointIndex(), b.getOwnPointIndex());
+                    return own != 0 ? own : Integer.compare(a.getTargetPointIndex(), b.getTargetPointIndex());
+                }
+            });
+            int lastOwn = -1, lastTarget = -1;
+            for (MatchedPoint match : merged) {
+                if (match.getOwnPointIndex() <= lastOwn || match.getTargetPointIndex() <= lastTarget) {
+                    throw new IllegalStateException("alongside merged evidence is not unique and monotonic");
+                }
+                lastOwn = match.getOwnPointIndex();
+                lastTarget = match.getTargetPointIndex();
+            }
             return new MatchedSegment(merged);
         }
     }
@@ -1571,15 +1620,20 @@ public class ShipAlongsideDetector {
     private static class MatchedPoint {
         private final TrajectoryPoint ownPoint;
         private final TrajectoryPoint targetPoint;
+        private final int ownPointIndex;
+        private final int targetPointIndex;
         private final double distanceNm;
         private final long timeGapSeconds;
         private final double relativeSpeed;
         private final Double headingParallelDiff;
 
-        private MatchedPoint(TrajectoryPoint ownPoint, TrajectoryPoint targetPoint, double distanceNm,
+        private MatchedPoint(TrajectoryPoint ownPoint, TrajectoryPoint targetPoint,
+                             int ownPointIndex, int targetPointIndex, double distanceNm,
                              long timeGapSeconds, double relativeSpeed, Double headingParallelDiff) {
             this.ownPoint = ownPoint;
             this.targetPoint = targetPoint;
+            this.ownPointIndex = ownPointIndex;
+            this.targetPointIndex = targetPointIndex;
             this.distanceNm = distanceNm;
             this.timeGapSeconds = timeGapSeconds;
             this.relativeSpeed = relativeSpeed;
@@ -1593,6 +1647,10 @@ public class ShipAlongsideDetector {
         private TrajectoryPoint getTargetPoint() {
             return targetPoint;
         }
+
+        private int getOwnPointIndex() { return ownPointIndex; }
+        private int getTargetPointIndex() { return targetPointIndex; }
+        private String key() { return ownPointIndex + ":" + targetPointIndex; }
 
         private double getDistanceNm() {
             return distanceNm;

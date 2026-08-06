@@ -38,6 +38,8 @@ public class ShipAlongsideReplayCandidateProviderTest {
                 "413433610", windows, ownPointsByWindow, "test-batch");
 
         assertEquals(7, result.getCandidates().size());
+        assertEquals(provider.planQueries(windows, ownPointsByWindow, "test-batch").size(),
+                result.getAttemptedReplayQueryCount());
         assertEquals(1, result.getReplayQueryCount());
         assertEquals(10, result.getReturnedVessels());
         assertEquals(7, result.getPrefilteredTargets());

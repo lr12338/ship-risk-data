@@ -157,10 +157,13 @@ public class AlongsideProductionTestService {
                         executeWithRetry(params, ship.getMmsi(), window);
                 List<ShipBehaviorTrace> strict = strict(computed.getTraces());
                 if (worldSeaMaskAuditRepository != null && worldSeaEventGate != null) {
-                    worldSeaMaskAuditRepository.record(params.getBatchNo(), ship.getMmsi(),
+                    worldSeaMaskAuditRepository.recordReplay(params.getBatchNo(), ship.getMmsi(),
                             ShipBehaviorEvent.TYPE_ALONGSIDE, window.start, window.end,
                             worldSeaEventGate.getLastStats(), computed.getWorldSeaRejectedWindows(),
-                            computed.getSavedReplayQueries());
+                            computed.getBaselinePlannedReplayQueries(),
+                            computed.getFilteredPlannedReplayQueries(), computed.getSavedReplayQueries(),
+                            computed.getAttemptedReplayQueries(), computed.getSuccessfulReplayQueries(),
+                            computed.getFailedReplayQueries(), computed.getTruncatedReplayQueryCount());
                 }
                 if (params.isEnableInsert()) {
                     final ShipBehaviorAnalysisService.AlongsideWindowResult saved = computed;

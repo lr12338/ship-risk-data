@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.hifleet.domain.ShipBehaviorEvent;
 import com.hifleet.domain.ShipBehaviorTrace;
+import com.hifleet.domain.AlongsideEvidencePair;
 import com.hifleet.trajectory.TrajectoryPoint;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,8 +13,9 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Comparator;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.Set;
 
 @Service
 public class WorldSeaEventGate {
@@ -37,7 +39,7 @@ public class WorldSeaEventGate {
         int evidence = 0;
         for (ShipBehaviorTrace trace : traces) {
             if (trace != null && trace.getEvent() != null) evidence += ShipBehaviorEvent.TYPE_ALONGSIDE.equals(trace.getEvent().getBehaviorType())
-                    ? Math.min(size(trace.getOwnPoints()), size(trace.getTargetPoints())) : size(trace.getOwnPoints());
+                    ? size(trace.getAlongsideEvidencePairs()) : size(trace.getOwnPoints());
             if (evaluate(trace, snapshot)) passed.add(trace);
         }
         lastStats.set(new GateStats(traces.size(), passed.size(), traces.size() - passed.size(), evidence));
@@ -82,22 +84,26 @@ public class WorldSeaEventGate {
         List<TrajectoryPoint> own = trace.getOwnPoints();
         List<TrajectoryPoint> target = trace.getTargetPoints();
         int total = 0, eligible = 0;
+        PairValidation pairValidation = null;
         if (ShipBehaviorEvent.TYPE_LOITERING.equals(event.getBehaviorType())) {
             total = own == null ? 0 : own.size();
             if (own != null) for (TrajectoryPoint point : own) if (inside(point)) eligible++;
         } else if (ShipBehaviorEvent.TYPE_ALONGSIDE.equals(event.getBehaviorType())) {
-            total = Math.max(size(own), size(target));
-            for (Pair pair : monotonicPairs(own, target)) {
-                if (inside(pair.own) && inside(pair.target) && midpointInside(pair.own, pair.target)) eligible++;
+            pairValidation = validateDetectorPairs(trace);
+            total = pairValidation.pairs.size();
+            for (AlongsideEvidencePair pair : pairValidation.pairs) {
+                if (inside(pair.getOwnPoint()) && inside(pair.getTargetPoint())
+                        && midpointInside(pair.getOwnPoint(), pair.getTargetPoint())) eligible++;
             }
         } else return true;
         double coverage = total == 0 ? 0.0 : (double) eligible / total;
         WorldSeaMatch center = event.getCenterLon() == null || event.getCenterLat() == null
                 ? null : snapshot.match(event.getCenterLon(), event.getCenterLat());
         boolean accepted = total > 0 && eligible == total
+                && (pairValidation == null || pairValidation.valid)
                 && coverage >= properties.getMinEvidenceCoverage()
                 && (!properties.isRequireEventCenter() || center != null);
-        annotate(event, snapshot, center, eligible, total, coverage, accepted);
+        annotate(event, snapshot, center, eligible, total, coverage, accepted, trace, pairValidation);
         return accepted;
     }
 
@@ -117,38 +123,40 @@ public class WorldSeaEventGate {
                 (a.getLat() + b.getLat()) / 2.0) != null;
     }
 
-    private List<Pair> monotonicPairs(List<TrajectoryPoint> ownPoints, List<TrajectoryPoint> targetPoints) {
-        if (ownPoints == null || targetPoints == null) return Collections.emptyList();
-        List<TrajectoryPoint> own = new ArrayList<TrajectoryPoint>(ownPoints);
-        List<TrajectoryPoint> target = new ArrayList<TrajectoryPoint>(targetPoints);
-        Comparator<TrajectoryPoint> byTime = Comparator.comparing(
-                (TrajectoryPoint point) -> point == null ? null : point.getTime(),
-                Comparator.nullsLast(Comparator.naturalOrder()));
-        Collections.sort(own, byTime); Collections.sort(target, byTime);
-        List<Pair> result = new ArrayList<Pair>();
-        int targetIndex = 0;
-        for (TrajectoryPoint ownPoint : own) {
-            if (ownPoint == null || ownPoint.getTime() == null) continue;
-            int best = -1; long bestGap = Long.MAX_VALUE;
-            for (int i = targetIndex; i < target.size(); i++) {
-                TrajectoryPoint candidate = target.get(i);
-                if (candidate == null || candidate.getTime() == null) continue;
-                long gap = Math.abs(Duration.between(ownPoint.getTime(), candidate.getTime()).getSeconds());
-                if (best >= 0 && candidate.getTime().isAfter(ownPoint.getTime()) && gap > bestGap) break;
-                if (gap < bestGap) { best = i; bestGap = gap; }
-            }
-            if (best >= 0) { result.add(new Pair(ownPoint, target.get(best))); targetIndex = best + 1; }
+    private PairValidation validateDetectorPairs(ShipBehaviorTrace trace) {
+        List<AlongsideEvidencePair> pairs = trace.getAlongsideEvidencePairs();
+        if (pairs == null || pairs.isEmpty()
+                || !"DETECTOR_CONFIRMED_PAIRS".equals(trace.getAlongsidePairEvidenceSource())
+                || trace.getAlongsideMaxTimeGapSeconds() <= 0L) {
+            return new PairValidation(Collections.<AlongsideEvidencePair>emptyList(), false,
+                    "WORLD_SEA_PAIR_EVIDENCE_MISSING");
         }
-        return result;
-    }
-
-    private static final class Pair {
-        final TrajectoryPoint own, target;
-        Pair(TrajectoryPoint own, TrajectoryPoint target) { this.own = own; this.target = target; }
+        int lastOwn = -1, lastTarget = -1;
+        Set<Integer> ownIndexes = new HashSet<Integer>();
+        Set<Integer> targetIndexes = new HashSet<Integer>();
+        for (AlongsideEvidencePair pair : pairs) {
+            if (pair == null || pair.getOwnPoint() == null || pair.getTargetPoint() == null
+                    || pair.getOwnPoint().getTime() == null || pair.getTargetPoint().getTime() == null
+                    || pair.getOwnPointIndex() <= lastOwn || pair.getTargetPointIndex() <= lastTarget
+                    || !ownIndexes.add(pair.getOwnPointIndex()) || !targetIndexes.add(pair.getTargetPointIndex())) {
+                return new PairValidation(pairs, false, "WORLD_SEA_PAIR_EVIDENCE_INVALID");
+            }
+            long actualGap = Math.abs(Duration.between(pair.getOwnPoint().getTime(),
+                    pair.getTargetPoint().getTime()).getSeconds());
+            if (pair.getTimeGapSeconds() != actualGap
+                    || actualGap > trace.getAlongsideMaxTimeGapSeconds()
+                    || !Double.isFinite(pair.getDistanceNm()) || pair.getDistanceNm() < 0.0) {
+                return new PairValidation(pairs, false, "WORLD_SEA_PAIR_EVIDENCE_INVALID");
+            }
+            lastOwn = pair.getOwnPointIndex();
+            lastTarget = pair.getTargetPointIndex();
+        }
+        return new PairValidation(pairs, true, null);
     }
 
     private void annotate(ShipBehaviorEvent event, WorldSeaMaskSnapshot snapshot, WorldSeaMatch center,
-                          int eligible, int total, double coverage, boolean accepted) {
+                          int eligible, int total, double coverage, boolean accepted,
+                          ShipBehaviorTrace trace, PairValidation pairValidation) {
         JSONObject detail;
         try { detail = StringUtils.isBlank(event.getScoreDetailJson())
                 ? new JSONObject(true) : JSON.parseObject(event.getScoreDetailJson()); }
@@ -162,6 +170,22 @@ public class WorldSeaEventGate {
         detail.put("worldSeaEligibleEvidenceCount", eligible);
         detail.put("worldSeaTotalEvidenceCount", total);
         detail.put("eventCenterInsideWorldSea", center != null);
+        detail.put("worldSeaShadowThreshold", properties.getShadowMinEvidenceCoverage());
+        detail.put("worldSeaShadowPass", total > 0 && coverage >= properties.getShadowMinEvidenceCoverage()
+                && (pairValidation == null || pairValidation.valid)
+                && (!properties.isRequireEventCenter() || center != null));
+        if (ShipBehaviorEvent.TYPE_ALONGSIDE.equals(event.getBehaviorType())) {
+            detail.put("worldSeaTotalPairEvidenceCount", total);
+            detail.put("worldSeaEligiblePairEvidenceCount", eligible);
+            detail.put("worldSeaPairCoverage", coverage);
+            detail.put("alongsideUnmatchedOwnPointCount",
+                    Math.max(0, trace.getAlongsideSourceOwnPointCount() - total));
+            detail.put("alongsideUnmatchedTargetPointCount",
+                    Math.max(0, trace.getAlongsideSourceTargetPointCount() - total));
+            detail.put("alongsidePairEvidenceSource", trace.getAlongsidePairEvidenceSource());
+            putPairTimeGapMetrics(detail, pairValidation == null
+                    ? Collections.<AlongsideEvidencePair>emptyList() : pairValidation.pairs);
+        }
         if (center != null) {
             detail.put("worldSeaAreaId", center.getAreaId());
             detail.put("worldSeaAreaName", center.getAreaName());
@@ -176,16 +200,46 @@ public class WorldSeaEventGate {
             event.setWorldSeaAreaCnName(center.getAreaCnName());
         }
         List<String> reasons = new ArrayList<String>();
-        reasons.add(accepted ? "WORLD_SEA_MASK_PASS" : rejectionReason(total, eligible, center));
+        reasons.add(accepted ? "WORLD_SEA_MASK_PASS"
+                : rejectionReason(total, eligible, center, pairValidation));
         if (accepted) reasons.add("ALL_EVIDENCE_INSIDE_WORLD_SEA");
         detail.put("worldSeaReasonCodes", reasons);
         event.setScoreDetailJson(detail.toJSONString());
     }
 
-    private String rejectionReason(int total, int eligible, WorldSeaMatch center) {
+    private String rejectionReason(int total, int eligible, WorldSeaMatch center,
+                                   PairValidation pairValidation) {
+        if (pairValidation != null && !pairValidation.valid) return pairValidation.reason;
         if (total == 0) return "WORLD_SEA_EVIDENCE_INSUFFICIENT";
         if (center == null) return "WORLD_SEA_EVENT_CENTER_OUTSIDE";
         return eligible < total ? "WORLD_SEA_MASK_REJECTED" : "WORLD_SEA_EVIDENCE_INSUFFICIENT";
+    }
+
+    private void putPairTimeGapMetrics(JSONObject detail, List<AlongsideEvidencePair> pairs) {
+        List<Long> gaps = new ArrayList<Long>();
+        long max = 0L;
+        for (AlongsideEvidencePair pair : pairs) {
+            gaps.add(pair.getTimeGapSeconds());
+            max = Math.max(max, pair.getTimeGapSeconds());
+        }
+        Collections.sort(gaps);
+        detail.put("alongsidePairTimeGapMaxSeconds", max);
+        detail.put("alongsidePairTimeGapMedianSeconds", percentile(gaps, 0.5));
+        detail.put("alongsidePairTimeGapP90Seconds", percentile(gaps, 0.9));
+    }
+
+    private long percentile(List<Long> values, double value) {
+        if (values.isEmpty()) return 0L;
+        return values.get(Math.max(0, (int) Math.ceil(values.size() * value) - 1));
+    }
+
+    private static final class PairValidation {
+        private final List<AlongsideEvidencePair> pairs;
+        private final boolean valid;
+        private final String reason;
+        private PairValidation(List<AlongsideEvidencePair> pairs, boolean valid, String reason) {
+            this.pairs = pairs; this.valid = valid; this.reason = reason;
+        }
     }
 
     private boolean hasPass(ShipBehaviorEvent event, WorldSeaMaskSnapshot snapshot) {

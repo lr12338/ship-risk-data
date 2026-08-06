@@ -16,6 +16,7 @@ import com.hifleet.repository.ShipBehaviorEventRepository;
 import com.hifleet.repository.ShipBehaviorLoiteringBatchStatusRepository;
 import com.hifleet.service.ShipAlongsideDetector;
 import com.hifleet.service.ShipAlongsideReplayCandidateProvider;
+import com.hifleet.service.AlongsideReplayQueryPlan;
 import com.hifleet.service.ShipLoiteringDetector;
 import com.hifleet.service.ShipTypeClassifier;
 import com.hifleet.service.TraceRecipeService;
@@ -748,9 +749,10 @@ public class ShipBehaviorAnalysisService {
                 alongsideBatchMaxPointsPerWindow)
                 : trajectoryLoaderService.load(jobParams.getMmsi(), jobParams.getStartTime(),
                 jobParams.getEndTime(), trajectorySimplifyZoom);
-        int rawLowSpeedWindowCount = alongsideDetector.extractLowSpeedWindows(
+        List<ShipAlongsideDetector.LowSpeedWindow> rawWindows = alongsideDetector.extractLowSpeedWindows(
                 jobParams.getMmsi(), ownPoints, alongsideConfirmMinSpeed, alongsideCandidateMaxSpeed,
-                alongsideCandidateMinDurationMinutes, alongsideCandidateSplitGapMinutes).size();
+                alongsideCandidateMinDurationMinutes, alongsideCandidateSplitGapMinutes);
+        int rawLowSpeedWindowCount = rawWindows.size();
         List<ShipAlongsideDetector.LowSpeedWindow> windows = new ArrayList<ShipAlongsideDetector.LowSpeedWindow>();
         List<List<TrajectoryPoint>> seaSegments = worldSeaTrackSegmenter == null
                 ? Collections.singletonList(ownPoints) : worldSeaTrackSegmenter.splitInside(ownPoints);
@@ -760,7 +762,13 @@ public class ShipBehaviorAnalysisService {
                     alongsideCandidateMinDurationMinutes, alongsideCandidateSplitGapMinutes));
         }
         int worldSeaRejectedWindowCount = Math.max(0, rawLowSpeedWindowCount - windows.size());
+        Map<String, List<TrajectoryPoint>> rawOwnPointsByWindow = collectOwnPointsByWindow(rawWindows, ownPoints);
         Map<String, List<TrajectoryPoint>> ownPointsByWindow = collectOwnPointsByWindow(windows, ownPoints);
+        AlongsideReplayQueryPlan baselineReplayPlan = alongsideReplayCandidateProvider.planQueries(
+                rawWindows, rawOwnPointsByWindow, jobParams.getBatchNo());
+        AlongsideReplayQueryPlan filteredReplayPlan = alongsideReplayCandidateProvider.planQueries(
+                windows, ownPointsByWindow, jobParams.getBatchNo());
+        int savedReplayQueryCount = Math.max(0, baselineReplayPlan.size() - filteredReplayPlan.size());
         AlongsideReplaySearchResult replaySearchResult = conciseLog
                 ? alongsideReplayCandidateProvider.findCandidates(
                 jobParams.getMmsi(), windows, ownPointsByWindow,
@@ -792,6 +800,9 @@ public class ShipBehaviorAnalysisService {
                     + " lowSpeedWindows=" + windows.size()
                     + " rawLowSpeedWindows=" + rawLowSpeedWindowCount
                     + " worldSeaRejectedWindows=" + worldSeaRejectedWindowCount
+                    + " baselinePlannedReplayQueries=" + baselineReplayPlan.size()
+                    + " filteredPlannedReplayQueries=" + filteredReplayPlan.size()
+                    + " savedReplayQueries=" + savedReplayQueryCount
                     + " batchNo=" + jobParams.getBatchNo());
             XxlJobLogger.log("ALONGSIDE_V3 candidate_summary mmsi=" + jobParams.getMmsi()
                     + " replayQueries=" + replaySearchResult.getReplayQueryCount()
@@ -888,7 +899,12 @@ public class ShipBehaviorAnalysisService {
                 replaySearchResult.getTruncatedQueries(), detected.size(),
                 countConfirmedAlongsideEvents(detected),
                 annualScore.getHighRiskEventCount(), failed, allTraces,
-                rawLowSpeedWindowCount, worldSeaRejectedWindowCount, worldSeaRejectedWindowCount);
+                rawLowSpeedWindowCount, worldSeaRejectedWindowCount,
+                baselineReplayPlan.size(), filteredReplayPlan.size(), savedReplayQueryCount,
+                replaySearchResult.getAttemptedReplayQueryCount(),
+                replaySearchResult.getSuccessfulReplayQueryCount(),
+                replaySearchResult.getFailedReplayQueryCount(),
+                replaySearchResult.getTruncatedReplayQueryCount());
     }
 
     public AnalysisResult analysisAlongsideBatch(String params) {
@@ -1879,6 +1895,12 @@ public class ShipBehaviorAnalysisService {
         private final int rawLowSpeedWindows;
         private final int worldSeaRejectedWindows;
         private final int savedReplayQueries;
+        private final int baselinePlannedReplayQueries;
+        private final int filteredPlannedReplayQueries;
+        private final int attemptedReplayQueries;
+        private final int successfulReplayQueries;
+        private final int failedReplayQueries;
+        private final int truncatedReplayQueryCount;
 
         public AlongsideWindowResult(int points, int lowSpeedWindows, int candidateTargets,
                                      int candidatePairs, int replayQueries, int replayFailures,
@@ -1909,6 +1931,12 @@ public class ShipBehaviorAnalysisService {
             this.rawLowSpeedWindows = lowSpeedWindows;
             this.worldSeaRejectedWindows = 0;
             this.savedReplayQueries = 0;
+            this.baselinePlannedReplayQueries = replayQueries;
+            this.filteredPlannedReplayQueries = replayQueries;
+            this.attemptedReplayQueries = replayQueries;
+            this.successfulReplayQueries = Math.max(0, replayQueries - replayFailures);
+            this.failedReplayQueries = replayFailures;
+            this.truncatedReplayQueryCount = truncatedQueries;
         }
 
         public AlongsideWindowResult(int points, int lowSpeedWindows, int candidateTargets,
@@ -1917,6 +1945,32 @@ public class ShipBehaviorAnalysisService {
                                      int highRiskEvents, int failed, List<ShipBehaviorTrace> traces,
                                      int rawLowSpeedWindows, int worldSeaRejectedWindows,
                                      int savedReplayQueries) {
+            this(points, lowSpeedWindows, candidateTargets, candidatePairs, replayQueries,
+                    replayFailures, truncatedQueries, events, confirmedEvents, highRiskEvents,
+                    failed, traces, rawLowSpeedWindows, worldSeaRejectedWindows,
+                    replayQueries + Math.max(0, savedReplayQueries), replayQueries,
+                    savedReplayQueries, replayQueries, Math.max(0, replayQueries - replayFailures),
+                    replayFailures, truncatedQueries);
+        }
+
+        public AlongsideWindowResult(int points, int lowSpeedWindows, int candidateTargets,
+                                     int candidatePairs, int replayQueries, int replayFailures,
+                                     int truncatedQueries, int events, int confirmedEvents,
+                                     int highRiskEvents, int failed, List<ShipBehaviorTrace> traces,
+                                     int rawLowSpeedWindows, int worldSeaRejectedWindows,
+                                     int baselinePlannedReplayQueries, int filteredPlannedReplayQueries,
+                                     int savedReplayQueries, int attemptedReplayQueries,
+                                     int successfulReplayQueries, int failedReplayQueries,
+                                     int truncatedReplayQueryCount) {
+            if (baselinePlannedReplayQueries < 0 || filteredPlannedReplayQueries < 0
+                    || savedReplayQueries < 0 || attemptedReplayQueries < 0
+                    || successfulReplayQueries < 0 || failedReplayQueries < 0
+                    || truncatedReplayQueryCount < 0
+                    || savedReplayQueries != Math.max(0,
+                    baselinePlannedReplayQueries - filteredPlannedReplayQueries)
+                    || attemptedReplayQueries != successfulReplayQueries + failedReplayQueries) {
+                throw new IllegalArgumentException("invalid alongside replay query metrics");
+            }
             this.points = points; this.lowSpeedWindows = lowSpeedWindows;
             this.candidateTargets = candidateTargets; this.candidatePairs = candidatePairs;
             this.replayQueries = replayQueries; this.replayFailures = replayFailures;
@@ -1928,6 +1982,12 @@ public class ShipBehaviorAnalysisService {
             this.rawLowSpeedWindows = rawLowSpeedWindows;
             this.worldSeaRejectedWindows = worldSeaRejectedWindows;
             this.savedReplayQueries = savedReplayQueries;
+            this.baselinePlannedReplayQueries = baselinePlannedReplayQueries;
+            this.filteredPlannedReplayQueries = filteredPlannedReplayQueries;
+            this.attemptedReplayQueries = attemptedReplayQueries;
+            this.successfulReplayQueries = successfulReplayQueries;
+            this.failedReplayQueries = failedReplayQueries;
+            this.truncatedReplayQueryCount = truncatedReplayQueryCount;
         }
 
         public int getPoints() {
@@ -1947,6 +2007,7 @@ public class ShipBehaviorAnalysisService {
         }
 
         public int getReplayQueries() {
+            // Backward-compatible alias: this is the attempted execution count, not planned or saved queries.
             return replayQueries;
         }
 
@@ -1980,6 +2041,12 @@ public class ShipBehaviorAnalysisService {
         public int getRawLowSpeedWindows() { return rawLowSpeedWindows; }
         public int getWorldSeaRejectedWindows() { return worldSeaRejectedWindows; }
         public int getSavedReplayQueries() { return savedReplayQueries; }
+        public int getBaselinePlannedReplayQueries() { return baselinePlannedReplayQueries; }
+        public int getFilteredPlannedReplayQueries() { return filteredPlannedReplayQueries; }
+        public int getAttemptedReplayQueries() { return attemptedReplayQueries; }
+        public int getSuccessfulReplayQueries() { return successfulReplayQueries; }
+        public int getFailedReplayQueries() { return failedReplayQueries; }
+        public int getTruncatedReplayQueryCount() { return truncatedReplayQueryCount; }
     }
 
     private static class LoiteringTaskResult {

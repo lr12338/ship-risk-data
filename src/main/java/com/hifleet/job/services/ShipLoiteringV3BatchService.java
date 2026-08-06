@@ -821,19 +821,17 @@ public class ShipLoiteringV3BatchService {
                             final String batchNo,
                             final List<AnalyzedEvent> analyzedEvents) {
             final List<AnalyzedEvent> passed = new ArrayList<AnalyzedEvent>();
-            if (worldSeaEventGate == null) passed.addAll(analyzedEvents);
+            final List<ShipBehaviorEvent> passedEvents = new ArrayList<ShipBehaviorEvent>();
             for (AnalyzedEvent analyzed : analyzedEvents) {
-                if (worldSeaEventGate == null) break;
                 List<ShipBehaviorEvent> events = toEvents(Collections.singletonList(analyzed), batchNo);
                 if (events.isEmpty()) continue;
                 ShipBehaviorTrace trace = new ShipBehaviorTrace(events.get(0), analyzed.getTrajectory(),
                         Collections.<TrajectoryPoint>emptyList());
-                if (!worldSeaEventGate.filterAndAnnotate(Collections.singletonList(trace)).isEmpty()) passed.add(analyzed);
-            }
-            final List<ShipBehaviorEvent> passedEvents = toEvents(passed, batchNo);
-            for (int i = 0; worldSeaEventGate != null && i < passedEvents.size(); i++) {
-                worldSeaEventGate.filterAndAnnotate(Collections.singletonList(new ShipBehaviorTrace(
-                        passedEvents.get(i), passed.get(i).getTrajectory(), Collections.<TrajectoryPoint>emptyList())));
+                if (worldSeaEventGate == null
+                        || !worldSeaEventGate.filterAndAnnotate(Collections.singletonList(trace)).isEmpty()) {
+                    passed.add(analyzed);
+                    passedEvents.add(events.get(0));
+                }
             }
             transactionTemplate.execute(status -> {
                 deleteExisting(ship.getMmsi(), startTime, endTime);

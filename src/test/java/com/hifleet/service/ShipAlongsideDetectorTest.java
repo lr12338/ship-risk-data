@@ -80,6 +80,11 @@ public class ShipAlongsideDetectorTest {
 
         assertEquals(1, traces.size());
         assertEquals(8, traces.get(0).getEvent().getPointCount().intValue());
+        assertEquals(8, traces.get(0).getAlongsideEvidencePairs().size());
+        for (int i = 0; i < 8; i++) {
+            assertEquals(i, traces.get(0).getAlongsideEvidencePairs().get(i).getOwnPointIndex());
+            assertEquals(i, traces.get(0).getAlongsideEvidencePairs().get(i).getTargetPointIndex());
+        }
     }
 
     @Test
@@ -220,6 +225,31 @@ public class ShipAlongsideDetectorTest {
     }
 
     @Test
+    public void detectorEvidenceIsStableForUnsortedInputAndHonorsTimeGap() {
+        List<TrajectoryPoint> own = points("413433610", 0.0, 0.0, 7, 5, 1.8, 90.0, null);
+        List<TrajectoryPoint> target = points("413193000", 0.001, 0.001, 7, 5, 1.7, 92.0, null);
+        java.util.Collections.reverse(own);
+        java.util.Collections.reverse(target);
+        ShipBehaviorTrace trace = detector.detectWithTrace("413433610", own, "413193000", target,
+                v3Rule()).get(0);
+        assertEquals(7, trace.getAlongsideEvidencePairs().size());
+        for (int i = 0; i < trace.getAlongsideEvidencePairs().size(); i++) {
+            assertEquals(i, trace.getAlongsideEvidencePairs().get(i).getOwnPointIndex());
+            assertEquals(i, trace.getAlongsideEvidencePairs().get(i).getTargetPointIndex());
+            assertTrue(trace.getAlongsideEvidencePairs().get(i).getTimeGapSeconds()
+                    <= trace.getAlongsideMaxTimeGapSeconds());
+        }
+    }
+
+    @Test
+    public void detectorEventCenterIsAntimeridianSafe() {
+        ShipBehaviorTrace trace = detector.detectWithTrace("413433610",
+                fixedLonPoints("413433610", 179.999, 7), "413193000",
+                fixedLonPoints("413193000", -179.999, 7), v3Rule()).get(0);
+        assertEquals(180.0, Math.abs(trace.getEvent().getCenterLon()), 0.000001);
+    }
+
+    @Test
     public void stationaryPairIsReviewRatherThanHighConfidenceParallelMotion() {
         ShipBehaviorEvent event = detector.detectWithTrace("413433610",
                 points("413433610", 0.0, 0.0, 13, 5, 0.2, -1.0, null), "413193000",
@@ -301,6 +331,16 @@ public class ShipAlongsideDetectorTest {
                     lon + i * 0.00001, lat + i * 0.00001, speed, course, navStatus));
         }
         return points;
+    }
+
+    private List<TrajectoryPoint> fixedLonPoints(String mmsi, double lon, int count) {
+        List<TrajectoryPoint> result = new ArrayList<TrajectoryPoint>();
+        LocalDateTime start = LocalDateTime.of(2026, 6, 28, 18, 0);
+        for (int i = 0; i < count; i++) {
+            result.add(new TrajectoryPoint(mmsi, start.plusMinutes(i * 5),
+                    lon, 0.0, 1.8, 90.0, null));
+        }
+        return result;
     }
 
     private int severityRank(String severity) {

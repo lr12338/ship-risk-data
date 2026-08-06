@@ -16,6 +16,4 @@ ship.behavior.world-sea-mask.alongside.prefilter-own-windows=true
 ship.behavior.world-sea-mask.alongside.require-own-point=true
 ship.behavior.world-sea-mask.alongside.require-target-point=true
 ship.behavior.world-sea-mask.alongside.require-pair-midpoint=true
-ship.behavior.world-sea-mask.preload-at-startup=false
-ship.behavior.world-sea-mask.refresh-enabled=false
 ship.behavior.code-commit-sha=<FINAL_GIT_SHA>

@@ -10,6 +10,7 @@ public class AlongsideReplaySearchResult {
 
     private final List<AlongsideCandidateTarget> candidates = new ArrayList<AlongsideCandidateTarget>();
     private int replayQueryCount;
+    private int successfulReplayQueries;
     private int replayFailures;
     private int truncatedQueries;
     private int returnedVessels;
@@ -29,13 +30,12 @@ public class AlongsideReplaySearchResult {
 
     public void addReplayResult(ReplayQueryResult result) {
         replayQueryCount++;
+        if (result != null && result.isTruncated()) truncatedQueries++;
         if (result == null || !result.isSuccess()) {
             replayFailures++;
             return;
         }
-        if (result.isTruncated()) {
-            truncatedQueries++;
-        }
+        successfulReplayQueries++;
         returnedVessels += result.getRawVesselCount();
         rawPoints += result.getRawPointCount();
         validPoints += result.getValidPointCount();
@@ -46,6 +46,11 @@ public class AlongsideReplaySearchResult {
     public int getReplayQueryCount() {
         return replayQueryCount;
     }
+
+    public int getAttemptedReplayQueryCount() { return replayQueryCount; }
+    public int getSuccessfulReplayQueryCount() { return successfulReplayQueries; }
+    public int getFailedReplayQueryCount() { return replayFailures; }
+    public int getTruncatedReplayQueryCount() { return truncatedQueries; }
 
     public int getReplayFailures() {
         return replayFailures;

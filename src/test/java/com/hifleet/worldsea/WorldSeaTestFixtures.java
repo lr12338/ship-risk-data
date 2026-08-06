@@ -44,5 +44,24 @@ final class WorldSeaTestFixtures {
             @Override public WorldSeaMaskSnapshot load() { return snapshot; }
         });
     }
+    static WorldSeaMaskService antimeridianService() {
+        GeometryFactory factory = new GeometryFactory();
+        Polygon east = factory.createPolygon(new Coordinate[]{new Coordinate(179, -1), new Coordinate(180, -1),
+                new Coordinate(180, 1), new Coordinate(179, 1), new Coordinate(179, -1)});
+        Polygon west = factory.createPolygon(new Coordinate[]{new Coordinate(-180, -1), new Coordinate(-179, -1),
+                new Coordinate(-179, 1), new Coordinate(-180, 1), new Coordinate(-180, -1)});
+        STRtree index = new STRtree();
+        index.insert(east.getEnvelopeInternal(), WorldSeaMaskSnapshot.entry(1, "East Dateline", null, east,
+                PreparedGeometryFactory.prepare(east)));
+        index.insert(west.getEnvelopeInternal(), WorldSeaMaskSnapshot.entry(2, "West Dateline", null, west,
+                PreparedGeometryFactory.prepare(west)));
+        index.build();
+        final WorldSeaMaskSnapshot snapshot = new WorldSeaMaskSnapshot(index, 2, 2, 0, 10,
+                "WORLD_SEA_102_V1", "source", "fingerprint", 1,
+                WorldSeaMaskLoader.COORDINATE_ASSUMPTION);
+        return new WorldSeaMaskService(new WorldSeaMaskLoader(null, new WorldSeaMaskProperties()) {
+            @Override public WorldSeaMaskSnapshot load() { return snapshot; }
+        });
+    }
     private WorldSeaTestFixtures() {}
 }

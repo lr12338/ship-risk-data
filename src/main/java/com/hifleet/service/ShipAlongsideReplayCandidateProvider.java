@@ -17,7 +17,6 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -33,7 +32,6 @@ import java.util.Set;
 @Component
 public class ShipAlongsideReplayCandidateProvider {
 
-    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final Logger LOG = LoggerFactory.getLogger(ShipAlongsideReplayCandidateProvider.class);
     private static volatile boolean legacyWarningLogged;
 
@@ -107,23 +105,17 @@ public class ShipAlongsideReplayCandidateProvider {
         }
         Map<String, AlongsideCandidateTarget> candidatesByTargetAndWindow =
                 new HashMap<String, AlongsideCandidateTarget>();
-        for (ShipAlongsideDetector.LowSpeedWindow window : windows) {
-            List<TrajectoryPoint> ownWindowPoints = ownPointsByWindow.get(windowKey(window));
-            if (ownWindowPoints == null || ownWindowPoints.isEmpty()) {
-                continue;
+        AlongsideReplayQueryPlan plan = planQueries(windows, ownPointsByWindow, batchNo);
+        for (AlongsideReplayQueryPlan.PlannedQuery planned : plan.getQueries()) {
+            ReplayQueryRequest request = planned.getRequest();
+            ReplayQueryResult queryResult = spatialAisReplayClient.query(request);
+            result.addReplayResult(queryResult);
+            if (logQueries) {
+                logReplayQuery(result.getReplayQueryCount(), request, queryResult, batchNo);
             }
-            List<ReplayQueryRequest> requests = buildRequests(window, ownWindowPoints, batchNo);
-            for (int i = 0; i < requests.size(); i++) {
-                ReplayQueryRequest request = requests.get(i);
-                ReplayQueryResult queryResult = spatialAisReplayClient.query(request);
-                result.addReplayResult(queryResult);
-                if (logQueries) {
-                    logReplayQuery(result.getReplayQueryCount(), request, queryResult, batchNo);
-                }
-                if (queryResult == null || !queryResult.isSuccess()) {
-                    continue;
-                }
-                collectCandidates(ownMmsi, window, ownWindowPoints, queryResult,
+            if (queryResult == null || !queryResult.isSuccess()) continue;
+            for (AlongsideReplayQueryPlan.QueryContext context : planned.getContexts()) {
+                collectCandidates(ownMmsi, context.getWindow(), context.getOwnWindowPoints(), queryResult,
                         candidatesByTargetAndWindow, result);
             }
         }
@@ -133,56 +125,14 @@ public class ShipAlongsideReplayCandidateProvider {
         return result;
     }
 
-    private List<ReplayQueryRequest> buildRequests(ShipAlongsideDetector.LowSpeedWindow window,
-                                                   List<TrajectoryPoint> points, String batchNo) {
-        List<ReplayQueryRequest> requests = new ArrayList<ReplayQueryRequest>();
-        LocalDateTime start = parseTime(window.getStartTime());
-        LocalDateTime end = parseTime(window.getEndTime());
-        long step = Math.max(1L, replayWindowMinutes);
-        LocalDateTime current = start;
-        while (!current.isAfter(end)) {
-            LocalDateTime partEnd = current.plusMinutes(step);
-            if (partEnd.isAfter(end)) {
-                partEnd = end;
-            }
-            ReplayQueryRequest request = buildRequest(points, current, partEnd, batchNo);
-            requests.add(request);
-            if (!partEnd.isBefore(end)) {
-                break;
-            }
-            current = partEnd;
+    public AlongsideReplayQueryPlan planQueries(List<ShipAlongsideDetector.LowSpeedWindow> windows,
+                                                Map<String, List<TrajectoryPoint>> ownPointsByWindow,
+                                                String batchNo) {
+        if (!replayEnabled) {
+            return new AlongsideReplayQueryPlan(Collections.<AlongsideReplayQueryPlan.PlannedQuery>emptyList());
         }
-        return requests;
-    }
-
-    private ReplayQueryRequest buildRequest(List<TrajectoryPoint> points, LocalDateTime start,
-                                            LocalDateTime end, String batchNo) {
-        double minLon = Double.MAX_VALUE;
-        double maxLon = -Double.MAX_VALUE;
-        double minLat = Double.MAX_VALUE;
-        double maxLat = -Double.MAX_VALUE;
-        double centerLat = 0.0;
-        for (TrajectoryPoint point : points) {
-            minLon = Math.min(minLon, point.getLon());
-            maxLon = Math.max(maxLon, point.getLon());
-            minLat = Math.min(minLat, point.getLat());
-            maxLat = Math.max(maxLat, point.getLat());
-            centerLat += point.getLat();
-        }
-        centerLat = centerLat / Math.max(1, points.size());
-        double latBufferDeg = replayBboxBufferNm / 60.0;
-        double lonBufferDeg = replayBboxBufferNm / Math.max(1.0, 60.0 * Math.cos(Math.toRadians(centerLat)));
-        ReplayQueryRequest request = new ReplayQueryRequest();
-        request.setStartTime(formatTime(start));
-        request.setEndTime(formatTime(end));
-        request.setMinLat(minLat - latBufferDeg);
-        request.setMaxLat(maxLat + latBufferDeg);
-        request.setMinLon(minLon - lonBufferDeg);
-        request.setMaxLon(maxLon + lonBufferDeg);
-        request.setRadiusNm(replayDefaultRadiusNm);
-        request.setDevSize(replayDevSize);
-        request.setBatchNo(batchNo);
-        return request;
+        return new AlongsideReplayQueryPlanner().plan(windows, ownPointsByWindow, batchNo,
+                replayWindowMinutes, replayBboxBufferNm, replayDefaultRadiusNm, replayDevSize);
     }
 
     private void collectCandidates(String ownMmsi, ShipAlongsideDetector.LowSpeedWindow window,
@@ -334,15 +284,7 @@ public class ShipAlongsideReplayCandidateProvider {
     }
 
     public String windowKey(ShipAlongsideDetector.LowSpeedWindow window) {
-        return window.getStartTime() + "|" + window.getEndTime();
-    }
-
-    private LocalDateTime parseTime(String time) {
-        return LocalDateTime.parse(time, TIME_FORMATTER);
-    }
-
-    private String formatTime(LocalDateTime time) {
-        return time.format(TIME_FORMATTER);
+        return AlongsideReplayQueryPlanner.windowKey(window);
     }
 
     private void logReplayQuery(int index, ReplayQueryRequest request, ReplayQueryResult result, String batchNo) {

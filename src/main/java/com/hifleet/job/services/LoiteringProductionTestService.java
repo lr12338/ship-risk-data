@@ -222,20 +222,24 @@ public class LoiteringProductionTestService {
                                              List<TrajectoryPoint> points) {
         List<ShipBehaviorTrace> traces = new ArrayList<ShipBehaviorTrace>();
         if (params.getEngines().contains("V2")) {
+            // analysisLoiteringV2Production owns the single final V2 WORLD_SEA gate.
             traces.addAll(analysisService.analysisLoiteringV2Production(
                     ship.getMmsi(), points, params.getBatchNo()));
         }
         if (params.getEngines().contains("V3")) {
+            List<ShipBehaviorTrace> v3Traces = new ArrayList<ShipBehaviorTrace>();
             List<List<TrajectoryPoint>> seaSegments = worldSeaTrackSegmenter == null
                     ? java.util.Collections.singletonList(points) : worldSeaTrackSegmenter.splitInside(points);
             for (List<TrajectoryPoint> segment : seaSegments) {
-                traces.addAll(v3Service.analyzeV3Production(
+                v3Traces.addAll(v3Service.analyzeV3Production(
                         new ShipLoiteringV3BatchService.TargetShipAdapter(
                                 ship.getMmsi(), ship.getImo(), ship.getShipName(), ship.getShipType()),
                         segment, params.getBatchNo(), simplifyZoom));
             }
+            traces.addAll(worldSeaEventGate == null ? v3Traces
+                    : worldSeaEventGate.filterAndAnnotate(v3Traces));
         }
-        return worldSeaEventGate == null ? traces : worldSeaEventGate.filterAndAnnotate(traces);
+        return traces;
     }
 
     private List<ShipBehaviorTrace> startsInWindow(List<ShipBehaviorTrace> traces, Window window) {

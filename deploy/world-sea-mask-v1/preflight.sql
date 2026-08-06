@@ -1,3 +1,5 @@
+-- BLOCKED_INVALID_GEOMETRY: do not run until a revised dataset passes VALIDATE_STAGE
+-- and has been explicitly activated.
 SELECT COUNT(*) AS table_exists
 FROM information_schema.tables
 WHERE table_schema='dataanalysis' AND table_name='ship_behavior_world_sea';
