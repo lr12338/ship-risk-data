@@ -5,6 +5,7 @@ import com.hifleet.domain.ShipBehaviorTrace;
 import com.hifleet.domain.TargetShip;
 import com.hifleet.repository.ShipBehaviorAlongsideBatchStatusRepository;
 import com.hifleet.repository.TargetShipRepository;
+import com.hifleet.repository.ShipBehaviorRunBatchRepository;
 import com.hifleet.service.BehaviorEventTransactionStore;
 import com.hifleet.service.ShipAlongsideDetector;
 import com.xxl.job.core.log.XxlJobLogger;
@@ -42,12 +43,21 @@ public class AlongsideProductionTestService {
     @Autowired
     private BehaviorEventTransactionStore eventStore;
 
+    @Autowired
+    private ShipBehaviorRunBatchRepository runBatchRepository;
+
     @Value("${ship.behavior.alongside.rule-version:ALONGSIDE_V3_ASYMMETRIC_COUNTERPARTY_V1}")
     private String ruleVersion;
 
     public Result run(String rawParams) {
         final ProductionTestParams params = ProductionTestParams.parse(rawParams);
         params.validateAlongside();
+        if (runBatchRepository != null) {
+            runBatchRepository.claim(params.getBatchNo(), ShipBehaviorEvent.TYPE_ALONGSIDE,
+                    params.getListBatchNo(), params.getStartTime(), params.getEndTime(),
+                    ruleVersion, params.isEnableInsert(),
+                    params.configHash(ShipBehaviorEvent.TYPE_ALONGSIDE, ruleVersion));
+        }
         targetShipRepository.validate(params.getListBatchNo(), params.getExpectedShipCount());
         final List<Window> windows = windows(params);
         Result total = new Result(params.getBatchNo());
@@ -135,14 +145,21 @@ public class AlongsideProductionTestService {
                         executeWithRetry(params, ship.getMmsi(), window);
                 List<ShipBehaviorTrace> strict = strict(computed.getTraces());
                 if (params.isEnableInsert()) {
+                    final ShipBehaviorAnalysisService.AlongsideWindowResult saved = computed;
+                    final int eventCount = strict.size();
                     eventStore.replace(ShipBehaviorEvent.TYPE_ALONGSIDE,
                             params.getBatchNo(), ship.getMmsi(), window.start, window.end,
-                            Collections.singletonList(ruleVersion), strict, false);
+                            Collections.singletonList(ruleVersion), strict, false, () ->
+                            statusRepository.markDone(statusBatchNo, ship.getMmsi(), window.start, window.end,
+                                    saved.getPoints(), saved.getLowSpeedWindows(),
+                                    saved.getCandidateTargets(), saved.getReplayQueries(),
+                                    saved.getReplayFailures(), eventCount));
+                } else {
+                    statusRepository.markDone(statusBatchNo, ship.getMmsi(), window.start, window.end,
+                            computed.getPoints(), computed.getLowSpeedWindows(),
+                            computed.getCandidateTargets(), computed.getReplayQueries(),
+                            computed.getReplayFailures(), strict.size());
                 }
-                statusRepository.markDone(statusBatchNo, ship.getMmsi(), window.start, window.end,
-                        computed.getPoints(), computed.getLowSpeedWindows(),
-                        computed.getCandidateTargets(), computed.getReplayQueries(),
-                        computed.getReplayFailures(), strict.size());
                 result.windowsDone++;
                 result.events += strict.size();
             } catch (Exception ex) {

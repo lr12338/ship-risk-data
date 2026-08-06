@@ -5,15 +5,16 @@ import com.alibaba.fastjson.JSONObject;
 import org.apache.commons.lang3.StringUtils;
 
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 public class ProductionTestParams {
 
-    private static final String FIXED_START = "2026-01-01 00:00:00";
-    private static final String FIXED_END = "2026-07-01 00:00:00";
     private static final DateTimeFormatter TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -98,10 +99,12 @@ public class ProductionTestParams {
         if (!start.isBefore(end)) {
             throw new IllegalArgumentException("startTime must be before endTime");
         }
+        if (Duration.between(start, end).toDays() > 366) {
+            throw new IllegalArgumentException("production test range must not exceed 366 days");
+        }
     }
 
     public void validateAlongside() {
-        validateFixedRange();
         if (windowDays != 30) {
             throw new IllegalArgumentException("alongside windowDays must be 30");
         }
@@ -111,16 +114,11 @@ public class ProductionTestParams {
     }
 
     public void validateLoitering() {
-        validateFixedRange();
+        if (windowDays != 30) {
+            throw new IllegalArgumentException("loitering windowDays must be 30");
+        }
         if (trajectorySliceHours != 6) {
             throw new IllegalArgumentException("loitering trajectorySliceHours must be 6");
-        }
-    }
-
-    private void validateFixedRange() {
-        if (!FIXED_START.equals(startTime) || !FIXED_END.equals(endTime)) {
-            throw new IllegalArgumentException(
-                    "production test range must be [2026-01-01 00:00:00, 2026-07-01 00:00:00)");
         }
     }
 
@@ -164,4 +162,20 @@ public class ProductionTestParams {
     public int getWindowDays() { return windowDays; }
     public int getTrajectorySliceHours() { return trajectorySliceHours; }
     public List<String> getEngines() { return Collections.unmodifiableList(engines); }
+
+    public String configHash(String behaviorType, String ruleVersion) {
+        String value = behaviorType + "|" + listBatchNo + "|" + expectedShipCount + "|"
+                + shipLimit + "|" + pageSize + "|" + parallelism + "|" + startTime + "|"
+                + endTime + "|" + retryCount + "|" + enableInsert + "|" + storeDetails + "|"
+                + windowDays + "|" + trajectorySliceHours + "|" + engines + "|" + ruleVersion;
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder();
+            for (byte b : digest) result.append(String.format("%02x", b & 0xff));
+            return result.toString();
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
 }

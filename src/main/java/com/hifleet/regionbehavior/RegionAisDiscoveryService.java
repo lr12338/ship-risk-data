@@ -14,11 +14,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Collections;
 
 @Service
 public class RegionAisDiscoveryService {
     private final SpatialAisReplayClient replayClient;
     private final RegionBehaviorConfig config;
+    @Autowired(required = false)
+    private RegionBehaviorStateRepository stateRepository;
+    private final ThreadLocal<Set<String>> completedSlices = new ThreadLocal<Set<String>>();
 
     @Autowired
     public RegionAisDiscoveryService(SpatialAisReplayClient replayClient, RegionBehaviorConfig config) {
@@ -28,19 +32,48 @@ public class RegionAisDiscoveryService {
 
     public RegionAisDiscoveryResult discover(RegionGeometry region, RegionQueryPlan plan,
                                              String batchNo, int maxCandidates) {
+        return discover(region, plan, batchNo, maxCandidates, false);
+    }
+
+    public RegionAisDiscoveryResult discover(RegionGeometry region, RegionQueryPlan plan,
+                                             String batchNo, int maxCandidates, boolean resume) {
+        return discover(region, plan, batchNo, maxCandidates, resume, resume);
+    }
+
+    public RegionAisDiscoveryResult discover(RegionGeometry region, RegionQueryPlan plan,
+                                             String batchNo, int maxCandidates,
+                                             boolean resume, boolean persist) {
         RegionAisDiscoveryResult result = new RegionAisDiscoveryResult();
+        activeBatchNo.set(batchNo);
+        persistenceEnabled.set(persist);
         Set<String> pointKeys = new HashSet<String>();
+        completedSlices.set(stateRepository != null && resume
+                ? stateRepository.completed(batchNo, "DISCOVERY") : Collections.<String>emptySet());
+        if (stateRepository != null && resume) {
+            for (String mmsi : stateRepository.candidateMmsis(batchNo)) {
+                result.candidates.put(mmsi, new RegionShipCandidate(mmsi));
+            }
+        }
         for (RegionReplaySlice slice : plan.getSlices()) {
             query(slice, region, batchNo, maxCandidates, result, pointKeys);
             if (result.getStatus() == RegionBehaviorStatus.CANDIDATE_LIMIT_EXCEEDED) {
                 break;
             }
         }
+        activeBatchNo.remove();
+        persistenceEnabled.remove();
+        completedSlices.remove();
         return result;
     }
 
     private void query(RegionReplaySlice slice, RegionGeometry region, String batchNo,
                        int maxCandidates, RegionAisDiscoveryResult aggregate, Set<String> pointKeys) {
+        if (completedSlices.get().contains(slice.getSliceId())) {
+            aggregate.completed();
+            aggregate.addSliceResult(new RegionReplaySliceResult(slice.getSliceId(),
+                    RegionBehaviorStatus.COMPLETE, 0, 0, 0, 0L, null));
+            return;
+        }
         if (aggregate.getQuerySlices() >= config.getMaxQuerySlices()) {
             aggregate.failed();
             record(aggregate, slice, RegionBehaviorStatus.PARTIAL, null,
@@ -79,6 +112,7 @@ public class RegionAisDiscoveryService {
                         break;
                     }
                 }
+                markSplitDoneIfComplete(slice, aggregate);
                 return;
             }
             if (slice.canSplitSpace(config)) {
@@ -88,6 +122,7 @@ public class RegionAisDiscoveryService {
                         break;
                     }
                 }
+                markSplitDoneIfComplete(slice, aggregate);
                 return;
             }
             aggregate.terminalTruncation();
@@ -139,6 +174,9 @@ public class RegionAisDiscoveryService {
                     }
                     candidate = new RegionShipCandidate(mmsi);
                     aggregate.candidates.put(mmsi, candidate);
+                    if (stateRepository != null && Boolean.TRUE.equals(persistenceEnabled.get())) {
+                        stateRepository.saveCandidate(activeBatchNo.get(), mmsi);
+                    }
                 }
                 candidate.addPoint(point);
                 aggregate.countUniquePoint();
@@ -166,7 +204,22 @@ public class RegionAisDiscoveryService {
                 response == null ? 0 : response.getValidPointCount(),
                 response == null ? 0 : response.getParseErrorCount(),
                 response == null ? 0L : response.getElapsedMs(), error));
+        if (stateRepository != null && Boolean.TRUE.equals(persistenceEnabled.get())) {
+            stateRepository.mark(activeBatchNo.get(), "DISCOVERY", slice.getSliceId(),
+                    status == RegionBehaviorStatus.COMPLETE, error);
+        }
     }
+
+    private void markSplitDoneIfComplete(RegionReplaySlice slice,
+                                         RegionAisDiscoveryResult aggregate) {
+        if (aggregate.isQueryComplete() && stateRepository != null
+                && Boolean.TRUE.equals(persistenceEnabled.get())) {
+            stateRepository.mark(activeBatchNo.get(), "DISCOVERY", slice.getSliceId(), true, null);
+        }
+    }
+
+    private final ThreadLocal<String> activeBatchNo = new ThreadLocal<String>();
+    private final ThreadLocal<Boolean> persistenceEnabled = new ThreadLocal<Boolean>();
 
     private String pointKey(String mmsi, TrajectoryPoint point) {
         return mmsi + "|" + point.getTime() + "|" + normalize(point.getLon()) + "|" + normalize(point.getLat());

@@ -33,8 +33,9 @@ public class ShipBehaviorEventRepository {
             "avg_speed, point_count, rule_version, batch_no, event_sub_type, severity_level, " +
             "event_score, confidence_level, exclusion_flag, exclusion_reason, ais_gap_count, " +
             "max_ais_gap_minutes, track_coverage_ratio, turn_count_per_hour, cog_change_per_hour, " +
-            "tortuosity, center_lon, center_lat, radius_nm, score_detail_json) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            "tortuosity, center_lon, center_lat, radius_nm, score_detail_json, event_source, " +
+            "region_id, region_fingerprint, event_key) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     @Value("${ship.behavior.store.enabled:true}")
     private boolean storeEnabled;
@@ -176,6 +177,10 @@ public class ShipBehaviorEventRepository {
                 stmt.setObject(40, event.getCenterLat());
                 stmt.setObject(41, event.getRadiusNm());
                 stmt.setString(42, event.getScoreDetailJson());
+                stmt.setString(43, event.getEventSource());
+                stmt.setString(44, event.getRegionId());
+                stmt.setString(45, event.getRegionFingerprint());
+                stmt.setString(46, event.getEventKey());
             }
 
             @Override

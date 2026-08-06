@@ -28,6 +28,8 @@ public class RegionBehaviorRunResult {
     private final List<RegionMatchedEvent> boundaryEvents = new ArrayList<RegionMatchedEvent>();
     private final List<JSONObject> failures = new ArrayList<JSONObject>();
     private String outputDirectory;
+    private boolean formalEventsChanged;
+    private int databaseWrites;
 
     public static RegionBehaviorRunResult fromDiscovery(RegionAisDiscoveryResult discovery) {
         RegionBehaviorRunResult result = new RegionBehaviorRunResult();
@@ -72,8 +74,8 @@ public class RegionBehaviorRunResult {
         json.put("duplicatePairEvents", duplicatePairEvents);
         json.put("analysisFailures", analysisFailures);
         json.put("queryComplete", queryComplete);
-        json.put("formalEventsChanged", false);
-        json.put("databaseWrites", 0);
+        json.put("formalEventsChanged", formalEventsChanged);
+        json.put("databaseWrites", databaseWrites);
         if (outputDirectory != null) {
             json.put("outputDirectory", outputDirectory);
         }
@@ -118,6 +120,10 @@ public class RegionBehaviorRunResult {
     }
     public void markPartial() { status = RegionBehaviorStatus.REGION_RUN_PARTIAL; }
     void setOutputDirectory(String value) { outputDirectory = value; }
+    void setFormalWriteResult(int writes) {
+        databaseWrites = writes;
+        formalEventsChanged = true;
+    }
 
     public RegionBehaviorStatus getStatus() { return status; }
     public boolean isSuccess() { return status == RegionBehaviorStatus.REGION_RUN_COMPLETED; }

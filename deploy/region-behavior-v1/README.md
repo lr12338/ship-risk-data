@@ -1,6 +1,8 @@
 # Region Behavior V1 部署说明
 
-Region Behavior V1 是独立、只读、dry-run-only 的区域历史行为扫描。它不写正式事件表、不写候选船表、不写原有 batch status。
+Region Behavior V1 默认仍是独立、只读的 dry-run 区域历史行为扫描。只有参数显式选择
+`writeMode=FORMAL_EVENT` 且服务器设置 `ship.behavior.region.write-enabled=true` 时，新的正式 handler
+才会写入独立批次事件和续跑状态。
 
 ## 启用
 
@@ -12,8 +14,9 @@ Region Behavior V1 是独立、只读、dry-run-only 的区域历史行为扫描
 
 - `shipBehaviorRegionPreflightJobHandler`：使用 `jobs/preflight-example.json`，只做参数、几何、资源和 Bean 检查，不调用 AIS replay。
 - `shipBehaviorRegionDryRunJobHandler`：只接受 `dryRun=true` 且 `storeCandidates=false`。完整查询返回 `REGION_RUN_COMPLETED`；任意 slice 不完整或分析失败返回 `REGION_RUN_PARTIAL`，XXL-JOB 状态为失败。
+- `shipBehaviorRegionRunJobHandler`：仅用于已批准的独立正式批次，每次只允许一个 behaviorType，支持原批次续跑。
 
-每个 `batchNo` 只允许写一次。目标目录已存在时任务 fail-closed，避免覆盖调查证据。
+dry-run 的每个 `batchNo` 只允许写一次报告。正式模式每次续跑写入独立 attempt 报告目录。
 
 ## Smoke 顺序
 

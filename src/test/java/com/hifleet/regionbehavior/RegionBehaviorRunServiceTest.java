@@ -50,6 +50,21 @@ public class RegionBehaviorRunServiceTest {
         assertEquals("BLOCKED_UNSAFE_STORE_MODE", result.getString("status"));
     }
 
+    @Test
+    public void preflightBlocksFormalWriteUntilServerGateEnabled() throws Exception {
+        RegionBehaviorConfig config = RegionBehaviorConfig.defaults();
+        config.setEnabled(true);
+        config.setOutputRoot(temporaryFolder.getRoot().getAbsolutePath());
+        RegionBehaviorRunService service = new RegionBehaviorRunService(config,
+                mock(RegionAisDiscoveryService.class), mock(RegionShipMetadataService.class),
+                mock(RegionLoiteringRunner.class), mock(RegionAlongsideRunner.class),
+                mock(RegionBehaviorReportWriter.class), new NoOpRegionEventContextEnricher());
+        String formal = rawParams().replace("\"dryRun\":true,\"storeCandidates\":false",
+                "\"writeMode\":\"FORMAL_EVENT\",\"enableInsert\":true");
+        JSONObject result = service.preflight(formal);
+        assertEquals("BLOCKED_UNSAFE_STORE_MODE", result.getString("status"));
+    }
+
     private String rawParams() {
         return "{\"mode\":\"region_behavior_v1\",\"regionId\":\"r-1\","
                 + "\"regionName\":\"test\","

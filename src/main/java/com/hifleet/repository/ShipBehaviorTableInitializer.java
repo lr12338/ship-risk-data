@@ -27,6 +27,10 @@ public class ShipBehaviorTableInitializer {
     private static final String LOITERING_BATCH_STATUS_TABLE_NAME = "ship_behavior_loitering_batch_status";
     private static final String ALONGSIDE_BATCH_STATUS_TABLE_NAME = "ship_behavior_alongside_batch_status";
     private static final String TARGET_SHIP_TABLE_NAME = "ship_behavior_target_ship";
+    private static final String RUN_BATCH_TABLE_NAME = "ship_behavior_run_batch";
+    private static final String REGION_BATCH_TABLE_NAME = "ship_behavior_region_batch_status";
+    private static final String REGION_SLICE_TABLE_NAME = "ship_behavior_region_slice_status";
+    private static final String REGION_CANDIDATE_TABLE_NAME = "ship_behavior_region_candidate";
     private static final String CHECK_SQL = "SELECT COUNT(*) FROM information_schema.tables " +
             "WHERE table_schema = ? AND table_name = ?";
     private static final String CHECK_COLUMN_SQL = "SELECT COUNT(*) FROM information_schema.columns " +
@@ -42,6 +46,10 @@ public class ShipBehaviorTableInitializer {
     private volatile boolean loiteringBatchStatusTableReady;
     private volatile boolean alongsideBatchStatusTableReady;
     private volatile boolean targetShipTableReady;
+    private volatile boolean runBatchTableReady;
+    private volatile boolean regionBatchTableReady;
+    private volatile boolean regionSliceTableReady;
+    private volatile boolean regionCandidateTableReady;
 
     @Autowired
     @Qualifier("newDataanalysisJdbcTemplate")
@@ -54,6 +62,8 @@ public class ShipBehaviorTableInitializer {
         ensureLoiteringBatchStatusTableReady();
         ensureAlongsideBatchStatusTableReady();
         ensureTargetShipTableReady();
+        ensureRunBatchTableReady();
+        ensureRegionTablesReady();
     }
 
     public void ensureTableReady() {
@@ -79,6 +89,20 @@ public class ShipBehaviorTableInitializer {
                 TARGET_SHIP_TABLE_NAME, "sql/ship_behavior_target_ship.sql", false);
     }
 
+    public void ensureRunBatchTableReady() {
+        runBatchTableReady = ensureReady(runBatchTableReady,
+                RUN_BATCH_TABLE_NAME, "sql/ship_behavior_run_batch.sql", false);
+    }
+
+    public void ensureRegionTablesReady() {
+        regionBatchTableReady = ensureReady(regionBatchTableReady, REGION_BATCH_TABLE_NAME,
+                "sql/ship_behavior_region_batch_status.sql", false);
+        regionSliceTableReady = ensureReady(regionSliceTableReady, REGION_SLICE_TABLE_NAME,
+                "sql/ship_behavior_region_slice_status.sql", false);
+        regionCandidateTableReady = ensureReady(regionCandidateTableReady, REGION_CANDIDATE_TABLE_NAME,
+                "sql/ship_behavior_region_candidate.sql", false);
+    }
+
     private boolean ensureReady(boolean ready, String tableName, String ddlPath, boolean ensureColumns) {
         if (ready) {
             return true;
@@ -89,6 +113,7 @@ public class ShipBehaviorTableInitializer {
             }
             ensureTableExists(tableName, ddlPath);
             ensureBatchNoLength(tableName);
+            ensureRuleVersionLength(tableName);
             if (ensureColumns && EVENT_TABLE_NAME.equals(tableName)) {
                 ensureEventTableColumnsReady();
                 log.info("{} schema ready", tableName);
@@ -113,6 +138,10 @@ public class ShipBehaviorTableInitializer {
         if (TARGET_SHIP_TABLE_NAME.equals(tableName)) {
             return targetShipTableReady;
         }
+        if (RUN_BATCH_TABLE_NAME.equals(tableName)) return runBatchTableReady;
+        if (REGION_BATCH_TABLE_NAME.equals(tableName)) return regionBatchTableReady;
+        if (REGION_SLICE_TABLE_NAME.equals(tableName)) return regionSliceTableReady;
+        if (REGION_CANDIDATE_TABLE_NAME.equals(tableName)) return regionCandidateTableReady;
         return false;
     }
 
@@ -134,6 +163,20 @@ public class ShipBehaviorTableInitializer {
         } catch (Exception ex) {
             throw new IllegalStateException("ensure batch_no length failed for "
                     + TABLE_SCHEMA + "." + tableName + ", sql=" + alterSql, ex);
+        }
+    }
+
+    private void ensureRuleVersionLength(String tableName) {
+        if (!EVENT_TABLE_NAME.equals(tableName) && !DETAIL_TABLE_NAME.equals(tableName)) return;
+        Integer length = newDataanalysisJdbcTemplate.queryForObject(
+                CHECK_COLUMN_LENGTH_SQL, Integer.class, TABLE_SCHEMA, tableName, "rule_version");
+        if (length != null && length >= 64) return;
+        String alterSql = "ALTER TABLE dataanalysis." + tableName
+                + " MODIFY COLUMN rule_version VARCHAR(64) DEFAULT NULL COMMENT '规则版本'";
+        try {
+            newDataanalysisJdbcTemplate.execute(alterSql);
+        } catch (Exception ex) {
+            throw new IllegalStateException("ensure rule_version length failed for " + tableName, ex);
         }
     }
 
@@ -259,6 +302,14 @@ public class ShipBehaviorTableInitializer {
                 "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN own_ship_type VARCHAR(64) DEFAULT NULL COMMENT '主船类型'"));
         migrations.add(new ColumnMigration("target_ship_type",
                 "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN target_ship_type VARCHAR(64) DEFAULT NULL COMMENT '目标船类型'"));
+        migrations.add(new ColumnMigration("event_source",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN event_source VARCHAR(16) DEFAULT NULL COMMENT 'TARGET_LIST/REGION'"));
+        migrations.add(new ColumnMigration("region_id",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN region_id VARCHAR(128) DEFAULT NULL COMMENT '区域任务编码'"));
+        migrations.add(new ColumnMigration("region_fingerprint",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN region_fingerprint VARCHAR(64) DEFAULT NULL COMMENT '区域几何指纹'"));
+        migrations.add(new ColumnMigration("event_key",
+                "ALTER TABLE dataanalysis.ship_behavior_event ADD COLUMN event_key VARCHAR(64) DEFAULT NULL COMMENT '批次内稳定事件键'"));
         return Collections.unmodifiableList(migrations);
     }
 

@@ -48,6 +48,15 @@ public class BehaviorEventTransactionStore {
                         final List<String> ruleVersions,
                         final List<ShipBehaviorTrace> traces,
                         final boolean storeDetails) {
+        replace(behaviorType, batchNo, mmsi, startTime, endTime, ruleVersions,
+                traces, storeDetails, null);
+    }
+
+    public void replace(final String behaviorType, final String batchNo,
+                        final String mmsi, final String startTime, final String endTime,
+                        final List<String> ruleVersions,
+                        final List<ShipBehaviorTrace> traces,
+                        final boolean storeDetails, final Runnable afterSave) {
         final List<ShipBehaviorTrace> safeTraces = traces == null
                 ? new ArrayList<ShipBehaviorTrace>() : traces;
         new TransactionTemplate(new DataSourceTransactionManager(dataSource)).execute(status -> {
@@ -71,6 +80,7 @@ public class BehaviorEventTransactionStore {
             if (storeDetails) {
                 detailRepository.saveDetails(details(safeTraces, batchNo));
             }
+            if (afterSave != null) afterSave.run();
             return null;
         });
     }

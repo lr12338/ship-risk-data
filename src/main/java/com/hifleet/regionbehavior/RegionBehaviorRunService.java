@@ -11,6 +11,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 @Service
 public class RegionBehaviorRunService {
@@ -21,6 +25,10 @@ public class RegionBehaviorRunService {
     private final RegionAlongsideRunner alongsideRunner;
     private final RegionBehaviorReportWriter reportWriter;
     private final RegionEventContextEnricher contextEnricher;
+    @Autowired(required = false)
+    private RegionBehaviorStateRepository stateRepository;
+    @Autowired(required = false)
+    private RegionFormalEventStore formalEventStore;
 
     @Autowired
     public RegionBehaviorRunService(RegionBehaviorConfig config,
@@ -51,7 +59,11 @@ public class RegionBehaviorRunService {
             return blocked(result, RegionBehaviorStatus.BLOCKED_UNSAFE_STORE_MODE,
                     "ship.behavior.region.enabled=false");
         }
-        if (!params.isDryRun() || params.isStoreCandidates()) {
+        if (params.isFormalWrite() && !config.isWriteEnabled()) {
+            return blocked(result, RegionBehaviorStatus.BLOCKED_UNSAFE_STORE_MODE,
+                    "ship.behavior.region.write-enabled=false");
+        }
+        if (!params.isFormalWrite() && (!params.isDryRun() || params.isStoreCandidates())) {
             return blocked(result, RegionBehaviorStatus.BLOCKED_UNSAFE_STORE_MODE,
                     "V1 requires dryRun=true and storeCandidates=false");
         }
@@ -112,8 +124,15 @@ public class RegionBehaviorRunService {
                 params.effectiveRegionBufferNm(config), config);
         region.assertWithinAreaLimit(config);
         RegionQueryPlan plan = new RegionQueryPlanner(config).plan(params, region);
+        if (params.isFormalWrite()) {
+            if (stateRepository == null || formalEventStore == null) {
+                throw new IllegalStateException("region formal persistence unavailable");
+            }
+            stateRepository.claim(params, region.getFingerprint(), paramsHash(params, region.getFingerprint()));
+        }
         RegionAisDiscoveryResult discovery = discoveryService.discover(region, plan,
-                params.getBatchNo(), params.effectiveMaxCandidateVessels(config));
+                params.getBatchNo(), params.effectiveMaxCandidateVessels(config),
+                params.isFormalWrite() && params.isResume(), params.isFormalWrite());
         RegionShipMetadataSummary metadata = metadataService.filter(discovery.candidates);
         RegionBehaviorRunResult result = RegionBehaviorRunResult.fromDiscovery(discovery);
         result.setEligibleVessels(metadata.getEligibleMainShips());
@@ -125,16 +144,25 @@ public class RegionBehaviorRunService {
                 params.getRegionId(), params.getRegionName());
         List<RegionMatchedEvent> loitering = new ArrayList<RegionMatchedEvent>();
         List<RegionMatchedEvent> alongside = new ArrayList<RegionMatchedEvent>();
+        Set<String> completedAnalysis = params.isFormalWrite() && params.isResume()
+                ? stateRepository.completed(params.getBatchNo(), "ANALYSIS")
+                : java.util.Collections.<String>emptySet();
+        Set<String> successfulAnalysis = new HashSet<String>();
         for (RegionShipCandidate candidate : discovery.getCandidates().values()) {
             if (!candidate.isEligible()) {
                 continue;
             }
+            if (completedAnalysis.contains(candidate.getMmsi())) continue;
             result.analyzedVessel();
             if (params.getBehaviorTypes().contains("LOITERING")) {
                 RegionBehaviorRunnerResult computed = loiteringRunner.run(candidate.getMmsi(), params);
                 result.addLoiteringCandidates(computed.getRawCandidates());
                 if (!computed.isComplete()) {
                     result.analysisFailure("LOITERING", candidate.getMmsi(), computed.getFailure());
+                    if (params.isFormalWrite()) stateRepository.mark(params.getBatchNo(), "ANALYSIS",
+                            candidate.getMmsi(), false, computed.getFailure());
+                } else {
+                    successfulAnalysis.add(candidate.getMmsi());
                 }
                 for (ShipBehaviorTrace trace : computed.getTraces()) {
                     loitering.add(contextEnricher.enrich(matcher.matchLoitering(trace)));
@@ -145,6 +173,10 @@ public class RegionBehaviorRunService {
                 result.addAlongsideCandidates(computed.getRawCandidates());
                 if (!computed.isComplete()) {
                     result.analysisFailure("ALONGSIDE", candidate.getMmsi(), computed.getFailure());
+                    if (params.isFormalWrite()) stateRepository.mark(params.getBatchNo(), "ANALYSIS",
+                            candidate.getMmsi(), false, computed.getFailure());
+                } else {
+                    successfulAnalysis.add(candidate.getMmsi());
                 }
                 for (ShipBehaviorTrace trace : computed.getTraces()) {
                     alongside.add(contextEnricher.enrich(matcher.matchAlongside(trace)));
@@ -164,9 +196,37 @@ public class RegionBehaviorRunService {
                 event.setQueryCompleteness(RegionBehaviorStatus.PARTIAL);
             }
         }
+        if (params.isFormalWrite()) {
+            int writes = 0;
+            for (String mmsi : successfulAnalysis) {
+                writes += formalEventStore.replace(params, region.getFingerprint(), mmsi,
+                        result.getRegionEvents());
+            }
+            result.setFormalWriteResult(writes);
+            stateRepository.finish(params.getBatchNo(), result.isSuccess(), result.summaryJson().toJSONString());
+        }
         Path output = reportWriter.write(params, region, plan, discovery, metadata, result);
         result.setOutputDirectory(output.toString());
         return result;
+    }
+
+    private String paramsHash(RegionBehaviorJobParams params, String fingerprint) {
+        String value = params.getRegionId() + "|" + fingerprint + "|" + params.getStartTime()
+                + "|" + params.getEndTime() + "|" + params.getBehaviorTypes() + "|"
+                + params.getShipTypePolicy() + "|" + params.effectiveTimeSliceMinutes(config)
+                + "|" + params.effectiveContextBeforeHours(config) + "|"
+                + params.effectiveContextAfterHours(config) + "|"
+                + params.effectiveRegionBufferNm(config) + "|"
+                + params.effectiveMaxCandidateVessels(config) + "|" + params.getWriteMode();
+        try {
+            byte[] bytes = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder();
+            for (byte b : bytes) result.append(String.format("%02x", b & 0xff));
+            return result.toString();
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 
     private void addMatched(RegionBehaviorRunResult result, List<RegionMatchedEvent> events) {

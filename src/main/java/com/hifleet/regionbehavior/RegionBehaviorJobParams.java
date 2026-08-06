@@ -41,6 +41,9 @@ public class RegionBehaviorJobParams {
     private String batchNo;
     private boolean dryRun;
     private boolean storeCandidates;
+    private String writeMode = "DRY_RUN";
+    private boolean enableInsert;
+    private boolean resume = true;
 
     public static RegionBehaviorJobParams parse(String raw) {
         if (StringUtils.isBlank(raw)) {
@@ -70,6 +73,9 @@ public class RegionBehaviorJobParams {
         params.batchNo = json.getString("batchNo");
         params.dryRun = json.getBooleanValue("dryRun");
         params.storeCandidates = json.getBooleanValue("storeCandidates");
+        params.writeMode = defaultIfBlank(json.getString("writeMode"), "DRY_RUN").toUpperCase(Locale.ROOT);
+        params.enableInsert = json.getBooleanValue("enableInsert");
+        params.resume = !json.containsKey("resume") || json.getBooleanValue("resume");
         JSONArray types = json.getJSONArray("behaviorTypes");
         if (types != null) {
             for (Object type : types) {
@@ -104,8 +110,12 @@ public class RegionBehaviorJobParams {
                 throw new IllegalArgumentException("unsupported behaviorType: " + type);
             }
         }
-        if (!dryRun || storeCandidates) {
-            throw new IllegalArgumentException("V1 requires dryRun=true and storeCandidates=false");
+        if (isFormalWrite()) {
+            if (!enableInsert || dryRun || behaviorTypes.size() != 1 || batchNo.length() > 64) {
+                throw new IllegalArgumentException("FORMAL_EVENT requires enableInsert=true, dryRun=false and one behaviorType");
+            }
+        } else if (!"DRY_RUN".equals(writeMode) || !dryRun || storeCandidates || enableInsert) {
+            throw new IllegalArgumentException("DRY_RUN requires dryRun=true, storeCandidates=false and enableInsert=false");
         }
         LocalDateTime start;
         LocalDateTime end;
@@ -202,6 +212,10 @@ public class RegionBehaviorJobParams {
     public String getBatchNo() { return batchNo; }
     public boolean isDryRun() { return dryRun; }
     public boolean isStoreCandidates() { return storeCandidates; }
+    public boolean isFormalWrite() { return "FORMAL_EVENT".equals(writeMode); }
+    public String getWriteMode() { return writeMode; }
+    public boolean isEnableInsert() { return enableInsert; }
+    public boolean isResume() { return resume; }
     public void setMode(String value) { this.mode = value; }
     public void setRegionId(String value) { this.regionId = value; }
     public void setRegionName(String value) { this.regionName = value; }

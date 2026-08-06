@@ -39,12 +39,17 @@ public class RegionBehaviorReportWriter {
                       RegionQueryPlan plan, RegionAisDiscoveryResult discovery,
                       RegionShipMetadataSummary metadata, RegionBehaviorRunResult runResult) {
         Path root = Paths.get(config.getOutputRoot()).toAbsolutePath().normalize();
-        Path directory = root.resolve(params.getBatchNo()).normalize();
-        if (!directory.getParent().equals(root)) {
+        Path batchDirectory = root.resolve(params.getBatchNo()).normalize();
+        Path directory = params.isFormalWrite()
+                ? batchDirectory.resolve("attempt-" + Instant.now().toEpochMilli()).normalize()
+                : batchDirectory;
+        if ((!params.isFormalWrite() && !directory.getParent().equals(root))
+                || (params.isFormalWrite() && !directory.getParent().equals(batchDirectory))) {
             throw new IllegalArgumentException("unsafe batch output path");
         }
         try {
             Files.createDirectories(root);
+            if (params.isFormalWrite()) Files.createDirectories(batchDirectory);
             if (Files.exists(directory)) {
                 throw new IllegalStateException("region behavior output already exists: " + directory);
             }
@@ -76,9 +81,9 @@ public class RegionBehaviorReportWriter {
         json.put("regionId", params.getRegionId());
         json.put("regionName", params.getRegionName());
         json.put("regionFingerprint", region.getFingerprint());
-        json.put("dryRun", true);
+        json.put("dryRun", !params.isFormalWrite());
         json.put("storeCandidates", false);
-        json.put("sourceMode", "REGION_DRIVEN");
+        json.put("sourceMode", params.isFormalWrite() ? "REGION_FORMAL_EVENT" : "REGION_DRIVEN");
         json.put("eventContextEnricher", "NO_OP");
         return json;
     }

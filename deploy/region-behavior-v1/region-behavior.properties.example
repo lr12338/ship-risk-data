@@ -1,6 +1,7 @@
 # V1 is disabled until an operator explicitly enables the isolated dry-run job.
 ship.behavior.region.enabled=false
 ship.behavior.region.dry-run-only=true
+ship.behavior.region.write-enabled=false
 ship.behavior.region.output-root=var/region-behavior-runs
 
 # Preflight boundaries.

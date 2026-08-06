@@ -5,6 +5,7 @@ import com.hifleet.domain.ReplayQueryResult;
 import com.hifleet.service.SpatialAisReplayClient;
 import com.hifleet.trajectory.TrajectoryPoint;
 import org.junit.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -17,6 +18,8 @@ import java.util.Map;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyZeroInteractions;
 
 public class RegionAisDiscoveryServiceTest {
 
@@ -30,6 +33,8 @@ public class RegionAisDiscoveryServiceTest {
                 return result(request, true, minutes > 5, false, 0, insidePoints());
             }
         }, config);
+        RegionBehaviorStateRepository state = mock(RegionBehaviorStateRepository.class);
+        ReflectionTestUtils.setField(service, "stateRepository", state);
 
         RegionAisDiscoveryResult result = service.discover(region(config),
                 new RegionQueryPlan(Collections.singletonList(slice(10))), "batch", 10);
@@ -38,6 +43,7 @@ public class RegionAisDiscoveryServiceTest {
         assertEquals(3, result.getQuerySlices());
         assertEquals(2, result.getCompletedSlices());
         assertEquals(1, result.getTruncatedSlices());
+        verifyZeroInteractions(state);
     }
 
     @Test

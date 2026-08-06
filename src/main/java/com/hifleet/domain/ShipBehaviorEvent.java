@@ -50,10 +50,23 @@ public class ShipBehaviorEvent {
     private Double centerLat;
     private Double radiusNm;
     private String scoreDetailJson;
+    private String eventSource;
+    private String regionId;
+    private String regionFingerprint;
+    private String eventKey;
 
     public String getBehaviorType() {
         return behaviorType;
     }
+
+    public String getEventSource() { return eventSource; }
+    public void setEventSource(String value) { this.eventSource = value; }
+    public String getRegionId() { return regionId; }
+    public void setRegionId(String value) { this.regionId = value; }
+    public String getRegionFingerprint() { return regionFingerprint; }
+    public void setRegionFingerprint(String value) { this.regionFingerprint = value; }
+    public String getEventKey() { return eventKey; }
+    public void setEventKey(String value) { this.eventKey = value; }
 
     public void setBehaviorType(String behaviorType) {
         this.behaviorType = behaviorType;

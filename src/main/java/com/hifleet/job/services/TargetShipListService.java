@@ -28,6 +28,16 @@ public class TargetShipListService {
         if (listBatchNo == null || listBatchNo.length() > 64) {
             throw new IllegalArgumentException("valid listBatchNo is required");
         }
+        String sourceMode = StringUtils.defaultIfBlank(json.getString("sourceMode"), "AIS41_RECENT_SHIPS");
+        if ("EXISTING_5000_TABLE".equals(sourceMode)) {
+            String sourceListBatchNo = StringUtils.trimToNull(json.getString("sourceListBatchNo"));
+            int targetCount = json.containsKey("targetCount") ? json.getIntValue("targetCount") : 5000;
+            targetRepository.copyExisting5000Immutable(sourceListBatchNo, listBatchNo, targetCount);
+            return "approved target list ready listBatchNo=" + listBatchNo + " count=" + targetCount;
+        }
+        if (!"AIS41_RECENT_SHIPS".equals(sourceMode)) {
+            throw new IllegalArgumentException("unsupported sourceMode");
+        }
         String updatedAfter = StringUtils.defaultIfBlank(
                 json.getString("sourceUpdatedAfter"), "2026-07-01 00:00:00");
         int targetCount = json.containsKey("targetCount")

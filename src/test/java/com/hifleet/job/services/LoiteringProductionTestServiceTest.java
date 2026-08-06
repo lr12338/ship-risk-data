@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
 public class LoiteringProductionTestServiceTest {
 
     @Test
-    public void loadsHalfYearOnceAndRunsBothEnginesBeforeEventOnlyReplace() {
+    public void formalRunLoadsWindowContextAndWritesOnlyCoreEvents() {
         Fixture fixture = fixture();
         List<TrajectoryPoint> points = Arrays.asList(
                 point(0), point(10));
@@ -43,33 +43,28 @@ public class LoiteringProductionTestServiceTest {
                 anyString(), anyList(), anyString()))
                 .thenReturn(Collections.singletonList(trace(
                         "LOITERING_V2_INSURANCE")));
-        when(fixture.v3.analyzeV3Production(
-                org.mockito.Matchers.any(ShipLoiteringV3BatchService.TargetShipAdapter.class),
-                anyList(), anyString(), anyInt()))
-                .thenReturn(Collections.singletonList(trace(
-                        "LOITERING_V3_PROD_TEST_2026H1")));
 
-        LoiteringProductionTestService.Result result = fixture.service.run(params(false));
+        LoiteringProductionTestService.Result result = fixture.service.run(params(true));
 
         assertTrue(result.isSuccess());
         verify(fixture.loader, times(1)).loadSafely(
-                eq("413000001"), eq("2026-01-01 00:00:00"),
-                eq("2026-07-01 00:00:00"), eq(15), eq(6), eq(200000));
+                eq("413000001"), eq("2024-12-31 18:00:00"),
+                eq("2025-01-31 06:00:00"), eq(15), eq(6), eq(200000));
         ArgumentCaptor<List> traces = ArgumentCaptor.forClass(List.class);
         verify(fixture.store).replace(
                 eq(ShipBehaviorEvent.TYPE_LOITERING), eq("loiter-batch"),
-                eq("413000001"), eq("2026-01-01 00:00:00"),
-                eq("2026-07-01 00:00:00"), anyList(),
-                traces.capture(), eq(false));
-        assertEquals(2, traces.getValue().size());
+                eq("413000001"), eq("2025-01-01 00:00:00"),
+                eq("2025-01-31 00:00:00"), anyList(),
+                traces.capture(), eq(false), org.mockito.Matchers.any(Runnable.class));
+        assertEquals(1, traces.getValue().size());
     }
 
     @Test
-    public void resumeSkipsCompletedWholeShipWindow() {
+    public void resumeSkipsCompletedMonthlyWindow() {
         Fixture fixture = fixture();
         String key = ShipBehaviorLoiteringBatchStatusRepository.windowKey(
-                "413000001", "2026-01-01 00:00:00",
-                "2026-07-01 00:00:00");
+                "413000001", "2025-01-01 00:00:00",
+                "2025-01-31 00:00:00");
         when(fixture.status.findCompletedWindows("loiter-batch"))
                 .thenReturn(Collections.singleton(key));
 
@@ -112,17 +107,17 @@ public class LoiteringProductionTestServiceTest {
         return fixture;
     }
 
-    private String params(boolean storeDetails) {
+    private String params(boolean enableInsert) {
         return "{"
                 + "\"mode\":\"production_test\","
                 + "\"listBatchNo\":\"list\","
                 + "\"expectedShipCount\":1,\"shipLimit\":1,"
                 + "\"pageSize\":1,\"parallelism\":1,"
-                + "\"startTime\":\"2026-01-01 00:00:00\","
-                + "\"endTime\":\"2026-07-01 00:00:00\","
-                + "\"engines\":[\"V2\",\"V3\"],"
+                + "\"startTime\":\"2025-01-01 00:00:00\","
+                + "\"endTime\":\"2025-01-31 00:00:00\","
+                + "\"engines\":[\"V2\"],"
                 + "\"trajectorySliceHours\":6,\"resume\":true,\"retryCount\":0,"
-                + "\"storeDetails\":" + storeDetails + ","
+                + "\"enableInsert\":" + enableInsert + ",\"storeDetails\":false,"
                 + "\"batchNo\":\"loiter-batch\"}";
     }
 
@@ -131,6 +126,7 @@ public class LoiteringProductionTestServiceTest {
         event.setBehaviorType(ShipBehaviorEvent.TYPE_LOITERING);
         event.setMmsi("413000001");
         event.setRuleVersion(ruleVersion);
+        event.setStartTime("2025-01-02 00:00:00");
         return new ShipBehaviorTrace(
                 event, Collections.emptyList(), Collections.emptyList());
     }

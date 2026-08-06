@@ -53,6 +53,19 @@ public class RegionBehaviorJobParamsTest {
         assertTrue(config.getMaxCandidateVessels() <= 500);
     }
 
+    @Test
+    public void acceptsExplicitFormalWriteForOneBehavior() {
+        RegionBehaviorJobParams params = RegionBehaviorJobParams.parse("{"
+                + "\"mode\":\"region_behavior_v1\",\"regionId\":\"r\",\"regionName\":\"n\","
+                + "\"polygonWkt\":\"POLYGON((121 30,122 30,122 31,121 31,121 30))\","
+                + "\"startTime\":\"2026-06-01 00:00:00\",\"endTime\":\"2026-06-01 01:00:00\","
+                + "\"behaviorTypes\":[\"LOITERING\"],\"batchNo\":\"b\","
+                + "\"writeMode\":\"FORMAL_EVENT\",\"enableInsert\":true,\"resume\":true}");
+        params.validate(RegionBehaviorConfig.defaults());
+        assertTrue(params.isFormalWrite());
+        assertTrue(params.isResume());
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void parameterOverridesCannotBypassConfiguredContextLimit() {
         RegionBehaviorJobParams params = RegionBehaviorJobParams.parse("{"

@@ -76,7 +76,7 @@ public class AlongsideProductionTestServiceTest {
                 eq(ShipBehaviorEvent.TYPE_ALONGSIDE), eq("write-batch"),
                 eq("413000001"), anyString(),
                 anyString(), anyList(),
-                tracesCaptor.capture(), eq(false));
+                tracesCaptor.capture(), eq(false), any(Runnable.class));
         for (List captured : tracesCaptor.getAllValues()) {
             assertEquals(1, captured.size());
         }

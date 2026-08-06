@@ -10,6 +10,8 @@ public class RegionBehaviorConfig {
     private boolean enabled = false;
     @Value("${ship.behavior.region.dry-run-only:true}")
     private boolean dryRunOnly = true;
+    @Value("${ship.behavior.region.write-enabled:false}")
+    private boolean writeEnabled = false;
     @Value("${ship.behavior.region.output-root:var/region-behavior-runs}")
     private String outputRoot = "var/region-behavior-runs";
     @Value("${ship.behavior.region.max-polygon-vertices:2000}")
@@ -63,6 +65,7 @@ public class RegionBehaviorConfig {
 
     public boolean isEnabled() { return enabled; }
     public boolean isDryRunOnly() { return dryRunOnly; }
+    public boolean isWriteEnabled() { return writeEnabled; }
     public String getOutputRoot() { return outputRoot; }
     public int getMaxPolygonVertices() { return maxPolygonVertices; }
     public double getMaxRegionAreaSqKm() { return maxRegionAreaSqKm; }
@@ -88,6 +91,7 @@ public class RegionBehaviorConfig {
     public int getPairSyncToleranceMinutes() { return pairSyncToleranceMinutes; }
 
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public void setWriteEnabled(boolean value) { this.writeEnabled = value; }
     public void setOutputRoot(String outputRoot) { this.outputRoot = outputRoot; }
     public void setMaxRegionAreaSqKm(double value) { this.maxRegionAreaSqKm = value; }
     public void setMaxRunHours(int value) { this.maxRunHours = value; }
