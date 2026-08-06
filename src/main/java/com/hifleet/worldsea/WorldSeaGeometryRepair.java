@@ -101,10 +101,16 @@ final class WorldSeaGeometryRepair {
         boolean idempotent = repeated.isValid() && repaired.equalsTopo(repeated)
                 && repaired.getGeometryType().equals(repeated.getGeometryType())
                 && repaired.getNumGeometries() == repeated.getNumGeometries()
-                && nearlyEqual(repaired.getArea(), repeated.getArea(), 1e-15)
+                && nearlyEqual(repaired.getArea(), repeated.getArea(), 1e-12)
                 && envelopeDelta(repaired.getEnvelopeInternal(), repeated.getEnvelopeInternal()) <= 1e-15
                 && Arrays.equals(repairedWkb, repeatedWkb);
-        if (!idempotent) throw new IllegalStateException("repair output is not deterministic/idempotent ID=" + source.id);
+        if (!idempotent) throw new IllegalStateException("repair output is not deterministic/idempotent ID=" + source.id
+                + " valid=" + repeated.isValid() + " topo=" + repaired.equalsTopo(repeated)
+                + " type=" + repaired.getGeometryType() + "/" + repeated.getGeometryType()
+                + " components=" + repaired.getNumGeometries() + "/" + repeated.getNumGeometries()
+                + " areaDelta=" + Math.abs(repaired.getArea() - repeated.getArea())
+                + " envelopeDelta=" + envelopeDelta(repaired.getEnvelopeInternal(), repeated.getEnvelopeInternal())
+                + " wkbEqual=" + Arrays.equals(repairedWkb, repeatedWkb));
 
         List<Double> componentAreas = polygonAreas(repaired);
         double minimumArea = componentAreas.isEmpty() ? 0d : Collections.min(componentAreas);

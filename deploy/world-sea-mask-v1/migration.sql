@@ -161,6 +161,22 @@ CREATE TABLE IF NOT EXISTS dataanalysis.ship_behavior_world_sea_repair_audit (
   KEY idx_world_sea_repair_dataset (dataset_version_after,review_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Compatibility if a V1R1 draft audit table was created before dataset fingerprints were added.
+SET @ws_table = 'ship_behavior_world_sea_repair_audit';
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='original_stage_fingerprint');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_repair_audit ADD COLUMN original_stage_fingerprint VARCHAR(64) NOT NULL AFTER dataset_version_after',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='repaired_geometry_fingerprint');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_repair_audit ADD COLUMN repaired_geometry_fingerprint VARCHAR(64) NOT NULL AFTER original_stage_fingerprint',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
 CREATE TABLE IF NOT EXISTS dataanalysis.ship_behavior_world_sea_audit (
   id BIGINT NOT NULL AUTO_INCREMENT,
   batch_no VARCHAR(64) NOT NULL,
