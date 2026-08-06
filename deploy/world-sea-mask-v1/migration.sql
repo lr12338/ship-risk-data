@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS dataanalysis.ship_behavior_world_sea_repair_audit (
   dataset_version_after VARCHAR(64) NOT NULL,
   original_stage_fingerprint VARCHAR(64) NOT NULL,
   repaired_geometry_fingerprint VARCHAR(64) NOT NULL,
+  repaired_stage_table VARCHAR(128) DEFAULT NULL,
   feature_id INT NOT NULL,
   feature_name VARCHAR(255) DEFAULT NULL,
   feature_cn_name VARCHAR(100) DEFAULT NULL,
@@ -174,6 +175,13 @@ SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
   WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='repaired_geometry_fingerprint');
 SET @ws_sql = IF(@ws_exists=0,
   'ALTER TABLE dataanalysis.ship_behavior_world_sea_repair_audit ADD COLUMN repaired_geometry_fingerprint VARCHAR(64) NOT NULL AFTER original_stage_fingerprint',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='repaired_stage_table');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_repair_audit ADD COLUMN repaired_stage_table VARCHAR(128) DEFAULT NULL AFTER repaired_geometry_fingerprint',
   'SELECT 1');
 PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
 

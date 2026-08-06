@@ -210,7 +210,7 @@ public final class WorldSeaImportTool {
     private static void registerStage(Connection connection, String stage) throws Exception {
         requireMigration(connection);
         Validation value = inspectTable(connection, stage, true);
-        RepairAuditIdentity repair = repairAudit(connection, value.fingerprint);
+        RepairAuditIdentity repair = repairAudit(connection, stage, value.fingerprint);
         WorldSeaRepairApproval.Approval approval = WorldSeaRepairApproval.readApproved(APPROVAL_FILE, value.fingerprint);
         ReleaseRow release = release(connection, stage);
         if (release != null) {
@@ -486,13 +486,14 @@ public final class WorldSeaImportTool {
         }
     }
 
-    private static RepairAuditIdentity repairAudit(Connection connection, String fingerprint) throws Exception {
+    private static RepairAuditIdentity repairAudit(Connection connection, String stage, String fingerprint) throws Exception {
         String sql = "SELECT repair_release_id,repair_tool_git_sha,COUNT(*),"
                 + "COUNT(DISTINCT feature_id),MIN(original_stage_fingerprint) FROM `" + SCHEMA + "`.`" + REPAIR_AUDIT + "` "
-                + "WHERE dataset_version_after=? AND repaired_geometry_fingerprint=? "
+                + "WHERE dataset_version_after=? AND repaired_geometry_fingerprint=? AND repaired_stage_table=? "
                 + "GROUP BY repair_release_id,repair_tool_git_sha";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, DATASET_VERSION); statement.setString(2, fingerprint);
+            statement.setString(3, stage);
             try (ResultSet rs = statement.executeQuery()) {
                 if (!rs.next()) throw new IllegalStateException("matching repair audit is missing");
                 RepairAuditIdentity value = new RepairAuditIdentity(rs.getString(1), rs.getString(2));

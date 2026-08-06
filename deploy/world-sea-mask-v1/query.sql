@@ -10,7 +10,7 @@ SELECT dataset_version,geometry_fingerprint,status,imported_at
 FROM dataanalysis.ship_behavior_world_sea_meta
 ORDER BY imported_at DESC;
 
-SELECT repair_release_id,feature_id,feature_name,feature_cn_name,original_geometry_type,
+SELECT repair_release_id,repaired_stage_table,feature_id,feature_name,feature_cn_name,original_geometry_type,
        repaired_geometry_type,original_vertex_count,repaired_vertex_count,
        original_component_count,repaired_component_count,relative_area_delta,
        collapsed_component_count,collapsed_component_type,collapsed_component_length,

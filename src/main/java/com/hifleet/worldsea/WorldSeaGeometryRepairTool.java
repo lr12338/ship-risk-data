@@ -124,7 +124,7 @@ public final class WorldSeaGeometryRepairTool {
             }
             String releaseId = WorldSeaGeometryRepair.DATASET_AFTER + "_" + validation.fingerprint.substring(0, 12)
                     + "_" + stage.substring("ship_behavior_world_sea_stage_".length());
-            insertAudit(connection, releaseId, repair, toolSha);
+            insertAudit(connection, releaseId, stage, repair, toolSha);
             System.out.println("WORLD_SEA_REPAIR CREATE_REPAIRED_STAGE PASS repairedStage=" + stage
                     + " repairReleaseId=" + releaseId + " rows=102 unchangedWkb=95 changedWkb=7 changedIds="
                     + repair.changedIds + " repairedGeometryFingerprint=" + validation.fingerprint
@@ -253,22 +253,23 @@ public final class WorldSeaGeometryRepairTool {
         return result;
     }
 
-    private static void insertAudit(Connection connection, String releaseId,
+    private static void insertAudit(Connection connection, String releaseId, String stage,
                                     WorldSeaGeometryRepair.DatasetRepair repair, String toolSha) throws Exception {
         String sql = "INSERT INTO `" + SCHEMA + "`.`" + REPAIR_AUDIT + "` (repair_release_id,dataset_version_before,"
-                + "dataset_version_after,original_stage_fingerprint,repaired_geometry_fingerprint,feature_id,feature_name,feature_cn_name,original_geometry_type,repaired_geometry_type,"
+                + "dataset_version_after,original_stage_fingerprint,repaired_geometry_fingerprint,repaired_stage_table,feature_id,feature_name,feature_cn_name,original_geometry_type,repaired_geometry_type,"
                 + "original_validity_error,repaired_valid,original_wkb_sha256,repaired_wkb_sha256,original_vertex_count,"
                 + "repaired_vertex_count,original_component_count,repaired_component_count,original_area_degree2,"
                 + "repaired_area_degree2,relative_area_delta,original_envelope,repaired_envelope,collapsed_component_count,"
                 + "collapsed_component_type,collapsed_component_length,collapsed_component_decision,polygon_component_areas,"
                 + "minimum_polygon_area,main_polygon_area,minimum_polygon_ratio,repair_method,repair_tool_git_sha,review_status,created_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'PENDING_REVIEW',NOW())";
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'PENDING_REVIEW',NOW())";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             for (WorldSeaGeometryRepair.FeatureRepair feature : repair.features) {
                 int i = 1;
                 statement.setString(i++, releaseId); statement.setString(i++, WorldSeaGeometryRepair.DATASET_BEFORE);
                 statement.setString(i++, WorldSeaGeometryRepair.DATASET_AFTER);
                 statement.setString(i++, ORIGINAL_FINGERPRINT); statement.setString(i++, repair.repairedFingerprint);
+                statement.setString(i++, stage);
                 statement.setInt(i++, feature.id);
                 statement.setString(i++, feature.name); statement.setString(i++, feature.cnName);
                 statement.setString(i++, feature.originalGeometry.getGeometryType());
