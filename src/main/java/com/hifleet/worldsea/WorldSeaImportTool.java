@@ -103,7 +103,7 @@ public final class WorldSeaImportTool {
         boolean formalMismatch = release != null && formalValue != null && !formalMatches;
         boolean activeMatches = release != null && active != null
                 && release.fingerprint.equals(active.fingerprint);
-        WorldSeaReleaseStateMachine.RecoveryDecision decision = releaseTableExists
+        WorldSeaReleaseStateMachine.RecoveryDecision decision = release != null
                 ? WorldSeaReleaseStateMachine.recover(new WorldSeaReleaseStateMachine.ReleaseReality(
                 release == null ? null : release.status, stageExists, backupExists, formalExists,
                 formalMatches, formalMismatch, activeMatches))
@@ -127,7 +127,8 @@ public final class WorldSeaImportTool {
                 + " auditExists=" + tableExists(connection, AUDIT)
                 + " releaseTableExists=" + releaseTableExists
                 + " recoveryNeeded=" + (decision != null && decision.isRecoveryNeeded())
-                + " nextAllowedAction=" + (decision == null ? "RUN_MIGRATION" : decision.getNextAllowedAction())
+                + " nextAllowedAction=" + (release == null
+                ? "AWAIT_APPROVAL_THEN_REGISTER_STAGE" : decision.getNextAllowedAction())
                 + " databaseWrites=0");
     }
 
