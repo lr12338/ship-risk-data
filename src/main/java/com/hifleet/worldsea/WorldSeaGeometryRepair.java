@@ -151,7 +151,8 @@ final class WorldSeaGeometryRepair {
 
     private static Geometry difference(Geometry original, Geometry repaired) {
         try {
-            Geometry value = original.symDifference(repaired);
+            Geometry value = org.locationtech.jts.operation.overlayng.OverlayNGRobust.overlay(
+                    original, repaired, org.locationtech.jts.operation.overlayng.OverlayNG.SYMDIFFERENCE);
             value.setSRID(SRID);
             return value;
         } catch (RuntimeException ex) {
