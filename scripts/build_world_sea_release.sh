@@ -35,7 +35,8 @@ if [ "${1:-}" = "--verify-source-only" ]; then
 fi
 
 repo_root="$(git rev-parse --show-toplevel)"
-[ "$PWD" = "$repo_root" ] || { echo "run from repository root" >&2; exit 2; }
+repo_root="$(cd "$repo_root" && pwd -P)"
+[ "$(pwd -P)" = "$repo_root" ] || { echo "run from repository root" >&2; exit 2; }
 source_state="$(verify_source "$repo_root" "$remote_name" "$expected_branch")"
 release_sha="$(git rev-parse HEAD)"
 remote_sha="$(git rev-parse "$remote_name/$expected_branch")"
