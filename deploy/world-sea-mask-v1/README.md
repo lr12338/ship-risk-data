@@ -1,55 +1,64 @@
-# WORLD_SEA_MASK V1 发布加固说明
+# WORLD_SEA_MASK V1R1 发布说明
 
-## 当前状态：BLOCKED_INVALID_GEOMETRY
+当前状态：`PARTIAL_AWAITING_REVIEW`。`WORLD_SEA_102_V1R1` repaired stage 已通过严格验证，但 `repair-approval.json` 仍为 `PENDING_REVIEW`，因此不得执行 `REGISTER_STAGE`、发布正式表、激活 ACTIVE、部署 JAR 或触发行为任务。
 
-`WORLD_SEA_102_V1` 的暂存表仍包含 7 条 JTS 拓扑无效几何：
+数据语义仅为全球命名海洋水域掩膜 `WORLD_SEA_NAMED_AREA`，不是法律公海、EEZ/领海/主权、合规或风险分类。
+
+## 固定数据身份
+
+- 原始 stage：`dataanalysis.ship_behavior_world_sea_stage_20260806_155556`
+- repaired stage：`dataanalysis.ship_behavior_world_sea_stage_20260806_175527`
+- 原始文件 SHA-256：`de7d39f8e652721796d64ce8697bb036da30280500940de8ece70ece4914266b`
+- 原始 stage 指纹：`81c810a9db7d319fdfbf9a17805a61493d3beda23b09154958ce2a2b3a31fd1e`
+- repaired 指纹：`31dd89bd4968f8f436135b57cdb81e870ac7b827d4dc2c086282e7dfe91ab9c6`
+- 修复方法：`JTS_GEOMETRY_FIXER_1_18_2`
+- 变化 ID：`11,26,85,91,92,99,24556`；其余 95 条 WKB 原样不变
+
+旧 JAR SHA-256 `9e2f865dda6fcf1da9983c8ce2fedfcc37570b681bfc199b7bc1e30215da16b5` 状态为 `SUPERSEDED_NOT_FOR_WORLD_SEA_102_V1R1`。
+
+## 审批后数据库发布
+
+审核人须基于 `repair-atlas.html` 和报告完成审批，把真实审批文件安装为：
 
 ```text
-11, 26, 85, 91, 92, 99, 24556
+/data/zhengyi/import/world-sea-mask-v1r1/repair-approval.json
 ```
 
-因此当前 Mask 不得部署，不得运行应用预检或任何行为任务。本轮产物只完成代码和发布流程加固；下一阶段必须获得修订后的有效数据版本或逐要素修复的独立授权。
-
-旧 JAR `63d4ad5ff02389c5a32ab81daed4dee3359a5afce9f45758111ff420b172b330` 是从包含未提交用户修改的工作区构建，已废弃，不得部署。
-
-## 安全边界
-
-- 禁止直接执行原始 `world_sea.sql`。
-- 禁止修改当前 `ship_behavior_world_sea_stage_20260806_155556`。
-- 禁止对 7 条无效 Geometry 使用 `buffer(0)`、`GeometryFixer`、删除或排除后发布。
-- `migration.sql` 必须独立人工执行，导入工具不会自动建表。
-- `PUBLISH_STAGE` 只发布为 `PUBLISHED_INACTIVE`，不会写 ACTIVE。
-- `ACTIVATE_DATASET` 会重新严格校验正式表，之后才在事务中切换唯一 ACTIVE 元数据。
-- 当前数据未修复前，不得执行 migration、IMPORT、REGISTER、PUBLISH、ACTIVATE 或 ROLLBACK。
-
-## 后续获批后的发布顺序
-
-先人工执行 [migration.sql](migration.sql)，再以固定服务器配置运行：
+文件必须为 `APPROVED`，审核人和时间非空，7 个 ID 完整，且指纹严格匹配 repaired stage。随后串行执行，每一步后运行只读 `STATE`：
 
 ```bash
-java -Dloader.main=com.hifleet.worldsea.WorldSeaImportTool \
-  -cp ship-risk-data-0.0.1-SNAPSHOT.jar \
-  org.springframework.boot.loader.PropertiesLauncher \
-  DRY_RUN ship_behavior_world_sea_stage_<timestamp>
+stage=ship_behavior_world_sea_stage_20260806_175527
+jar=/data/zhengyi/ship-risk-data-0.0.1-SNAPSHOT.jar.uploading
 
-java -Dloader.main=com.hifleet.worldsea.WorldSeaImportTool \
-  -cp ship-risk-data-0.0.1-SNAPSHOT.jar \
-  org.springframework.boot.loader.PropertiesLauncher \
-  IMPORT_STAGE ship_behavior_world_sea_stage_<timestamp>
-
-# 后续依次使用 VALIDATE_STAGE、REGISTER_STAGE、PUBLISH_STAGE。
-# PUBLISH_STAGE 后必须先检查 STATE，再由独立人工批准执行 ACTIVATE_DATASET。
+java -Dloader.main=com.hifleet.worldsea.WorldSeaImportTool -cp "$jar" \
+  org.springframework.boot.loader.PropertiesLauncher REGISTER_STAGE "$stage"
+java -Dloader.main=com.hifleet.worldsea.WorldSeaImportTool -cp "$jar" \
+  org.springframework.boot.loader.PropertiesLauncher STATE "$stage"
+java -Dloader.main=com.hifleet.worldsea.WorldSeaImportTool -cp "$jar" \
+  org.springframework.boot.loader.PropertiesLauncher PUBLISH_STAGE "$stage"
+java -Dloader.main=com.hifleet.worldsea.WorldSeaImportTool -cp "$jar" \
+  org.springframework.boot.loader.PropertiesLauncher STATE "$stage"
+java -Dloader.main=com.hifleet.worldsea.WorldSeaImportTool -cp "$jar" \
+  org.springframework.boot.loader.PropertiesLauncher ACTIVATE_DATASET "$stage"
+java -Dloader.main=com.hifleet.worldsea.WorldSeaImportTool -cp "$jar" \
+  org.springframework.boot.loader.PropertiesLauncher STATE "$stage"
 ```
 
-任一步中断后先执行只读 `STATE`，再执行 `RESUME_RELEASE`。详细状态转换见 [release-state-machine.md](release-state-machine.md)，故障处置见 [failure-recovery-matrix.md](failure-recovery-matrix.md)。
+中断时不得手工重做 RENAME；先 `STATE`，再 `RESUME_RELEASE`。
 
-## 干净发布构建
-
-发布提交推送后，只能从与远端 SHA 一致的 clean source worktree 运行：
+## 人工部署（数据库 ACTIVE 后）
 
 ```bash
-WORLD_SEA_RELEASE_OUTPUT_DIR=/absolute/output/path \
-  scripts/build_world_sea_release.sh
+scp dist/world-sea-mask-v1r1/ship-risk-data-0.0.1-SNAPSHOT.jar \
+  242:/data/zhengyi/ship-risk-data-0.0.1-SNAPSHOT.jar.uploading
+
+ssh 242
+cd /data/zhengyi
+sha256sum ship-risk-data-0.0.1-SNAPSHOT.jar.uploading
+release_stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p "backups/$release_stamp"
+cp ship-risk-data-0.0.1-SNAPSHOT.jar application.properties \
+   start.sh stop.sh status.sh restart.sh "backups/$release_stamp/"
 ```
 
-脚本会在新的 detached clean worktree 中再次执行 `mvn clean test` 和 `mvn clean package -DskipTests`。任何 dirty tree、远端 SHA 不一致、测试失败、JAR 缺失、manifest 不完整或构建后源码变化都会停止发布包生成。
+只合并 `application.properties.delta`，设置最终远端 SHA；不得覆盖整份服务器配置。人工替换和重启后，先运行 `shipBehaviorWorldSeaMaskPreflightJobHandler`，PASS 后才可串行执行两个 20 船 dry-run。

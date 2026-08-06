@@ -1,7 +1,60 @@
 {
-  "datasetStatus": "BLOCKED_INVALID_GEOMETRY",
-  "doNotRunUntilDatasetValidAndActive": true,
-  "preflight": {"handler":"shipBehaviorWorldSeaMaskPreflightJobHandler","params":{"mode":"WORLD_SEA_MASK_PREFLIGHT"}},
-  "loitering20DryRun": {"handler":"shipLoiteringProductionTestJobHandler","params":{"mode":"production_test","listBatchNo":"liquid-container-5000-2025h2-2026h1-v1","expectedShipCount":5000,"shipLimit":20,"pageSize":20,"parallelism":1,"startTime":"2025-01-01 00:00:00","endTime":"2026-01-01 00:00:00","windowDays":30,"trajectorySliceHours":6,"engines":["V2"],"resume":true,"retryCount":2,"logIntervalShips":10,"batchNo":"loitering-merchant20-2025-worldsea-smoke-v1","enableInsert":false,"storeDetails":false}},
-  "alongside20DryRun": {"handler":"shipAlongsideProductionTestJobHandler","params":{"mode":"production_test","listBatchNo":"liquid-container-5000-2025h2-2026h1-v1","expectedShipCount":5000,"shipLimit":20,"pageSize":20,"parallelism":1,"startTime":"2025-01-01 00:00:00","endTime":"2026-01-01 00:00:00","windowDays":30,"engines":["V3"],"resume":true,"retryCount":2,"logIntervalShips":10,"batchNo":"alongside-merchant20-2025-worldsea-smoke-v1","enableInsert":false,"storeDetails":false}}
+  "datasetVersion": "WORLD_SEA_102_V1R1",
+  "repairedGeometryFingerprint": "31dd89bd4968f8f436135b57cdb81e870ac7b827d4dc2c086282e7dfe91ab9c6",
+  "datasetStatus": "PARTIAL_AWAITING_REVIEW",
+  "doNotRunUntilPreflightPass": true,
+  "executionPolicy": {
+    "route": "single-machine",
+    "serialBlocking": true,
+    "parallelism": 1,
+    "manualTriggerOnly": true,
+    "runAlongsideAndLoiteringConcurrently": false
+  },
+  "preflight": {
+    "handler": "shipBehaviorWorldSeaMaskPreflightJobHandler",
+    "params": {"mode": "WORLD_SEA_MASK_PREFLIGHT"}
+  },
+  "loitering20DryRun": {
+    "handler": "shipLoiteringProductionTestJobHandler",
+    "params": {
+      "mode": "production_test",
+      "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+      "expectedShipCount": 5000,
+      "shipLimit": 20,
+      "pageSize": 20,
+      "parallelism": 1,
+      "startTime": "2025-01-01 00:00:00",
+      "endTime": "2026-01-01 00:00:00",
+      "windowDays": 30,
+      "trajectorySliceHours": 6,
+      "engines": ["V2"],
+      "resume": true,
+      "retryCount": 2,
+      "logIntervalShips": 10,
+      "batchNo": "loitering-merchant20-2025-worldsea-v1r1-smoke",
+      "enableInsert": false,
+      "storeDetails": false
+    }
+  },
+  "alongside20DryRun": {
+    "handler": "shipAlongsideProductionTestJobHandler",
+    "params": {
+      "mode": "production_test",
+      "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+      "expectedShipCount": 5000,
+      "shipLimit": 20,
+      "pageSize": 20,
+      "parallelism": 1,
+      "startTime": "2025-01-01 00:00:00",
+      "endTime": "2026-01-01 00:00:00",
+      "windowDays": 30,
+      "engines": ["V3"],
+      "resume": true,
+      "retryCount": 2,
+      "logIntervalShips": 10,
+      "batchNo": "alongside-merchant20-2025-worldsea-v1r1-smoke",
+      "enableInsert": false,
+      "storeDetails": false
+    }
+  }
 }

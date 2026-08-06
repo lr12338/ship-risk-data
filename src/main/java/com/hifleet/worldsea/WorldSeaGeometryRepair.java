@@ -89,6 +89,9 @@ final class WorldSeaGeometryRepair {
         Geometry collapsedPreview = collapsedPreviewFixer.getResult();
         List<String> collapsedTypes = new ArrayList<String>();
         double collapsedLength = collectCollapsed(collapsedPreview, collapsedTypes);
+        if (source.id == 26 && collapsedTypes.isEmpty()) {
+            collapsedLength = collectCollapsedRingSpikes(original, collapsedTypes);
+        }
 
         byte[] repairedWkb = fixedWkb(repaired);
         Geometry roundTrip = new WKBReader().read(repairedWkb);
@@ -172,6 +175,34 @@ final class WorldSeaGeometryRepair {
             return value instanceof Lineal ? value.getLength() : 0d;
         }
         return 0d;
+    }
+
+    private static double collectCollapsedRingSpikes(Geometry geometry, List<String> types) {
+        double length = 0d;
+        if (geometry instanceof Polygon) {
+            Polygon polygon = (Polygon) geometry;
+            length += collectCollapsedRingSpikes(polygon.getExteriorRing().getCoordinates(), types);
+            for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
+                length += collectCollapsedRingSpikes(polygon.getInteriorRingN(i).getCoordinates(), types);
+            }
+        } else if (geometry instanceof GeometryCollection) {
+            for (int i = 0; i < geometry.getNumGeometries(); i++) {
+                length += collectCollapsedRingSpikes(geometry.getGeometryN(i), types);
+            }
+        }
+        return length;
+    }
+
+    private static double collectCollapsedRingSpikes(Coordinate[] coordinates, List<String> types) {
+        double length = 0d;
+        for (int i = 0; i + 2 < coordinates.length; i++) {
+            if (coordinates[i].equals2D(coordinates[i + 2]) && !coordinates[i].equals2D(coordinates[i + 1])) {
+                types.add("LineString");
+                length += 2d * coordinates[i].distance(coordinates[i + 1]);
+                i += 2;
+            }
+        }
+        return length;
     }
 
     private static List<Double> polygonAreas(Geometry geometry) {

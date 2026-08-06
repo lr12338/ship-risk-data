@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNotNull;
 
 public class WorldSeaMaskLoaderTest {
@@ -91,6 +92,19 @@ public class WorldSeaMaskLoaderTest {
         loader(1).build(meta, rows, System.currentTimeMillis());
     }
 
+    @Test
+    public void configIdentityIncludesEveryStrictEvidenceGate() {
+        String identity = new WorldSeaMaskProperties().identity(WorldSeaTestFixtures.snapshot());
+        assertTrue(identity.contains("datasetVersion=WORLD_SEA_102_V1R1"));
+        assertTrue(identity.contains("geometryFingerprint=fingerprint"));
+        assertTrue(identity.contains("coverage=1.0"));
+        assertTrue(identity.contains("shadowCoverage=0.95"));
+        assertTrue(identity.contains("requireEventCenter=true"));
+        assertTrue(identity.contains("requireOwnPoint=true"));
+        assertTrue(identity.contains("requireTargetPoint=true"));
+        assertTrue(identity.contains("requireMidpoint=true"));
+    }
+
     private WorldSeaMaskLoader loader(int count) {
         WorldSeaMaskProperties properties = new WorldSeaMaskProperties();
         properties.setExpectedFeatureCount(count);
@@ -109,7 +123,7 @@ public class WorldSeaMaskLoaderTest {
     }
     private Map<String, Object> meta(List<WorldSeaMaskLoader.Row> rows) {
         Map<String, Object> result = new HashMap<String, Object>();
-        result.put("dataset_version", "WORLD_SEA_102_V1");
+        result.put("dataset_version", "WORLD_SEA_102_V1R1");
         result.put("source_file_sha256", "source");
         result.put("geometry_fingerprint", WorldSeaMaskLoader.fingerprint(rows));
         result.put("coordinate_assumption", WorldSeaMaskLoader.COORDINATE_ASSUMPTION);

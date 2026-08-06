@@ -10,7 +10,7 @@ public class WorldSeaMaskProperties {
     @Value("${ship.behavior.world-sea-mask.datasource:NEWDATAANALYSIS}") private String datasource = "NEWDATAANALYSIS";
     @Value("${ship.behavior.world-sea-mask.schema:dataanalysis}") private String schema = "dataanalysis";
     @Value("${ship.behavior.world-sea-mask.table:ship_behavior_world_sea}") private String table = "ship_behavior_world_sea";
-    @Value("${ship.behavior.world-sea-mask.dataset-version:WORLD_SEA_102_V1}") private String datasetVersion = "WORLD_SEA_102_V1";
+    @Value("${ship.behavior.world-sea-mask.dataset-version:WORLD_SEA_102_V1R1}") private String datasetVersion = "WORLD_SEA_102_V1R1";
     @Value("${ship.behavior.world-sea-mask.expected-feature-count:102}") private int expectedFeatureCount = 102;
     @Value("${ship.behavior.world-sea-mask.mode:STRICT_ALL_EVIDENCE}") private String mode = "STRICT_ALL_EVIDENCE";
     @Value("${ship.behavior.world-sea-mask.min-evidence-coverage:1.0}") private double minEvidenceCoverage = 1.0d;
@@ -52,6 +52,8 @@ public class WorldSeaMaskProperties {
                 + "|datasetVersion=" + snapshot.getDatasetVersion()
                 + "|sourceSha256=" + snapshot.getSourceFileSha256()
                 + "|geometryFingerprint=" + snapshot.getGeometryFingerprint()
+                + "|requireOwnPoint=" + requireOwnPoint
+                + "|requireTargetPoint=" + requireTargetPoint
                 + "|requireMidpoint=" + requirePairMidpoint
                 + "|requireEventCenter=" + requireEventCenter;
     }

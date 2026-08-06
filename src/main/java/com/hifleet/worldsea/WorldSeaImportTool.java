@@ -277,6 +277,7 @@ public final class WorldSeaImportTool {
         WorldSeaReleaseStateMachine.require(release.status,
                 WorldSeaReleaseStateMachine.Status.PUBLISHED_INACTIVE,
                 WorldSeaReleaseStateMachine.Status.NOOP_IDENTICAL);
+        WorldSeaRepairApproval.readApproved(APPROVAL_FILE, release.fingerprint);
         Validation formalValue = inspectTable(connection, FORMAL, true);
         if (formalValue.rows.size() != 102 || !release.fingerprint.equals(formalValue.fingerprint)) {
             throw new IllegalStateException("formal table does not match inactive release");

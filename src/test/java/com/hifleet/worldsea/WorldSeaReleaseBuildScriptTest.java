@@ -23,25 +23,25 @@ public class WorldSeaReleaseBuildScriptTest {
         run(repo, "git", "config", "user.name", "Test");
         Files.write(repo.resolve("tracked.txt"), Arrays.asList("one"), StandardCharsets.UTF_8);
         run(repo, "git", "add", "tracked.txt"); run(repo, "git", "commit", "-m", "one");
-        run(repo, "git", "branch", "-M", "codex/world-sea-mask-v1-hardening");
+        run(repo, "git", "branch", "-M", "codex/world-sea-data-repair-v1");
         run(repo, "git", "remote", "add", "github", remote.toString());
-        run(repo, "git", "push", "-u", "github", "codex/world-sea-mask-v1-hardening");
+        run(repo, "git", "push", "-u", "github", "codex/world-sea-data-repair-v1");
 
         Path script = java.nio.file.Paths.get("scripts/build_world_sea_release.sh").toAbsolutePath();
         Result clean = execute(repo, script.toString(), "--verify-source-only", repo.toString(),
-                "github", "codex/world-sea-mask-v1-hardening");
+                "github", "codex/world-sea-data-repair-v1");
         assertEquals(clean.output, 0, clean.exitCode);
         assertTrue(clean.output.contains("gitDirty=false"));
 
         Files.write(repo.resolve("tracked.txt"), Arrays.asList("dirty"), StandardCharsets.UTF_8);
         assertNotEquals(0, execute(repo, script.toString(), "--verify-source-only", repo.toString(),
-                "github", "codex/world-sea-mask-v1-hardening").exitCode);
+                "github", "codex/world-sea-data-repair-v1").exitCode);
         run(repo, "git", "checkout", "--", "tracked.txt");
 
         Files.write(repo.resolve("tracked.txt"), Arrays.asList("two"), StandardCharsets.UTF_8);
         run(repo, "git", "add", "tracked.txt"); run(repo, "git", "commit", "-m", "two");
         assertNotEquals(0, execute(repo, script.toString(), "--verify-source-only", repo.toString(),
-                "github", "codex/world-sea-mask-v1-hardening").exitCode);
+                "github", "codex/world-sea-data-repair-v1").exitCode);
     }
 
     private void run(Path directory, String... command) throws Exception {

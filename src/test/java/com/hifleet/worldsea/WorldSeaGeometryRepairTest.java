@@ -93,6 +93,19 @@ public class WorldSeaGeometryRepairTest {
         assertTrue(first.features.get(0).idempotent);
     }
 
+    @Test
+    public void baffinCollapsedRingSpikeIsAuditedButNotWrittenAsLinework() throws Exception {
+        Polygon spike = factory.createPolygon(new Coordinate[]{new Coordinate(0, 0), new Coordinate(2, 0),
+                new Coordinate(2, 2), new Coordinate(1, 2), new Coordinate(1, 3), new Coordinate(1, 2),
+                new Coordinate(0, 2), new Coordinate(0, 0)});
+        WorldSeaGeometryRepair.FeatureRepair value = WorldSeaGeometryRepair.repair(
+                Arrays.asList(row(26, spike))).features.get(0);
+        assertEquals(Arrays.asList("LineString"), value.collapsedComponentTypes);
+        assertEquals(2d, value.collapsedComponentLength, 0d);
+        assertTrue(value.repairedGeometry instanceof org.locationtech.jts.geom.Polygonal);
+        assertTrue(value.repairedGeometry.isValid());
+    }
+
     private WorldSeaGeometryRepair.SourceRow row(int id, Geometry geometry) {
         geometry.setSRID(101);
         return new WorldSeaGeometryRepair.SourceRow(id, "Sea " + id, "海区" + id,

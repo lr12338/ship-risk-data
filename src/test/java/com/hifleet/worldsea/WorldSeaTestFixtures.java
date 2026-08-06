@@ -16,7 +16,7 @@ final class WorldSeaTestFixtures {
                 1, "Test Sea", "测试海", polygon, PreparedGeometryFactory.prepare(polygon)));
         index.build();
         return new WorldSeaMaskSnapshot(index, 1, 1, 0, 5,
-                "WORLD_SEA_102_V1", "source", "fingerprint", 1,
+                "WORLD_SEA_102_V1R1", "source", "fingerprint", 1,
                 WorldSeaMaskLoader.COORDINATE_ASSUMPTION);
     }
     static WorldSeaMaskService service() {
@@ -38,7 +38,7 @@ final class WorldSeaTestFixtures {
                 PreparedGeometryFactory.prepare(right)));
         index.build();
         final WorldSeaMaskSnapshot snapshot = new WorldSeaMaskSnapshot(index, 2, 2, 0, 10,
-                "WORLD_SEA_102_V1", "source", "fingerprint", 1,
+                "WORLD_SEA_102_V1R1", "source", "fingerprint", 1,
                 WorldSeaMaskLoader.COORDINATE_ASSUMPTION);
         return new WorldSeaMaskService(new WorldSeaMaskLoader(null, new WorldSeaMaskProperties()) {
             @Override public WorldSeaMaskSnapshot load() { return snapshot; }
@@ -57,7 +57,7 @@ final class WorldSeaTestFixtures {
                 PreparedGeometryFactory.prepare(west)));
         index.build();
         final WorldSeaMaskSnapshot snapshot = new WorldSeaMaskSnapshot(index, 2, 2, 0, 10,
-                "WORLD_SEA_102_V1", "source", "fingerprint", 1,
+                "WORLD_SEA_102_V1R1", "source", "fingerprint", 1,
                 WorldSeaMaskLoader.COORDINATE_ASSUMPTION);
         return new WorldSeaMaskService(new WorldSeaMaskLoader(null, new WorldSeaMaskProperties()) {
             @Override public WorldSeaMaskSnapshot load() { return snapshot; }

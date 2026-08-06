@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_branch="${WORLD_SEA_RELEASE_BRANCH:-codex/world-sea-mask-v1-hardening}"
+expected_branch="${WORLD_SEA_RELEASE_BRANCH:-codex/world-sea-data-repair-v1}"
 remote_name="${WORLD_SEA_RELEASE_REMOTE:-github}"
 
 verify_source() {
@@ -68,15 +68,31 @@ read -r tests_run test_failures test_errors test_skipped <<<"$test_counts"
 jar_source="$build_worktree/target/ship-risk-data-0.0.1-SNAPSHOT.jar"
 [ -f "$jar_source" ] || { echo "release JAR missing" >&2; exit 26; }
 
-output_dir="${WORLD_SEA_RELEASE_OUTPUT_DIR:-$repo_root/dist/world-sea-mask-v1-hardening}"
+output_dir="${WORLD_SEA_RELEASE_OUTPUT_DIR:-$repo_root/dist/world-sea-mask-v1r1}"
+[ -n "${WORLD_SEA_REPAIR_REPORT_DIR:-}" ] || { echo "WORLD_SEA_REPAIR_REPORT_DIR is required" >&2; exit 27; }
+report_dir="$(cd "$WORLD_SEA_REPAIR_REPORT_DIR" && pwd -P)"
+for report in repair-report.json repair-report.csv repair-report.md repair-atlas.html \
+  repair-approval.template.json original-invalid.geojson repaired-preview.geojson repair-difference.geojson; do
+  [ -f "$report_dir/$report" ] || { echo "repair report artifact missing: $report" >&2; exit 27; }
+done
+grep -q '31dd89bd4968f8f436135b57cdb81e870ac7b827d4dc2c086282e7dfe91ab9c6' "$report_dir/repair-report.json"
 [ ! -e "$output_dir" ] || { echo "release output already exists: $output_dir" >&2; exit 27; }
 mkdir -p "$(dirname "$output_dir")"
-staging_dir="$(mktemp -d "$(dirname "$output_dir")/.world-sea-mask-v1-hardening.XXXXXX")"
+staging_dir="$(mktemp -d "$(dirname "$output_dir")/.world-sea-mask-v1r1.XXXXXX")"
 cp "$jar_source" "$staging_dir/ship-risk-data-0.0.1-SNAPSHOT.jar"
 for artifact in README.md application.properties.delta migration.sql query.sql preflight.sql \
   rollback.md release-state-machine.md failure-recovery-matrix.md xxl-job-params.json; do
   cp "$build_worktree/deploy/world-sea-mask-v1/$artifact" "$staging_dir/$artifact"
 done
+for report in repair-report.json repair-report.csv repair-report.md repair-atlas.html \
+  original-invalid.geojson repaired-preview.geojson repair-difference.geojson; do
+  cp "$report_dir/$report" "$staging_dir/$report"
+done
+if [ -f "$report_dir/repair-approval.json" ]; then
+  cp "$report_dir/repair-approval.json" "$staging_dir/repair-approval.json"
+else
+  cp "$report_dir/repair-approval.template.json" "$staging_dir/repair-approval.json"
+fi
 jar_sha="$(shasum -a 256 "$staging_dir/ship-risk-data-0.0.1-SNAPSHOT.jar" | awk '{print $1}')"
 printf '%s  %s\n' "$jar_sha" ship-risk-data-0.0.1-SNAPSHOT.jar \
   >"$staging_dir/ship-risk-data-0.0.1-SNAPSHOT.jar.sha256"
@@ -102,10 +118,19 @@ cat >"$staging_dir/release-manifest.json" <<EOF
   "testFailures": $test_failures,
   "testErrors": $test_errors,
   "testSkipped": $test_skipped,
-  "datasetVersion": "WORLD_SEA_102_V1",
-  "datasetStatus": "BLOCKED_INVALID_GEOMETRY",
+  "datasetVersion": "WORLD_SEA_102_V1R1",
+  "parentDatasetVersion": "WORLD_SEA_102_V1",
+  "datasetStatus": "PARTIAL_AWAITING_REVIEW",
+  "releaseReadyForManualDeployment": false,
   "sourceFileSha256": "de7d39f8e652721796d64ce8697bb036da30280500940de8ece70ece4914266b",
-  "stageGeometryFingerprint": "81c810a9db7d319fdfbf9a17805a61493d3beda23b09154958ce2a2b3a31fd1e",
+  "originalStageFingerprint": "81c810a9db7d319fdfbf9a17805a61493d3beda23b09154958ce2a2b3a31fd1e",
+  "repairedGeometryFingerprint": "31dd89bd4968f8f436135b57cdb81e870ac7b827d4dc2c086282e7dfe91ab9c6",
+  "repairedStageTable": "ship_behavior_world_sea_stage_20260806_175527",
+  "formalTablePublished": false,
+  "activeDatasetVersion": null,
+  "reviewStatus": "PENDING_REVIEW",
+  "supersededJarSha256": "9e2f865dda6fcf1da9983c8ce2fedfcc37570b681bfc199b7bc1e30215da16b5",
+  "supersededJarStatus": "SUPERSEDED_NOT_FOR_WORLD_SEA_102_V1R1",
   "buildTimeUtc": "$build_time"
 }
 EOF

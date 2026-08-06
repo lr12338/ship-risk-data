@@ -1,40 +1,21 @@
-# WORLD_SEA_MASK 可恢复发布状态机
+# WORLD_SEA_MASK V1R1 可恢复发布状态机
 
-| 状态 | 已完成步骤 | 唯一正常下一步 |
+| 状态/现实 | 已完成步骤 | 唯一正常下一步 |
 |---|---|---|
-| `NEW` | 迁移基础表 | `IMPORT_STAGE` |
-| `STAGE_IMPORTED` | 暂存数据完整导入并与受控文件指纹一致 | `VALIDATE_STAGE` |
-| `STAGE_VALIDATED` | 102 条、类型、坐标、拓扑、指纹全部通过 | `REGISTER_STAGE` |
-| `STAGED` | 发布信息登记完成 | `PUBLISH_STAGE` |
-| `PUBLISHING` | backup 名称和旧 ACTIVE 已持久化，可能正在/已经 RENAME | `RESUME_RELEASE` |
-| `PUBLISHED_INACTIVE` | 正式表已切换，但应用不可加载 | `ACTIVATE_DATASET` |
-| `NOOP_IDENTICAL` | 正式表指纹与新数据相同，没有切表 | `ACTIVATE_DATASET` 或幂等结束 |
-| `ACTIVE` | 正式表严格复核且唯一 ACTIVE 已事务提交 | 无 |
-| `ROLLBACK_REQUIRED` | 数据库现实与发布记录不一致 | `ROLLBACK_RELEASE` |
-| `ROLLED_BACK` | 正式表已恢复/隔离，元数据已恢复 | 无 |
-| `FAILED` | 步骤失败并记录截断错误 | `STATE` 后 `RESUME_RELEASE` |
+| repaired stage + `PENDING_REVIEW` | 修复、审计、严格校验 | 人工审核 |
+| repaired stage + matching `APPROVED` | 审批文件就绪 | `REGISTER_STAGE` |
+| `STAGED` | 发布身份已登记 | `PUBLISH_STAGE` |
+| `PUBLISHING` | 发布意图、backup 和旧 ACTIVE 已持久化 | `RESUME_RELEASE` |
+| `PUBLISHED_INACTIVE` | formal 已切换，尚不可被应用加载 | `ACTIVATE_DATASET` |
+| `NOOP_IDENTICAL` | formal 已是相同指纹 | `ACTIVATE_DATASET` 或幂等结束 |
+| `ACTIVE` | formal 严格复核且唯一 ACTIVE 已事务提交 | 无 |
+| `ROLLBACK_REQUIRED` | 数据库现实不一致 | `ROLLBACK_RELEASE` |
+| `ROLLED_BACK` | 正式表和元数据已恢复/隔离 | 无 |
 
-`APPLY` 已禁用。发布表切换与 ACTIVE 激活是两个独立步骤。
+`APPLY`、原始 `IMPORT_STAGE` 和 `VALIDATE_STAGE` 在 V1R1 禁用。修复、REGISTER、PUBLISH、ACTIVATE 均是独立命令。
 
-## RENAME 后恢复
+`REGISTER_STAGE` 强制校验 approval 状态、审核人、审核时间、7 个 ID、Baffin/Bo Hai 决策和 repaired 指纹，并把 7 条审计行事务性更新为 APPROVED。
 
-`PUBLISH_STAGE` 在执行 RENAME 前先持久化 `PUBLISHING`、backup 表名和旧 ACTIVE 身份。若进程在 RENAME 后、状态更新前中断：
+`PUBLISH_STAGE` 再次读取审批文件和 repaired stage；RENAME 前持久化 `PUBLISHING`。若进程在 RENAME 后中断，`STATE` 根据 stage/formal/backup/指纹现实判断，`RESUME_RELEASE` 只恢复为 `PUBLISHED_INACTIVE`，不会自动激活。
 
-1. `STATE` 发现 stage 不存在、formal 指纹等于 release 指纹且状态仍为 `PUBLISHING`；
-2. `RESUME_RELEASE` 将状态恢复为 `PUBLISHED_INACTIVE`；
-3. 不会自动激活；仍需独立执行 `ACTIVATE_DATASET`。
-
-`NOOP_IDENTICAL` 会持久化 `publish_mode=NOOP_IDENTICAL`。它没有切换正式表，因此回滚只恢复旧 ACTIVE 元数据，不会改名或隔离正式表。
-
-## ACTIVE 激活
-
-激活前重新读取正式表，执行 102 条、拓扑和 fingerprint 严格校验。随后在一个数据库事务中：旧 ACTIVE 设为 `RETIRED`、当前 meta 设为 `ACTIVE`、release 设为 `ACTIVE`。事务失败时保持 `PUBLISHED_INACTIVE`，应用继续 fail-closed。
-
-## 幂等导入
-
-`IMPORT_STAGE` 会把受控文件解析为 ID→WKB 清单：
-
-- stage 不存在：创建并逐条导入；
-- stage 部分导入：逐 ID 比对，补写缺失行；
-- stage 已完整且指纹一致：零 INSERT 幂等成功；
-- 任一已有 ID 内容不同、出现额外 ID：拒绝，不删除 stage。
+`ACTIVATE_DATASET` 再次严格读取 formal 的 102 条真实 WKB和指纹，然后在事务中执行旧 ACTIVE→RETIRED、新版本→ACTIVE，并验证 ACTIVE 数量为 1。
