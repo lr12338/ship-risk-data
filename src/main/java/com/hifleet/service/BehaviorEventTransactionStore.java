@@ -8,6 +8,7 @@ import com.hifleet.repository.ShipBehaviorEventRepository;
 import com.hifleet.trajectory.TrajectoryPoint;
 import com.hifleet.trajectory.TrajectoryUtils;
 import com.hifleet.worldsea.WorldSeaEventGate;
+import com.hifleet.loitering.LoiteringPortEventGate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -47,6 +48,9 @@ public class BehaviorEventTransactionStore {
     @Autowired
     private WorldSeaEventGate worldSeaEventGate;
 
+    @Autowired
+    private LoiteringPortEventGate loiteringPortEventGate;
+
     public void replace(final String behaviorType, final String batchNo,
                         final String mmsi, final String startTime, final String endTime,
                         final List<String> ruleVersions,
@@ -64,6 +68,7 @@ public class BehaviorEventTransactionStore {
         final List<ShipBehaviorTrace> safeTraces = traces == null
                 ? new ArrayList<ShipBehaviorTrace>() : traces;
         if (worldSeaEventGate != null) worldSeaEventGate.requirePassed(safeTraces);
+        if (loiteringPortEventGate != null) loiteringPortEventGate.requirePassed(safeTraces);
         new TransactionTemplate(new DataSourceTransactionManager(dataSource)).execute(status -> {
             Set<String> versions = new HashSet<String>();
             if (ruleVersions != null) {

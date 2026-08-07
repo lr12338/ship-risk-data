@@ -8,6 +8,11 @@ import com.hifleet.repository.TargetShipRepository;
 import com.hifleet.service.BehaviorEventTransactionStore;
 import com.hifleet.trajectory.TrajectoryLoaderService;
 import com.hifleet.trajectory.TrajectoryPoint;
+import com.hifleet.loitering.LoiteringPortEventGate;
+import com.hifleet.loitering.LoiteringPortSceneProperties;
+import com.hifleet.loitering.LoiteringPortSceneService;
+import com.hifleet.loitering.LoiteringPortSceneSnapshot;
+import org.locationtech.jts.index.strtree.STRtree;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -42,7 +47,7 @@ public class LoiteringProductionTestServiceTest {
         when(fixture.analysis.analysisLoiteringV2Production(
                 anyString(), anyList(), anyString()))
                 .thenReturn(Collections.singletonList(trace(
-                        "LOITERING_V2_INSURANCE")));
+                        "LOITERING_V2_PORT_APPROACH_V1")));
 
         LoiteringProductionTestService.Result result = fixture.service.run(params(true));
 
@@ -89,12 +94,27 @@ public class LoiteringProductionTestServiceTest {
         fixture.analysis = mock(ShipBehaviorAnalysisService.class);
         fixture.v3 = mock(ShipLoiteringV3BatchService.class);
         fixture.store = mock(BehaviorEventTransactionStore.class);
+        fixture.sceneService = mock(LoiteringPortSceneService.class);
+        fixture.sceneProperties = mock(LoiteringPortSceneProperties.class);
+        fixture.sceneGate = mock(LoiteringPortEventGate.class);
+        LoiteringPortSceneSnapshot snapshot = new LoiteringPortSceneSnapshot(
+                new STRtree(), new STRtree(), Collections.emptyList(), "scene");
+        when(fixture.sceneService.requireSnapshot()).thenReturn(snapshot);
+        when(fixture.sceneProperties.getMinSpeed()).thenReturn(1.0);
+        when(fixture.sceneProperties.getMaxDistanceNm()).thenReturn(10.0);
+        when(fixture.sceneProperties.getMinEvidenceCoverage()).thenReturn(1.0);
+        when(fixture.sceneGate.getLastStats()).thenReturn(new LoiteringPortEventGate.GateStats());
+        when(fixture.analysis.loiteringPortSplitStats()).thenReturn(new com.hifleet.loitering.LoiteringPortTrackSegmenter.Stats());
         ReflectionTestUtils.setField(fixture.service, "targetShipRepository", fixture.targets);
         ReflectionTestUtils.setField(fixture.service, "statusRepository", fixture.status);
         ReflectionTestUtils.setField(fixture.service, "trajectoryLoaderService", fixture.loader);
         ReflectionTestUtils.setField(fixture.service, "analysisService", fixture.analysis);
         ReflectionTestUtils.setField(fixture.service, "v3Service", fixture.v3);
         ReflectionTestUtils.setField(fixture.service, "eventStore", fixture.store);
+        ReflectionTestUtils.setField(fixture.service, "loiteringPortSceneService", fixture.sceneService);
+        ReflectionTestUtils.setField(fixture.service, "loiteringPortSceneProperties", fixture.sceneProperties);
+        ReflectionTestUtils.setField(fixture.service, "loiteringPortEventGate", fixture.sceneGate);
+        ReflectionTestUtils.setField(fixture.service, "loiteringRuleVersion", "LOITERING_V2_PORT_APPROACH_V1");
         ReflectionTestUtils.setField(fixture.service, "simplifyZoom", 15);
         ReflectionTestUtils.setField(fixture.service, "maxPointsPerShip", 200000);
         TargetShip ship = new TargetShip(
@@ -145,5 +165,8 @@ public class LoiteringProductionTestServiceTest {
         private ShipBehaviorAnalysisService analysis;
         private ShipLoiteringV3BatchService v3;
         private BehaviorEventTransactionStore store;
+        private LoiteringPortSceneService sceneService;
+        private LoiteringPortSceneProperties sceneProperties;
+        private LoiteringPortEventGate sceneGate;
     }
 }

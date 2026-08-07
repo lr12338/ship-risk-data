@@ -1005,7 +1005,7 @@ public class ShipLoiteringDetector {
     }
 
     public static class LoiteringConfig {
-        private String ruleVersion = "LOITERING_V2_INSURANCE";
+        private String ruleVersion = "LOITERING_V2_PORT_APPROACH_V1";
         private long maxGapMinutes = 30L;
         private long eventSplitGapMinutes = 120L;
         private double maxValidSpeed = 80.0;

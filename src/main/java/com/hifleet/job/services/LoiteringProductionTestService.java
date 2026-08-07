@@ -15,6 +15,10 @@ import com.hifleet.worldsea.WorldSeaMaskService;
 import com.hifleet.worldsea.WorldSeaMaskSnapshot;
 import com.hifleet.worldsea.WorldSeaEventGate;
 import com.hifleet.worldsea.WorldSeaTrackSegmenter;
+import com.hifleet.loitering.LoiteringPortEventGate;
+import com.hifleet.loitering.LoiteringPortSceneProperties;
+import com.hifleet.loitering.LoiteringPortSceneService;
+import com.hifleet.loitering.LoiteringPortSceneSnapshot;
 import com.xxl.job.core.log.XxlJobLogger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -61,6 +65,9 @@ public class LoiteringProductionTestService {
     @Autowired private WorldSeaMaskProperties worldSeaMaskProperties;
     @Autowired private WorldSeaTrackSegmenter worldSeaTrackSegmenter;
     @Autowired private WorldSeaEventGate worldSeaEventGate;
+    @Autowired private LoiteringPortSceneService loiteringPortSceneService;
+    @Autowired private LoiteringPortSceneProperties loiteringPortSceneProperties;
+    @Autowired private LoiteringPortEventGate loiteringPortEventGate;
     @Autowired(required = false) private WorldSeaMaskAuditRepository worldSeaMaskAuditRepository;
 
     @Value("${ship.behavior.trajectory.simplify-zoom:15}")
@@ -69,17 +76,21 @@ public class LoiteringProductionTestService {
     @Value("${ship.behavior.loitering.production.max-points-per-ship:200000}")
     private int maxPointsPerShip;
 
+    @Value("${ship.behavior.loitering.rule-version:LOITERING_V2_PORT_APPROACH_V1}")
+    private String loiteringRuleVersion;
+
     public Result run(String rawParams) {
         final ProductionTestParams params = ProductionTestParams.parse(rawParams);
         params.validateLoitering();
         WorldSeaMaskSnapshot mask = worldSeaMaskService == null ? null : worldSeaMaskService.requireSnapshot();
+        LoiteringPortSceneSnapshot portScene = loiteringPortSceneService.requireSnapshot();
         if (runBatchRepository != null) {
             String versions = selectedVersions(params).toString();
             runBatchRepository.claim(params.getBatchNo(), ShipBehaviorEvent.TYPE_LOITERING,
                     params.getListBatchNo(), params.getStartTime(), params.getEndTime(),
                     versions, params.isEnableInsert(),
                     params.configHash(ShipBehaviorEvent.TYPE_LOITERING, versions,
-                            mask == null ? "" : worldSeaMaskProperties.identity(mask)));
+                            sceneConfigIdentity(mask, portScene)));
         }
         targetShipRepository.validate(params.getListBatchNo(), params.getExpectedShipCount());
         if (params.getEngines().contains("V3")) {
@@ -179,6 +190,14 @@ public class LoiteringProductionTestService {
                                 ShipBehaviorEvent.TYPE_LOITERING, window.start, window.end,
                                 worldSeaEventGate.getLastStats(), 0, 0);
                     }
+                    LoiteringPortEventGate.GateStats sceneStats = loiteringPortEventGate.getLastStats();
+                    XxlJobLogger.log("LOITERING_PORT_SCENE audit rawCandidateCount=" + sceneStats.getRawCandidateCount()
+                            + " scenePassCount=" + sceneStats.getScenePassCount()
+                            + " sceneRejectedCount=" + sceneStats.getSceneRejectedCount()
+                            + " belowMinSpeedSplitCount=" + analysisService.loiteringPortSplitStats().getBelowMinSpeedSplitCount()
+                            + " portOperationalRejectedCount=" + analysisService.loiteringPortSplitStats().getPortOperationalRejectedCount()
+                            + " anchorRejectedCount=" + analysisService.loiteringPortSplitStats().getAnchorRejectedCount()
+                            + " tooFarFromPortRejectedCount=" + analysisService.loiteringPortSplitStats().getTooFarFromPortRejectedCount());
                     if (params.isEnableInsert()) {
                         final int pointCount = points.size();
                         final int eventCount = traces.size();
@@ -285,12 +304,21 @@ public class LoiteringProductionTestService {
     private List<String> selectedVersions(ProductionTestParams params) {
         List<String> versions = new ArrayList<String>();
         if (params.getEngines().contains("V2")) {
-            versions.add("LOITERING_V2_INSURANCE");
+            versions.add(loiteringRuleVersion);
         }
         if (params.getEngines().contains("V3")) {
             versions.add("LOITERING_V3_PROD_TEST_2026H1");
         }
         return versions;
+    }
+
+    private String sceneConfigIdentity(WorldSeaMaskSnapshot mask, LoiteringPortSceneSnapshot portScene) {
+        return "WORLD_SEA=" + (mask == null ? "" : worldSeaMaskProperties.identity(mask))
+                + "|PORT_SCENE=" + portScene.getFingerprint()
+                + "|MIN_SPEED=" + loiteringPortSceneProperties.getMinSpeed()
+                + "|PORT_DISTANCE_NM=" + loiteringPortSceneProperties.getMaxDistanceNm()
+                + "|SCENE_COVERAGE=" + loiteringPortSceneProperties.getMinEvidenceCoverage()
+                + "|RULE=" + loiteringRuleVersion;
     }
 
     public static class Result {

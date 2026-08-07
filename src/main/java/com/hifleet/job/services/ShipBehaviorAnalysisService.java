@@ -29,6 +29,10 @@ import com.hifleet.trajectory.TrajectoryUtils;
 import com.hifleet.worldsea.WorldSeaEventGate;
 import com.hifleet.worldsea.WorldSeaMaskService;
 import com.hifleet.worldsea.WorldSeaTrackSegmenter;
+import com.hifleet.loitering.LoiteringPortEventGate;
+import com.hifleet.loitering.LoiteringPortSceneProperties;
+import com.hifleet.loitering.LoiteringPortSceneService;
+import com.hifleet.loitering.LoiteringPortTrackSegmenter;
 import com.xxl.job.core.log.XxlJobLogger;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -79,7 +83,7 @@ public class ShipBehaviorAnalysisService {
     @Value("${ship.behavior.loitering.min-points:3}")
     private int loiteringMinPoints;
 
-    @Value("${ship.behavior.loitering.rule-version:LOITERING_V2_INSURANCE}")
+    @Value("${ship.behavior.loitering.rule-version:LOITERING_V2_PORT_APPROACH_V1}")
     private String loiteringRuleVersion;
 
     @Value("${ship.behavior.loitering.max-gap-minutes:30}")
@@ -180,6 +184,9 @@ public class ShipBehaviorAnalysisService {
 
     @Value("${ship.behavior.loitering.weak.store-enabled:true}")
     private boolean loiteringWeakStoreEnabled;
+
+    @Value("${ship.behavior.loitering.min-speed:1.0}")
+    private double loiteringMinSpeed;
 
     @Value("${ship.behavior.loitering.weak.min-duration-minutes:60}")
     private long loiteringWeakMinDurationMinutes;
@@ -358,6 +365,10 @@ public class ShipBehaviorAnalysisService {
     @Autowired private WorldSeaMaskService worldSeaMaskService;
     @Autowired private WorldSeaTrackSegmenter worldSeaTrackSegmenter;
     @Autowired private WorldSeaEventGate worldSeaEventGate;
+    @Autowired private LoiteringPortSceneService loiteringPortSceneService;
+    @Autowired private LoiteringPortSceneProperties loiteringPortSceneProperties;
+    @Autowired private LoiteringPortTrackSegmenter loiteringPortTrackSegmenter;
+    @Autowired private LoiteringPortEventGate loiteringPortEventGate;
 
     public AnalysisResult analysisLoitering(String params) {
         JobParams jobParams = parseParams(params);
@@ -389,6 +400,7 @@ public class ShipBehaviorAnalysisService {
                                                              ShipLoiteringDetector.LoiteringConfig config,
                                                              ShipLoiteringDetector detector) {
         if (worldSeaMaskService != null) worldSeaMaskService.requireSnapshot();
+        loiteringPortSceneService.requireSnapshot();
         XxlJobLogger.log("LOITERING_V2 start mmsi=" + mmsi
                 + " startTime=" + jobParams.getStartTime()
                 + " endTime=" + jobParams.getEndTime()
@@ -399,9 +411,12 @@ public class ShipBehaviorAnalysisService {
         List<ShipBehaviorTrace> traces = new ArrayList<ShipBehaviorTrace>();
         List<List<TrajectoryPoint>> seaSegments = worldSeaTrackSegmenter == null
                 ? Collections.singletonList(points) : worldSeaTrackSegmenter.splitInside(points);
-        for (List<TrajectoryPoint> segment : seaSegments) {
-            traces.addAll(detector.detectWithTrace(mmsi, segment, config));
+        for (List<TrajectoryPoint> seaSegment : seaSegments) {
+            for (List<TrajectoryPoint> segment : loiteringPortTrackSegmenter.splitEligible(seaSegment)) {
+                traces.addAll(detector.detectWithTrace(mmsi, segment, config));
+            }
         }
+        traces = loiteringPortEventGate.filterAndAnnotate(traces);
         if (worldSeaEventGate != null) traces = worldSeaEventGate.filterAndAnnotate(traces);
         ShipLoiteringDetector.DetectionStats stats = detector.getLastStats();
         List<ShipBehaviorEvent> detected = extractEvents(traces);
@@ -590,27 +605,43 @@ public class ShipBehaviorAnalysisService {
     public List<ShipBehaviorTrace> analysisLoiteringV2Production(
             String mmsi, List<TrajectoryPoint> points, String batchNo) {
         if (worldSeaMaskService != null) worldSeaMaskService.requireSnapshot();
+        loiteringPortSceneService.requireSnapshot();
         ShipLoiteringDetector detector = new ShipLoiteringDetector();
         ShipLoiteringDetector.LoiteringConfig config = buildLoiteringConfig();
         List<ShipBehaviorTrace> traces = new ArrayList<ShipBehaviorTrace>();
         List<List<TrajectoryPoint>> seaSegments = worldSeaTrackSegmenter == null
                 ? Collections.singletonList(points) : worldSeaTrackSegmenter.splitInside(points);
-        for (List<TrajectoryPoint> segment : seaSegments) {
-            traces.addAll(detector.detectWithTrace(mmsi, segment, config));
+        for (List<TrajectoryPoint> seaSegment : seaSegments) {
+            for (List<TrajectoryPoint> segment : loiteringPortTrackSegmenter.splitEligible(seaSegment)) {
+                traces.addAll(detector.detectWithTrace(mmsi, segment, config));
+            }
         }
+        traces = loiteringPortEventGate.filterAndAnnotate(traces);
         if (worldSeaEventGate != null) traces = worldSeaEventGate.filterAndAnnotate(traces);
         for (ShipBehaviorTrace trace : traces) {
             ShipBehaviorEvent event = trace.getEvent();
             event.setBatchNo(batchNo);
             TraceRecipeService.attachLoitering(trace, "V2",
                     event.getStartTime(), event.getEndTime(), trajectorySimplifyZoom,
-                    TraceRecipeService.configHash(config));
+                    loiteringV2RuleConfigHash());
         }
         return traces;
     }
 
     public String loiteringV2RuleConfigHash() {
-        return TraceRecipeService.configHash(buildLoiteringConfig());
+        JSONObject value = new JSONObject(true);
+        value.put("rule", buildLoiteringConfig());
+        value.put("worldSeaFingerprint", worldSeaMaskService.requireSnapshot().getGeometryFingerprint());
+        value.put("portSceneFingerprint", loiteringPortSceneService.requireSnapshot().getFingerprint());
+        value.put("minSpeed", loiteringMinSpeed);
+        value.put("portApproachDistanceNm", loiteringPortSceneProperties.getMaxDistanceNm());
+        value.put("sceneCoverage", loiteringPortSceneProperties.getMinEvidenceCoverage());
+        value.put("ruleVersion", loiteringRuleVersion);
+        return TraceRecipeService.configHash(value);
+    }
+
+    public LoiteringPortTrackSegmenter.Stats loiteringPortSplitStats() {
+        return loiteringPortTrackSegmenter.getLastStats();
     }
 
     public String alongsideRuleConfigHash() {
