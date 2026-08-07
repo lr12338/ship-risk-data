@@ -45,6 +45,7 @@ public class LoiteringPortSceneLoader {
                     rs.getInt(1), rs.getString(2), rs.getDouble(3), rs.getDouble(4)));
             return build(operational, anchors, ports);
         } catch (Exception ex) {
+            if (ex instanceof IllegalStateException) throw (IllegalStateException) ex;
             throw new IllegalStateException("LOITERING_PORT_SCENE_UNAVAILABLE", ex);
         }
     }
@@ -60,8 +61,10 @@ public class LoiteringPortSceneLoader {
             Collections.sort(rows, Comparator.comparing(Row::sortKey));
             for (Row row : rows) {
                 Geometry geometry = reader.read(row.wkb);
-                if (geometry.isEmpty() || !geometry.isValid() || !("Polygon".equals(geometry.getGeometryType())
-                        || "MultiPolygon".equals(geometry.getGeometryType()))) throw new IllegalStateException("LOITERING_PORT_SCENE_UNAVAILABLE");
+                if (geometry.isEmpty()) throw invalid(row, geometry, "empty geometry");
+                if (!geometry.isValid()) throw invalid(row, geometry, "invalid geometry");
+                if (!("Polygon".equals(geometry.getGeometryType()) || "MultiPolygon".equals(geometry.getGeometryType())))
+                    throw invalid(row, geometry, "unsupported geometry type");
                 update(digest, row.type); update(digest, String.valueOf(row.id)); update(digest, row.name); digest.update(row.wkb);
                 STRtree index = "PORT_OPERATIONAL_ZONE".equals(row.type) ? opIndex : anchorIndex;
                 index.insert(geometry.getEnvelopeInternal(), LoiteringPortSceneSnapshot.entry(geometry, PreparedGeometryFactory.prepare(geometry)));
@@ -76,11 +79,20 @@ public class LoiteringPortSceneLoader {
             }
             opIndex.build(); anchorIndex.build();
             return new LoiteringPortSceneSnapshot(opIndex, anchorIndex, ports, hex(digest.digest()));
-        } catch (Exception ex) { throw new IllegalStateException("LOITERING_PORT_SCENE_UNAVAILABLE", ex); }
+        } catch (Exception ex) {
+            if (ex instanceof IllegalStateException) throw (IllegalStateException) ex;
+            throw new IllegalStateException("LOITERING_PORT_SCENE_UNAVAILABLE", ex);
+        }
     }
     static final class Row { final String type; final int id; final String name; final byte[] wkb;
         Row(String type, int id, String name, byte[] wkb) { this.type=type; this.id=id; this.name=name; this.wkb=wkb; }
         String sortKey() { return type + "\u0000" + id + "\u0000" + (name == null ? "" : name); } }
+    private static IllegalStateException invalid(Row row, Geometry geometry, String reason) {
+        return new IllegalStateException("LOITERING_PORT_SCENE_INVALID source="
+                + ("PORT_OPERATIONAL_ZONE".equals(row.type) ? "dataanalysis.zones_with_port_id" : "ais41.alertzones")
+                + " id=" + row.id + " name=" + (row.name == null ? "" : row.name)
+                + " geometryType=" + geometry.getGeometryType() + " reason=" + reason);
+    }
     private static void update(MessageDigest d, String value) { byte[] b=(value==null?"":value).getBytes(StandardCharsets.UTF_8); d.update(ByteBuffer.allocate(4).putInt(b.length).array()); d.update(b); }
     private static String hex(byte[] value) { StringBuilder r=new StringBuilder(); for(byte b:value) r.append(String.format("%02x", b & 255)); return r.toString(); }
 }

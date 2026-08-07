@@ -10,6 +10,7 @@ import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.locationtech.jts.index.strtree.STRtree;
+import org.locationtech.jts.io.WKBWriter;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -18,6 +19,7 @@ import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -61,6 +63,22 @@ public class LoiteringPortSceneTest {
     public void emptyAnchorOrPortDataFailsClosed() {
         new LoiteringPortSceneLoader(null, null, new LoiteringPortSceneProperties())
                 .build(Collections.<LoiteringPortSceneLoader.Row>emptyList(), Collections.<LoiteringPortSceneLoader.Row>emptyList(), Collections.<LoiteringPortSceneSnapshot.Port>emptyList());
+    }
+
+    @Test
+    public void invalidGeometryIdentifiesItsSourceAndId() {
+        GeometryFactory factory = new GeometryFactory();
+        Geometry invalid = factory.createPolygon(new Coordinate[]{new Coordinate(0,0), new Coordinate(1,1), new Coordinate(1,0), new Coordinate(0,1), new Coordinate(0,0)});
+        try {
+            new LoiteringPortSceneLoader(null, null, new LoiteringPortSceneProperties()).build(
+                    Collections.singletonList(new LoiteringPortSceneLoader.Row("PORT_OPERATIONAL_ZONE", 42, "bad-port", new WKBWriter().write(invalid))),
+                    Collections.singletonList(new LoiteringPortSceneLoader.Row("ANCHORAGE_ZONE", 43, "good-anchor", new WKBWriter().write(factory.createPolygon(new Coordinate[]{new Coordinate(2,2), new Coordinate(3,2), new Coordinate(3,3), new Coordinate(2,3), new Coordinate(2,2)})))),
+                    Collections.singletonList(new LoiteringPortSceneSnapshot.Port(1, "Test Port", 0, 0)));
+            fail("expected invalid geometry to fail closed");
+        } catch (IllegalStateException ex) {
+            assertTrue(ex.getMessage().contains("source=dataanalysis.zones_with_port_id id=42 name=bad-port"));
+            assertTrue(ex.getMessage().contains("reason=invalid geometry"));
+        }
     }
 
     private LoiteringPortSceneService service(LoiteringPortSceneSnapshot snapshot) {
