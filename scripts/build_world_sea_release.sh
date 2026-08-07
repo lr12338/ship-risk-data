@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_branch="${WORLD_SEA_RELEASE_BRANCH:-codex/world-sea-data-repair-v1}"
+expected_branch="${WORLD_SEA_RELEASE_BRANCH:-codex/world-sea-v1r1-release}"
 remote_name="${WORLD_SEA_RELEASE_REMOTE:-github}"
 
 verify_source() {
@@ -81,7 +81,7 @@ mkdir -p "$(dirname "$output_dir")"
 staging_dir="$(mktemp -d "$(dirname "$output_dir")/.world-sea-mask-v1r1.XXXXXX")"
 cp "$jar_source" "$staging_dir/ship-risk-data-0.0.1-SNAPSHOT.jar"
 for artifact in README.md application.properties.delta migration.sql query.sql preflight.sql \
-  rollback.md release-state-machine.md failure-recovery-matrix.md xxl-job-params.json; do
+  rollback.md release-state-machine.md failure-recovery-matrix.md xxl-job-params.json release-authorization.json; do
   cp "$build_worktree/deploy/world-sea-mask-v1/$artifact" "$staging_dir/$artifact"
 done
 for report in repair-report.json repair-report.csv repair-report.md repair-atlas.html \
@@ -120,16 +120,18 @@ cat >"$staging_dir/release-manifest.json" <<EOF
   "testSkipped": $test_skipped,
   "datasetVersion": "WORLD_SEA_102_V1R1",
   "parentDatasetVersion": "WORLD_SEA_102_V1",
-  "datasetStatus": "PARTIAL_AWAITING_REVIEW",
-  "releaseReadyForManualDeployment": false,
+  "datasetStatus": "OPERATOR_AUTHORIZED",
+  "releaseReadyForManualDeployment": true,
   "sourceFileSha256": "de7d39f8e652721796d64ce8697bb036da30280500940de8ece70ece4914266b",
   "originalStageFingerprint": "81c810a9db7d319fdfbf9a17805a61493d3beda23b09154958ce2a2b3a31fd1e",
   "repairedGeometryFingerprint": "31dd89bd4968f8f436135b57cdb81e870ac7b827d4dc2c086282e7dfe91ab9c6",
   "repairedStageTable": "ship_behavior_world_sea_stage_20260806_180406",
-  "formalTablePublished": false,
-  "activeDatasetVersion": null,
-  "reviewStatus": "PENDING_REVIEW",
-  "supersededJarSha256": "9e2f865dda6fcf1da9983c8ce2fedfcc37570b681bfc199b7bc1e30215da16b5",
+  "formalTablePublished": true,
+  "activeDatasetVersion": "WORLD_SEA_102_V1R1",
+  "reviewStatus": "OPERATOR_AUTHORIZED",
+  "authorizationMode": "OPERATOR_OVERRIDE",
+  "authorizationRef": "PROJECT_OWNER_EXPLICIT_AUTHORIZATION_2026-08-07_WORLD_SEA_V1R1",
+  "supersededJarSha256": "c0e90d35da9de3c71ef4fd996364de8e6bb72b0293dffe2d9208843350b37002",
   "supersededJarStatus": "SUPERSEDED_NOT_FOR_WORLD_SEA_102_V1R1",
   "buildTimeUtc": "$build_time"
 }

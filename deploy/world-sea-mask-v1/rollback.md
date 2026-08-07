@@ -28,4 +28,4 @@ cp "backups/<release_stamp>/application.properties" ./application.properties
 ./status.sh
 ```
 
-回滚后重新运行 WORLD_SEA preflight。旧 JAR `9e2f865d…` 标记为 `SUPERSEDED_NOT_FOR_WORLD_SEA_102_V1R1`，不得用于本数据版本。
+回滚后重新运行 WORLD_SEA preflight。旧 JAR `c0e90d35da9de3c71ef4fd996364de8e6bb72b0293dffe2d9208843350b37002` 标记为 `SUPERSEDED_NOT_FOR_WORLD_SEA_102_V1R1`，不得用于本数据版本。

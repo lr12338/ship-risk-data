@@ -1,6 +1,6 @@
 # WORLD_SEA_MASK V1R1 发布说明
 
-当前状态：`PARTIAL_AWAITING_REVIEW`。`WORLD_SEA_102_V1R1` repaired stage 已通过严格验证，但 `repair-approval.json` 仍为 `PENDING_REVIEW`，因此不得执行 `REGISTER_STAGE`、发布正式表、激活 ACTIVE、部署 JAR 或触发行为任务。
+当前授权：`OPERATOR_AUTHORIZED`。项目所有者已通过可审计的 `OPERATOR_OVERRIDE` 允许基于现有严格自动校验结果发布；该状态不伪装为人工 `APPROVED`。
 
 数据语义仅为全球命名海洋水域掩膜 `WORLD_SEA_NAMED_AREA`，不是法律公海、EEZ/领海/主权、合规或风险分类。
 
@@ -14,17 +14,17 @@
 - 修复方法：`JTS_GEOMETRY_FIXER_1_18_2`
 - 变化 ID：`11,26,85,91,92,99,24556`；其余 95 条 WKB 原样不变
 
-旧 JAR SHA-256 `9e2f865dda6fcf1da9983c8ce2fedfcc37570b681bfc199b7bc1e30215da16b5` 状态为 `SUPERSEDED_NOT_FOR_WORLD_SEA_102_V1R1`。
+旧 JAR SHA-256 `c0e90d35da9de3c71ef4fd996364de8e6bb72b0293dffe2d9208843350b37002` 状态为 `SUPERSEDED_NOT_FOR_WORLD_SEA_102_V1R1`。
 
-## 审批后数据库发布
+## 授权后数据库发布
 
-审核人须基于 `repair-atlas.html` 和报告完成审批，把真实审批文件安装为：
+安装项目所有者显式授权文件：
 
 ```text
-/data/zhengyi/import/world-sea-mask-v1r1/repair-approval.json
+/data/zhengyi/import/world-sea-mask-v1r1/release-authorization.json
 ```
 
-文件必须为 `APPROVED`，审核人和时间非空，7 个 ID 完整，且指纹严格匹配 repaired stage。随后串行执行，每一步后运行只读 `STATE`：
+文件必须为 `OPERATOR_OVERRIDE`，授权引用与时间有效，7 个 ID 完整，且指纹严格匹配 repaired stage。原 `repair-approval.json` 人工审核路径仍兼容。随后串行执行，每一步后运行只读 `STATE`：
 
 ```bash
 stage=ship_behavior_world_sea_stage_20260806_180406

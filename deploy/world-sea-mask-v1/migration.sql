@@ -45,6 +45,9 @@ CREATE TABLE IF NOT EXISTS dataanalysis.ship_behavior_world_sea_release (
   repair_tool_git_sha VARCHAR(40) DEFAULT NULL,
   repair_release_id VARCHAR(96) DEFAULT NULL,
   review_status VARCHAR(32) DEFAULT NULL,
+  authorization_mode VARCHAR(32) DEFAULT NULL,
+  authorization_ref VARCHAR(255) DEFAULT NULL,
+  authorized_at DATETIME DEFAULT NULL,
   stage_table_name VARCHAR(128) NOT NULL,
   formal_table_name VARCHAR(128) NOT NULL,
   backup_table_name VARCHAR(128) DEFAULT NULL,
@@ -74,6 +77,27 @@ SET @ws_release_publish_mode = (SELECT COUNT(*) FROM information_schema.columns
     AND column_name='publish_mode');
 SET @ws_sql = IF(@ws_release_publish_mode=0,
   'ALTER TABLE dataanalysis.ship_behavior_world_sea_release ADD COLUMN publish_mode VARCHAR(32) DEFAULT NULL AFTER failed_table_name',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema='dataanalysis' AND table_name='ship_behavior_world_sea_release' AND column_name='authorization_mode');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_release ADD COLUMN authorization_mode VARCHAR(32) DEFAULT NULL AFTER review_status',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema='dataanalysis' AND table_name='ship_behavior_world_sea_release' AND column_name='authorization_ref');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_release ADD COLUMN authorization_ref VARCHAR(255) DEFAULT NULL AFTER authorization_mode',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema='dataanalysis' AND table_name='ship_behavior_world_sea_release' AND column_name='authorized_at');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_release ADD COLUMN authorized_at DATETIME DEFAULT NULL AFTER authorization_ref',
   'SELECT 1');
 PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
 
@@ -156,6 +180,9 @@ CREATE TABLE IF NOT EXISTS dataanalysis.ship_behavior_world_sea_repair_audit (
   review_comment VARCHAR(2000) DEFAULT NULL,
   reviewed_at DATETIME DEFAULT NULL,
   reviewed_by VARCHAR(128) DEFAULT NULL,
+  authorization_mode VARCHAR(32) DEFAULT NULL,
+  authorization_ref VARCHAR(255) DEFAULT NULL,
+  authorized_at DATETIME DEFAULT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_world_sea_repair_feature (repair_release_id,feature_id),
@@ -168,6 +195,27 @@ SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
   WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='original_stage_fingerprint');
 SET @ws_sql = IF(@ws_exists=0,
   'ALTER TABLE dataanalysis.ship_behavior_world_sea_repair_audit ADD COLUMN original_stage_fingerprint VARCHAR(64) NOT NULL AFTER dataset_version_after',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='authorization_mode');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_repair_audit ADD COLUMN authorization_mode VARCHAR(32) DEFAULT NULL AFTER reviewed_by',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='authorization_ref');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_repair_audit ADD COLUMN authorization_ref VARCHAR(255) DEFAULT NULL AFTER authorization_mode',
+  'SELECT 1');
+PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
+
+SET @ws_exists = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema=@ws_schema AND table_name=@ws_table AND column_name='authorized_at');
+SET @ws_sql = IF(@ws_exists=0,
+  'ALTER TABLE dataanalysis.ship_behavior_world_sea_repair_audit ADD COLUMN authorized_at DATETIME DEFAULT NULL AFTER authorization_ref',
   'SELECT 1');
 PREPARE ws_stmt FROM @ws_sql; EXECUTE ws_stmt; DEALLOCATE PREPARE ws_stmt;
 

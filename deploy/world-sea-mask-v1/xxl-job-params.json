@@ -1,7 +1,7 @@
 {
   "datasetVersion": "WORLD_SEA_102_V1R1",
   "repairedGeometryFingerprint": "31dd89bd4968f8f436135b57cdb81e870ac7b827d4dc2c086282e7dfe91ab9c6",
-  "datasetStatus": "PARTIAL_AWAITING_REVIEW",
+  "datasetStatus": "OPERATOR_AUTHORIZED",
   "doNotRunUntilPreflightPass": true,
   "executionPolicy": {
     "route": "single-machine",

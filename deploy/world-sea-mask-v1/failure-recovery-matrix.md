@@ -2,7 +2,7 @@
 
 | 故障点 | 数据库现实 | 下一动作 | 数据丢失 |
 |---|---|---|---|
-| 无 approval / PENDING / 指纹或 ID 不匹配 | repaired stage 和 PENDING 审计保留 | 修正人工审批文件，再 `REGISTER_STAGE` | 否 |
+| 无授权 / PENDING / 指纹或 ID 不匹配 | repaired stage 和 PENDING 审计保留 | 修正人工审批或 operator 授权文件，再 `REGISTER_STAGE` | 否 |
 | repaired stage 校验失败 | stage 保留供检查 | 不发布；修复工具新建另一 stage | 否 |
 | REGISTER 事务失败 | 无 STAGED 或审批审计一起回滚 | `STATE` 后重试 REGISTER | 否 |
 | REGISTER 后中断 | `STAGED` | `STATE`→`PUBLISH_STAGE` | 否 |

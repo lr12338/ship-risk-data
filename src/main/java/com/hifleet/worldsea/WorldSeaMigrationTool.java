@@ -16,7 +16,7 @@ import java.util.Properties;
 public final class WorldSeaMigrationTool {
     private static final File CONFIG = new File("/data/zhengyi/application.properties");
     private static final File MIGRATION = new File("/data/zhengyi/import/world-sea-mask-v1r1/migration.sql");
-    private static final String MIGRATION_SHA256 = "42a75a2f43dda62047cd7fdf766684b2f9f644ff6ed28d54b1d3d9648393fb41";
+    private static final String MIGRATION_SHA256 = "bdf0968f5dc9d921b37e9236ea2f94d3e369897f3d604a668abacd6a1efd3721";
     private static final String SCHEMA = "dataanalysis";
 
     public static void main(String[] args) throws Exception {

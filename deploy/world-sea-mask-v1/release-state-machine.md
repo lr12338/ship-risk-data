@@ -2,8 +2,8 @@
 
 | 状态/现实 | 已完成步骤 | 唯一正常下一步 |
 |---|---|---|
-| repaired stage + `PENDING_REVIEW` | 修复、审计、严格校验 | 人工审核 |
-| repaired stage + matching `APPROVED` | 审批文件就绪 | `REGISTER_STAGE` |
+| repaired stage + `PENDING_REVIEW` | 修复、审计、严格校验 | 安装有效授权 |
+| repaired stage + matching `APPROVED` / `OPERATOR_AUTHORIZED` | 人工审批或所有者授权就绪 | `REGISTER_STAGE` |
 | `STAGED` | 发布身份已登记 | `PUBLISH_STAGE` |
 | `PUBLISHING` | 发布意图、backup 和旧 ACTIVE 已持久化 | `RESUME_RELEASE` |
 | `PUBLISHED_INACTIVE` | formal 已切换，尚不可被应用加载 | `ACTIVATE_DATASET` |
@@ -14,7 +14,7 @@
 
 `APPLY`、原始 `IMPORT_STAGE` 和 `VALIDATE_STAGE` 在 V1R1 禁用。修复、REGISTER、PUBLISH、ACTIVATE 均是独立命令。
 
-`REGISTER_STAGE` 强制校验 approval 状态、审核人、审核时间、7 个 ID、Baffin/Bo Hai 决策和 repaired 指纹，并把 7 条审计行事务性更新为 APPROVED。
+`REGISTER_STAGE` 强制校验授权模式、来源、时间、7 个 ID、Baffin/Bo Hai 决策和 repaired 指纹。人工路径记录 `APPROVED`，所有者显式路径记录 `OPERATOR_AUTHORIZED`，不伪造 reviewer。
 
 `PUBLISH_STAGE` 再次读取审批文件和 repaired stage；RENAME 前持久化 `PUBLISHING`。若进程在 RENAME 后中断，`STATE` 根据 stage/formal/backup/指纹现实判断，`RESUME_RELEASE` 只恢复为 `PUBLISHED_INACTIVE`，不会自动激活。
 

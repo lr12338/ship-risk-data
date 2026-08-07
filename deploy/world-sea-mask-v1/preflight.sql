@@ -17,7 +17,8 @@ FROM dataanalysis.ship_behavior_world_sea_meta
 WHERE status='ACTIVE';
 
 SELECT release_id,dataset_version,geometry_fingerprint,status,last_completed_step,
-       review_status,stage_table_name,formal_table_name
+       review_status,authorization_mode,authorization_ref,authorized_at,
+       stage_table_name,formal_table_name
 FROM dataanalysis.ship_behavior_world_sea_release
 WHERE dataset_version='WORLD_SEA_102_V1R1'
 ORDER BY created_at DESC;
