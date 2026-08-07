@@ -14,5 +14,9 @@
   "dryRun500": {
     "handler": "shipLoiteringProductionTestJobHandler",
     "params": {"mode":"production_test","listBatchNo":"liquid-container-5000-2025h2-2026h1-v1","expectedShipCount":5000,"shipLimit":500,"pageSize":50,"parallelism":1,"startTime":"2025-01-01 00:00:00","endTime":"2026-01-01 00:00:00","windowDays":30,"trajectorySliceHours":6,"engines":["V2"],"resume":true,"retryCount":2,"logIntervalShips":10,"batchNo":"loitering-merchant500-2025-portapproach-v1","enableInsert":false,"storeDetails":false}
+  },
+  "formal5000": {
+    "handler": "shipLoiteringProductionTestJobHandler",
+    "params": {"mode":"production_test","listBatchNo":"liquid-container-5000-2025h2-2026h1-v1","expectedShipCount":5000,"shipLimit":5000,"pageSize":50,"parallelism":1,"startTime":"2025-01-01 00:00:00","endTime":"2026-01-01 00:00:00","windowDays":30,"trajectorySliceHours":6,"engines":["V2"],"resume":true,"retryCount":2,"logIntervalShips":10,"batchNo":"loitering-merchant5000-2025-portapproach-v1-formal","enableInsert":true,"storeDetails":true}
   }
 }
