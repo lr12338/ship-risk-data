@@ -98,6 +98,30 @@ public class EventTrajectoryReplayServiceTest {
         assertEquals(2, ((List<?>) result.get("roles")).size());
     }
 
+    @Test
+    public void previewProjectionReturnsDisplayMetadata() {
+        TrajectoryPoint own = point("413000001", 120.0);
+        JSONObject recipe = recipe("V2", role(
+                "OWN", "413000001", TraceRecipeService.SOURCE_HBASE,
+                Collections.singletonList(own), null));
+        Fixture fixture = fixture(eventRow(
+                ShipBehaviorEvent.TYPE_LOITERING, null, recipe));
+        when(fixture.analysis.loiteringV2RuleConfigHash()).thenReturn("config");
+        when(fixture.loader.loadSafely(anyString(), anyString(), anyString(),
+                anyInt(), anyInt(), anyInt())).thenReturn(Collections.singletonList(own));
+        when(fixture.analysis.analysisLoiteringV2Production(
+                anyString(), anyList(), anyString())).thenReturn(Collections.singletonList(trace(
+                ShipBehaviorEvent.TYPE_LOITERING, null,
+                Collections.singletonList(own), Collections.emptyList())));
+
+        Map<String, Object> result = fixture.service.replay(1L, "PREVIEW");
+        Map<?, ?> role = (Map<?, ?>) ((List<?>) result.get("roles")).get(0);
+
+        assertEquals(1, role.get("actualPointCount"));
+        assertEquals(1, role.get("displayPointCount"));
+        assertEquals(false, role.get("sampled"));
+    }
+
     private Fixture fixture(Map<String, Object> row) {
         Fixture fixture = new Fixture();
         fixture.service = new EventTrajectoryReplayService();
@@ -114,6 +138,7 @@ public class EventTrajectoryReplayServiceTest {
         ReflectionTestUtils.setField(fixture.service, "maxDays", 7);
         ReflectionTestUtils.setField(fixture.service, "maxPoints", 100000);
         ReflectionTestUtils.setField(fixture.service, "concurrentRequests", 2);
+        ReflectionTestUtils.setField(fixture.service, "maxDisplayPoints", 2000);
         return fixture;
     }
 

@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
@@ -28,10 +29,16 @@ public class EventTrajectoryReplayController {
     @Value("${ship.behavior.trace.replay.token:}")
     private String token;
 
+    public ResponseEntity<?> replay(long eventId, String requestToken) {
+        return replay(eventId, requestToken, "FULL");
+    }
+
     @PostMapping("/internal/ship-behavior/events/{eventId}/trajectory")
+    @SuppressWarnings("unused")
     public ResponseEntity<?> replay(
             @PathVariable("eventId") long eventId,
-            @RequestHeader(value = "X-Trace-Token", required = false) String requestToken) {
+            @RequestHeader(value = "X-Trace-Token", required = false) String requestToken,
+            @RequestParam(value = "projection", defaultValue = "FULL") String projection) {
         if (!enabled || StringUtils.isBlank(token)) {
             return error(503, "REPLAY_DISABLED", "trajectory replay is disabled");
         }
@@ -39,7 +46,10 @@ public class EventTrajectoryReplayController {
             return error(401, "UNAUTHORIZED", "invalid trace token");
         }
         try {
-            return ResponseEntity.ok(replayService.replay(eventId));
+            if ("FULL".equalsIgnoreCase(projection)) {
+                return ResponseEntity.ok(replayService.replay(eventId));
+            }
+            return ResponseEntity.ok(replayService.replay(eventId, projection));
         } catch (ReplayException ex) {
             return error(ex.getHttpStatus(), ex.getCode(), ex.getMessage());
         } catch (Exception ex) {
