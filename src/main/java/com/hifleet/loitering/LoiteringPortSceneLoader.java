@@ -40,9 +40,9 @@ public class LoiteringPortSceneLoader {
                     + "WHERE bound IS NOT NULL AND ST_GeometryType(bound) IN ('POLYGON','MULTIPOLYGON') "
                     + "AND (LOWER(name) LIKE '%anchor%' OR name LIKE '%锚地%' OR name LIKE '%锚泊%')", (rs, n) ->
                     new Row("ANCHORAGE_ZONE", rs.getInt(1), rs.getString(2), rs.getBytes(3)));
-            List<LoiteringPortSceneSnapshot.Port> ports = dataanalysis.query("SELECT port_id,name,ST_X(ST_Centroid(bound)),ST_Y(ST_Centroid(bound)) "
+            List<LoiteringPortSceneSnapshot.Port> ports = dataanalysis.query("SELECT port_id,name,ST_X(ST_Centroid(bound)),ST_Y(ST_Centroid(bound)),AsBinary(bound) "
                     + "FROM dataanalysis.zones_with_port_id WHERE is_delete=0 AND bound IS NOT NULL AND port_id > 0", (rs, n) -> new LoiteringPortSceneSnapshot.Port(
-                    rs.getInt(1), rs.getString(2), rs.getDouble(3), rs.getDouble(4)));
+                    rs.getInt(1), rs.getString(2), rs.getDouble(3), rs.getDouble(4), readGeometry(rs.getBytes(5))));
             return build(operational, anchors, ports);
         } catch (Exception ex) {
             if (ex instanceof IllegalStateException) throw (IllegalStateException) ex;
@@ -74,8 +74,9 @@ public class LoiteringPortSceneLoader {
                     .thenComparingDouble(port -> port.lon).thenComparingDouble(port -> port.lat));
             for (LoiteringPortSceneSnapshot.Port port : ports) {
                 if (!Double.isFinite(port.lon) || !Double.isFinite(port.lat) || port.lon < -180 || port.lon > 180 || port.lat < -90 || port.lat > 90) throw new IllegalStateException("LOITERING_PORT_SCENE_UNAVAILABLE");
+                if (port.boundary == null || port.boundary.isEmpty() || !port.boundary.isValid()) throw new IllegalStateException("LOITERING_PORT_SCENE_UNAVAILABLE");
                 update(digest, "PORT"); update(digest, String.valueOf(port.id)); update(digest, port.name);
-                update(digest, port.lon + "," + port.lat);
+                update(digest, port.lon + "," + port.lat); update(digest, port.boundary.toText());
             }
             opIndex.build(); anchorIndex.build();
             return new LoiteringPortSceneSnapshot(opIndex, anchorIndex, ports, hex(digest.digest()));
@@ -87,6 +88,10 @@ public class LoiteringPortSceneLoader {
     static final class Row { final String type; final int id; final String name; final byte[] wkb;
         Row(String type, int id, String name, byte[] wkb) { this.type=type; this.id=id; this.name=name; this.wkb=wkb; }
         String sortKey() { return type + "\u0000" + id + "\u0000" + (name == null ? "" : name); } }
+    private static Geometry readGeometry(byte[] wkb) {
+        try { return new WKBReader().read(wkb); }
+        catch (Exception ex) { throw new IllegalStateException("LOITERING_PORT_SCENE_UNAVAILABLE", ex); }
+    }
     private static IllegalStateException invalid(Row row, Geometry geometry, String reason) {
         return new IllegalStateException("LOITERING_PORT_SCENE_INVALID source="
                 + ("PORT_OPERATIONAL_ZONE".equals(row.type) ? "dataanalysis.zones_with_port_id" : "ais41.alertzones")

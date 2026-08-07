@@ -68,7 +68,8 @@ public class AlongsideProductionTestService {
                     params.getListBatchNo(), params.getStartTime(), params.getEndTime(),
                     ruleVersion, params.isEnableInsert(),
                     params.configHash(ShipBehaviorEvent.TYPE_ALONGSIDE, ruleVersion,
-                            mask == null ? "" : worldSeaMaskProperties.identity(mask)));
+                            (mask == null ? "" : worldSeaMaskProperties.identity(mask))
+                                    + "|ALONGSIDE_SCENE=" + analysisService.alongsideRuleConfigHash()));
         }
         targetShipRepository.validate(params.getListBatchNo(), params.getExpectedShipCount());
         final List<Window> windows = windows(params);

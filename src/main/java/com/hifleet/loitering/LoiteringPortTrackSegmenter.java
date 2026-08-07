@@ -27,11 +27,11 @@ public class LoiteringPortTrackSegmenter {
         for (TrajectoryPoint point : sorted) {
             LoiteringPortSceneSnapshot.Match match = point == null ? null : snapshot.match(point.getLon(), point.getLat(), properties.getMaxDistanceNm());
             boolean below = point == null || !point.isSpeedValid() || point.getSpeed() < properties.getMinSpeed();
-            boolean eligible = !below && match != null && match.isEligible();
+            boolean eligible = !below && match != null && match.isBehaviorEligible();
             if (!eligible) {
                 if (!current.isEmpty()) result.add(current); current = new ArrayList<TrajectoryPoint>();
                 if (below) value.belowMinSpeedSplitCount++; else if (match != null && match.isOperational()) value.portOperationalRejectedCount++;
-                else if (match != null && match.isAnchor()) value.anchorRejectedCount++; else value.tooFarFromPortRejectedCount++;
+                else if (match != null && match.isAnchor()) value.anchorRejectedCount++;
             } else current.add(point);
         }
         if (!current.isEmpty()) result.add(current); stats.set(value); return result;

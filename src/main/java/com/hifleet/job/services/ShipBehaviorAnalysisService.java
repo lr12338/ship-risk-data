@@ -83,7 +83,7 @@ public class ShipBehaviorAnalysisService {
     @Value("${ship.behavior.loitering.min-points:3}")
     private int loiteringMinPoints;
 
-    @Value("${ship.behavior.loitering.rule-version:LOITERING_V2_PORT_APPROACH_V1}")
+    @Value("${ship.behavior.loitering.rule-version:LOITERING_V2_INSURANCE_SCENE_V1}")
     private String loiteringRuleVersion;
 
     @Value("${ship.behavior.loitering.max-gap-minutes:30}")
@@ -635,7 +635,8 @@ public class ShipBehaviorAnalysisService {
         value.put("portSceneFingerprint", loiteringPortSceneService.requireSnapshot().getFingerprint());
         value.put("minSpeed", loiteringMinSpeed);
         value.put("portApproachDistanceNm", loiteringPortSceneProperties.getMaxDistanceNm());
-        value.put("sceneCoverage", loiteringPortSceneProperties.getMinEvidenceCoverage());
+        value.put("scenePolicy", "PORT_OPERATIONAL_AND_ANCHORAGE_HARD_EXCLUDE;OFFSHORE_ENABLED=" + loiteringPortSceneProperties.isOffshoreEnabled());
+        value.put("weakStoreEnabled", loiteringWeakStoreEnabled);
         value.put("ruleVersion", loiteringRuleVersion);
         return TraceRecipeService.configHash(value);
     }
@@ -645,7 +646,13 @@ public class ShipBehaviorAnalysisService {
     }
 
     public String alongsideRuleConfigHash() {
-        return TraceRecipeService.configHash(buildAlongsideRule());
+        JSONObject value = new JSONObject(true);
+        value.put("rule", buildAlongsideRule());
+        value.put("worldSeaFingerprint", worldSeaMaskService.requireSnapshot().getGeometryFingerprint());
+        value.put("sceneFingerprint", loiteringPortSceneService.requireSnapshot().getFingerprint());
+        value.put("portApproachDistanceNm", loiteringPortSceneProperties.getMaxDistanceNm());
+        value.put("sceneClassificationVersion", "INSURANCE_SCENE_V1");
+        return TraceRecipeService.configHash(value);
     }
 
     public List<ShipBehaviorTrace> analysisAlongsideReplay(
@@ -1228,10 +1235,10 @@ public class ShipBehaviorAnalysisService {
             scene = alongsideSceneService.classify(eventLocation[0], eventLocation[1]);
         }
         TargetRoleClassification target = shipTypeClassifier.classifyTargetShipWithReason(targetType, null);
-        return ShipAlongsideDetector.AlongsideContext.asymmetric(
+        return ShipAlongsideDetector.AlongsideContext.asymmetricWithScene(
                 ownType, targetType, shipTypeClassifier.classifyOwnShip(ownType), target,
-                scene.isNearPort(), scene.isNearAnchor(), scene.isOutsideKnownPortAndAnchor(),
-                scene.isDataAvailable(), nearbyVesselCount);
+                scene.getSceneType(), scene.getNearestPortId(), scene.getNearestPortName(),
+                scene.getDistanceToNearestPortNm(), scene.isDataAvailable(), nearbyVesselCount);
     }
 
     private double[] pairedEventLocation(List<TrajectoryPoint> ownPoints, List<TrajectoryPoint> targetPoints) {

@@ -46,17 +46,45 @@ public class LoiteringPortSceneTest {
     }
 
     @Test
-    public void finalGatePassesOnlyCompleteEligibleEvidence() {
+    public void offshorePointsRemainEligibleAndAreClassifiedAfterDetection() {
+        LoiteringPortTrackSegmenter segmenter = new LoiteringPortTrackSegmenter(service(snapshot()), new LoiteringPortSceneProperties());
+        List<List<TrajectoryPoint>> segments = segmenter.splitEligible(Arrays.asList(
+                point(.05, .05, 2, 0), point(1, 1, 2, 1), point(1.1, 1.1, 2, 2)));
+        assertEquals(1, segments.size());
+        assertEquals(3, segments.get(0).size());
+        assertEquals(0, segmenter.getLastStats().getTooFarFromPortRejectedCount());
+
+        LoiteringPortEventGate gate = new LoiteringPortEventGate(service(snapshot()), new LoiteringPortSceneProperties());
+        ShipBehaviorTrace trace = trace(1, 1, point(1, 1, 2, 0), point(1.1, 1.1, 2, 1));
+        assertEquals(1, gate.filterAndAnnotate(Collections.singletonList(trace)).size());
+        assertEquals("OFFSHORE", JSON.parseObject(trace.getEvent().getScoreDetailJson()).getString("sceneType"));
+    }
+
+    @Test
+    public void finalGateRejectsOnlyNormalScenesAndBelowMinimumSpeed() {
         LoiteringPortEventGate gate = new LoiteringPortEventGate(service(snapshot()), new LoiteringPortSceneProperties());
         assertEquals(1, gate.filterAndAnnotate(Collections.singletonList(trace(.05, .05, point(.05, .05, 1.5, 0), point(.06, .06, 2.5, 1)))).size());
         assertEquals(0, gate.filterAndAnnotate(Collections.singletonList(trace(.05, .05, point(.05, .05, .9, 0)))).size());
         assertEquals(0, gate.filterAndAnnotate(Collections.singletonList(trace(.2, .2, point(.2, .2, 2, 0)))).size());
         assertEquals(0, gate.filterAndAnnotate(Collections.singletonList(trace(.3, .3, point(.3, .3, 2, 0)))).size());
-        assertEquals(0, gate.filterAndAnnotate(Collections.singletonList(trace(1, 1, point(1, 1, 2, 0)))).size());
+        assertEquals(1, gate.filterAndAnnotate(Collections.singletonList(trace(1, 1, point(1, 1, 2, 0)))).size());
         ShipBehaviorTrace accepted = trace(.05, .05, point(.05, .05, 1.5, 0), point(.06, .06, 2.5, 1));
         gate.filterAndAnnotate(Collections.singletonList(accepted));
         assertEquals("PASS", JSON.parseObject(accepted.getEvent().getScoreDetailJson()).getString("loiteringSceneDecision"));
-        assertTrue(JSON.parseObject(accepted.getEvent().getScoreDetailJson()).getDoubleValue("portApproachEvidenceCoverage") == 1.0);
+        assertEquals("PORT_APPROACH", JSON.parseObject(accepted.getEvent().getScoreDetailJson()).getString("sceneType"));
+    }
+
+    @Test
+    public void portApproachUsesBoundaryDistanceRatherThanCentroidDistance() {
+        GeometryFactory factory = new GeometryFactory();
+        Geometry port = factory.createPolygon(new Coordinate[]{new Coordinate(0,0),new Coordinate(2,0),new Coordinate(2,.1),new Coordinate(0,.1),new Coordinate(0,0)});
+        STRtree operational = new STRtree(), anchor = new STRtree(); operational.build(); anchor.build();
+        LoiteringPortSceneSnapshot snapshot = new LoiteringPortSceneSnapshot(operational, anchor,
+                Collections.singletonList(new LoiteringPortSceneSnapshot.Port(1, "Long Port", 1, .05, port)), "scene-fingerprint");
+        LoiteringPortSceneSnapshot.Match match = snapshot.match(2.05, .05, 10.0);
+        assertTrue(match.isWithinPortApproach());
+        assertTrue(match.getDistanceToPortBoundaryNm() < 5.0);
+        assertTrue(match.getDistanceToPortCentroidNm() > 50.0);
     }
 
     @Test(expected = IllegalStateException.class)

@@ -1,6 +1,9 @@
 package com.hifleet.service;
 
 import com.hifleet.domain.ZoneDefinition;
+import com.hifleet.loitering.LoiteringPortSceneProperties;
+import com.hifleet.loitering.LoiteringPortSceneService;
+import com.hifleet.loitering.LoiteringPortSceneSnapshot;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -16,9 +19,23 @@ public class AlongsideSceneService {
     @Autowired
     private ZoneLoaderService zoneLoaderService;
 
+    @Autowired(required = false)
+    private LoiteringPortSceneService loiteringPortSceneService;
+
+    @Autowired(required = false)
+    private LoiteringPortSceneProperties loiteringPortSceneProperties;
+
     private volatile SceneIndex sceneIndex;
 
     public Scene classify(double lon, double lat) {
+        if (loiteringPortSceneService != null && loiteringPortSceneProperties != null) {
+            try {
+                return Scene.from(loiteringPortSceneService.requireSnapshot().match(lon, lat,
+                        loiteringPortSceneProperties.getMaxDistanceNm()));
+            } catch (RuntimeException ex) {
+                return Scene.unknown();
+            }
+        }
         SceneIndex index = getSceneIndex();
         if (!index.available) {
             return Scene.unknown();
@@ -52,6 +69,10 @@ public class AlongsideSceneService {
         private final boolean nearAnchor;
         private final boolean outsideKnownPortAndAnchor;
         private final boolean dataAvailable;
+        private final String sceneType;
+        private final Integer nearestPortId;
+        private final String nearestPortName;
+        private final double distanceToNearestPortNm;
 
         private Scene(boolean nearPort, boolean nearAnchor, boolean outsideKnownPortAndAnchor,
                       boolean dataAvailable) {
@@ -59,11 +80,23 @@ public class AlongsideSceneService {
             this.nearAnchor = nearAnchor;
             this.outsideKnownPortAndAnchor = outsideKnownPortAndAnchor;
             this.dataAvailable = dataAvailable;
+            this.sceneType = nearPort ? "PORT_OPERATIONAL" : nearAnchor ? "ANCHORAGE" : "OFFSHORE";
+            this.nearestPortId = null;
+            this.nearestPortName = null;
+            this.distanceToNearestPortNm = Double.NaN;
+        }
+
+        private Scene(LoiteringPortSceneSnapshot.Match match) {
+            this.nearPort = match.isOperational(); this.nearAnchor = match.isAnchor();
+            this.outsideKnownPortAndAnchor = !nearPort && !nearAnchor; this.dataAvailable = true;
+            this.sceneType = match.getSceneType(); this.nearestPortId = match.getNearestPortId();
+            this.nearestPortName = match.getNearestPortName(); this.distanceToNearestPortNm = match.getDistanceToPortBoundaryNm();
         }
 
         public static Scene unknown() {
             return new Scene(false, false, false, false);
         }
+        public static Scene from(LoiteringPortSceneSnapshot.Match match) { return new Scene(match); }
 
         public boolean isNearPort() {
             return nearPort;
@@ -82,6 +115,10 @@ public class AlongsideSceneService {
         public boolean isDataAvailable() {
             return dataAvailable;
         }
+        public String getSceneType() { return sceneType; }
+        public Integer getNearestPortId() { return nearestPortId; }
+        public String getNearestPortName() { return nearestPortName; }
+        public double getDistanceToNearestPortNm() { return distanceToNearestPortNm; }
     }
 
     private static class SceneIndex {

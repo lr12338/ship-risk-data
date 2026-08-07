@@ -35,7 +35,7 @@ public class LoiteringPortEventGate {
         for (ShipBehaviorTrace trace : traces) if (trace != null && trace.getEvent() != null
                 && ShipBehaviorEvent.TYPE_LOITERING.equals(trace.getEvent().getBehaviorType())
                 && trace.getEvent().getRuleVersion() != null
-                && trace.getEvent().getRuleVersion().startsWith("LOITERING_V2_PORT_APPROACH_")
+                && trace.getEvent().getRuleVersion().startsWith("LOITERING_V2_INSURANCE_SCENE_")
                 && !isPassed(trace.getEvent(), snapshot))
             throw new IllegalStateException("LOITERING_PORT_SCENE formal write rejected: missing valid PASS evidence");
     }
@@ -50,14 +50,14 @@ public class LoiteringPortEventGate {
             if (low) { below++; continue; }
             min=Math.min(min, point.getSpeed()); sum+=point.getSpeed(); speeds.add(point.getSpeed());
             LoiteringPortSceneSnapshot.Match match=snapshot.match(point.getLon(), point.getLat(), properties.getMaxDistanceNm());
-            if (match.isOperational()) operational++; if (match.isAnchor()) anchor++; if (match.isEligible()) approach++;
+            if (match.isOperational()) operational++; if (match.isAnchor()) anchor++; if (match.isWithinPortApproach()) approach++;
         }
         LoiteringPortSceneSnapshot.Match center=event.getCenterLon()==null || event.getCenterLat()==null ? null
                 : snapshot.match(event.getCenterLon(), event.getCenterLat(), properties.getMaxDistanceNm());
         double coverage=total == 0 ? 0.0 : (double) approach / total;
         Collections.sort(speeds); double median=speeds.isEmpty() ? Double.NaN : speeds.get((speeds.size()-1)/2);
-        boolean accepted=total>0 && coverage >= properties.getMinEvidenceCoverage() && operational==0 && anchor==0 && below==0
-                && center != null && center.isEligible();
+        boolean accepted=total>0 && operational==0 && anchor==0 && below==0
+                && center != null && center.isBehaviorEligible();
         annotate(event, snapshot, center, total, approach, operational, anchor, below, min, sum, speeds.size(), median, coverage, accepted);
         return accepted;
     }
@@ -77,15 +77,17 @@ public class LoiteringPortEventGate {
         detail.put("portOperationalEvidenceCount", operational); detail.put("anchorEvidenceCount", anchor); detail.put("belowMinSpeedEvidenceCount", below);
         detail.put("minSog", speedCount == 0 ? null : min); detail.put("avgSog", speedCount == 0 ? null : sum / speedCount); detail.put("medianSog", speedCount == 0 ? null : median);
         detail.put("eventCenterInsideEligiblePortApproach", center != null && center.isEligible());
-        if (center != null) { detail.put("nearestPortId", center.getNearestPortId()); detail.put("nearestPortName", center.getNearestPortName()); detail.put("distanceToNearestPortNm", center.getDistanceNm()); }
+        if (center != null) { detail.put("sceneType", center.getSceneType()); detail.put("insidePortOperational", center.isOperational()); detail.put("insideAnchorage", center.isAnchor()); detail.put("nearestPortId", center.getNearestPortId()); detail.put("nearestPortName", center.getNearestPortName()); detail.put("distanceToNearestPortNm", center.getDistanceToPortBoundaryNm()); detail.put("distanceToPortBoundaryNm", center.getDistanceToPortBoundaryNm()); detail.put("distanceToPortCentroidNm", center.getDistanceToPortCentroidNm()); detail.put("distanceBucket", distanceBucket(center.getDistanceToPortBoundaryNm())); detail.put("behaviorPattern", behaviorPattern(event)); detail.put("insuranceRiskInterpretation", interpretation(event, center.getSceneType())); }
         List<String> reasons=new ArrayList<String>();
-        if (accepted) reasons.add("LOITERING_PORT_APPROACH_PASS"); else {
+        if (accepted) reasons.add("LOITERING_" + (center == null ? "SCENE_UNKNOWN" : center.getSceneType()) + "_PASS"); else {
             if (below > 0) reasons.add("LOITERING_BELOW_MIN_SPEED_REJECTED"); if (operational > 0) reasons.add("LOITERING_INSIDE_PORT_OPERATIONAL_REJECTED");
-            if (anchor > 0) reasons.add("LOITERING_INSIDE_ANCHORAGE_REJECTED"); if (coverage < properties.getMinEvidenceCoverage() || (center != null && !center.isWithinPortApproach())) reasons.add("LOITERING_TOO_FAR_FROM_PORT_REJECTED");
-            if (coverage < properties.getMinEvidenceCoverage()) reasons.add("LOITERING_PORT_APPROACH_INSUFFICIENT_COVERAGE");
+            if (anchor > 0) reasons.add("LOITERING_INSIDE_ANCHORAGE_REJECTED");
         }
         detail.put("reasonCodes", reasons); event.setScoreDetailJson(detail.toJSONString());
     }
+    private String distanceBucket(double distance) { if (distance <= 3) return "0~3nm"; if (distance <= 5) return "3~5nm"; if (distance <= 10) return "5~10nm"; if (distance <= 30) return "10~30nm"; if (distance <= 100) return "30~100nm"; return ">100nm"; }
+    private String behaviorPattern(ShipBehaviorEvent event) { String subtype = event.getEventSubType(); if ("SLOW_LOITERING".equals(subtype)) return "SLOW_HOLDING"; if ("MANEUVER_LOITERING".equals(subtype)) return "MANEUVER_LOITERING"; if ("COMPOSITE_LOITERING".equals(subtype)) return "COMPOSITE_LOITERING"; return "WEAK_CANDIDATE"; }
+    private String interpretation(ShipBehaviorEvent event, String sceneType) { if ("PORT_APPROACH".equals(sceneType)) return "PORT_APPROACH_WAITING_OR_EVASIVE_MANEUVER_REVIEW"; if (event.getAisGapCount() != null && event.getAisGapCount() > 0) return "OFFSHORE_LOITERING_WITH_AIS_ANOMALY"; return "OFFSHORE_LOITERING_REVIEW"; }
     public static final class GateStats { private int rawCandidateCount, scenePassCount, sceneRejectedCount;
         public int getRawCandidateCount() { return rawCandidateCount; } public int getScenePassCount() { return scenePassCount; } public int getSceneRejectedCount() { return sceneRejectedCount; } }
 }

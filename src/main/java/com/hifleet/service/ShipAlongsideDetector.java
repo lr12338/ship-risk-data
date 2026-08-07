@@ -409,16 +409,12 @@ public class ShipAlongsideDetector {
         String exclusionFlag = VALID_RISK_EVENT;
         String exclusionReason = "NO_SCENE_DATA";
         double normalSceneAdjustment = 1.0;
-        if (context.isNearPort() && context.getNearbyVesselCount() >= rule.getCrowdedVesselCount()) {
+        if (context.isNearPort()) {
             exclusionFlag = EXCLUDED_NORMAL;
-            exclusionReason = "PORT_QUEUE_LIKELY";
-            normalSceneAdjustment = 0.15;
-        } else if (context.isNearPort()) {
-            exclusionFlag = DOWNGRADED_NORMAL_LIKELY;
             exclusionReason = "PORT_OPERATION_LIKELY";
-            normalSceneAdjustment = 0.35;
+            normalSceneAdjustment = 0.15;
         } else if (context.isNearAnchor()) {
-            exclusionFlag = DOWNGRADED_NORMAL_LIKELY;
+            exclusionFlag = EXCLUDED_NORMAL;
             exclusionReason = "ANCHORAGE_WAITING_LIKELY";
             normalSceneAdjustment = 0.4;
         } else if (hasAnchoredOrMooredStatus(segment.getOwnPoints())
@@ -977,12 +973,28 @@ public class ShipAlongsideDetector {
         private final boolean outsideKnownPortAndAnchor;
         private final boolean sceneDataAvailable;
         private final int nearbyVesselCount;
+        private final String sceneType;
+        private final Integer nearestPortId;
+        private final String nearestPortName;
+        private final double distanceToNearestPortNm;
 
         private AlongsideContext(String ownShipType, String targetShipType, Boolean merchantPair,
                                  OwnShipEligibility ownShipEligibility, TargetVesselRole targetVesselRole,
                                  ClassificationConfidence targetTypeConfidence, List<String> targetRoleReasonCodes,
                                  boolean nearPort, boolean nearAnchor, boolean outsideKnownPortAndAnchor,
                                  boolean sceneDataAvailable, int nearbyVesselCount) {
+            this(ownShipType, targetShipType, merchantPair, ownShipEligibility, targetVesselRole,
+                    targetTypeConfidence, targetRoleReasonCodes, nearPort, nearAnchor, outsideKnownPortAndAnchor,
+                    sceneDataAvailable, nearbyVesselCount,
+                    nearPort ? "PORT_OPERATIONAL" : nearAnchor ? "ANCHORAGE" : "OFFSHORE", null, null, Double.NaN);
+        }
+
+        private AlongsideContext(String ownShipType, String targetShipType, Boolean merchantPair,
+                                 OwnShipEligibility ownShipEligibility, TargetVesselRole targetVesselRole,
+                                 ClassificationConfidence targetTypeConfidence, List<String> targetRoleReasonCodes,
+                                 boolean nearPort, boolean nearAnchor, boolean outsideKnownPortAndAnchor,
+                                 boolean sceneDataAvailable, int nearbyVesselCount, String sceneType,
+                                 Integer nearestPortId, String nearestPortName, double distanceToNearestPortNm) {
             this.ownShipType = ownShipType;
             this.targetShipType = targetShipType;
             this.merchantPair = merchantPair;
@@ -996,6 +1008,10 @@ public class ShipAlongsideDetector {
             this.outsideKnownPortAndAnchor = outsideKnownPortAndAnchor;
             this.sceneDataAvailable = sceneDataAvailable;
             this.nearbyVesselCount = Math.max(0, nearbyVesselCount);
+            this.sceneType = sceneType;
+            this.nearestPortId = nearestPortId;
+            this.nearestPortName = nearestPortName;
+            this.distanceToNearestPortNm = distanceToNearestPortNm;
         }
 
         public static AlongsideContext unknown() {
@@ -1043,6 +1059,22 @@ public class ShipAlongsideDetector {
                     outsideKnownPortAndAnchor, sceneDataAvailable, nearbyVesselCount);
         }
 
+        public static AlongsideContext asymmetricWithScene(String ownShipType, String targetShipType,
+                                                            OwnShipEligibility ownShipEligibility,
+                                                            TargetRoleClassification target,
+                                                            String sceneType, Integer nearestPortId,
+                                                            String nearestPortName, double distanceToNearestPortNm,
+                                                            boolean sceneDataAvailable, int nearbyVesselCount) {
+            TargetRoleClassification effective = target == null
+                    ? new ShipTypeClassifier().classifyTargetShipWithReason(targetShipType, null) : target;
+            boolean nearPort = "PORT_OPERATIONAL".equals(sceneType);
+            boolean nearAnchor = "ANCHORAGE".equals(sceneType);
+            return new AlongsideContext(ownShipType, targetShipType, null, ownShipEligibility,
+                    effective.getRole(), effective.getConfidence(), effective.getReasonCodes(), nearPort, nearAnchor,
+                    !nearPort && !nearAnchor, sceneDataAvailable, nearbyVesselCount, sceneType,
+                    nearestPortId, nearestPortName, distanceToNearestPortNm);
+        }
+
         public String getOwnShipType() {
             return ownShipType;
         }
@@ -1082,16 +1114,20 @@ public class ShipAlongsideDetector {
         public int getNearbyVesselCount() {
             return nearbyVesselCount;
         }
+        public String getSceneType() { return sceneType; }
+        public Integer getNearestPortId() { return nearestPortId; }
+        public String getNearestPortName() { return nearestPortName; }
+        public double getDistanceToNearestPortNm() { return distanceToNearestPortNm; }
 
         private String riskInterpretation() {
             switch (targetVesselRole) {
-                case LARGE_MERCHANT: return "POSSIBLE_STS_LIKE_CONTACT";
-                case BUNKER_OR_SUPPLY: return nearPort ? "POSSIBLE_BUNKERING" : "OFF_PORT_BUNKERING_REVIEW";
-                case BARGE_OR_LIGHTER: return "POSSIBLE_LIGHTERING";
+                case LARGE_MERCHANT: return "OFFSHORE".equals(sceneType) ? "POSSIBLE_STS_LIKE_CONTACT" : "POSSIBLE_COMMERCIAL_CONTACT";
+                case BUNKER_OR_SUPPLY: return "PORT_APPROACH".equals(sceneType) ? "OFF_PORT_BUNKERING_REVIEW" : "POSSIBLE_BUNKERING";
+                case BARGE_OR_LIGHTER: return "PORT_APPROACH".equals(sceneType) ? "POSSIBLE_LIGHTERING" : "BARGE_OR_LIGHTER_CONTACT_REVIEW";
                 case TUG_OR_SERVICE: return nearPort ? "PORT_ASSISTANCE_LIKELY" : "OFF_PORT_SERVICE_CONTACT_REVIEW";
                 case FISHING_OR_SMALL_CRAFT: return "SMALL_VESSEL_TRANSFER_REVIEW";
                 case PASSENGER_OR_PILOT: return nearPort ? "PORT_ASSISTANCE_LIKELY" : "UNCLASSIFIED_VESSEL_INTERACTION";
-                default: return "UNKNOWN_COUNTERPARTY_CONTACT";
+                default: return "OFFSHORE".equals(sceneType) ? "UNKNOWN_OFFSHORE_COUNTERPARTY_CONTACT" : "UNKNOWN_COUNTERPARTY_CONTACT";
             }
         }
 
@@ -1337,6 +1373,10 @@ public class ShipAlongsideDetector {
             json.put("reasonCodes", context.reasonCodes(feature));
             json.put("nearPort", context.isNearPort());
             json.put("nearAnchor", context.isNearAnchor());
+            json.put("sceneType", context.getSceneType());
+            json.put("nearestPortId", context.getNearestPortId());
+            json.put("nearestPortName", context.getNearestPortName());
+            json.put("distanceToNearestPortNm", context.getDistanceToNearestPortNm());
             json.put("openSea", context.isOpenSea());
             json.put("outsideKnownPortAndAnchor", context.isOutsideKnownPortAndAnchor());
             json.put("sceneContextComplete", context.isSceneDataAvailable());

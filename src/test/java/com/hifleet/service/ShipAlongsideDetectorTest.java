@@ -169,7 +169,7 @@ public class ShipAlongsideDetectorTest {
     }
 
     @Test
-    public void v3ExcludesCrowdedPortQueueAndDowngradesAnchorage() {
+    public void v3ExcludesPortOperationalAndAnchorageScenes() {
         List<TrajectoryPoint> own = points("413433610", 0.0, 0.0, 13, 5, 1.5, 90.0, null);
         List<TrajectoryPoint> target = points("413193000", 0.001, 0.001, 13, 5, 1.4, 92.0, null);
 
@@ -181,8 +181,8 @@ public class ShipAlongsideDetectorTest {
                         "油轮", "集装箱船", false, true, false, 8)).get(0).getEvent();
 
         assertEquals("EXCLUDED_NORMAL", portEvent.getExclusionFlag());
-        assertEquals("PORT_QUEUE_LIKELY", portEvent.getExclusionReason());
-        assertEquals("DOWNGRADED_NORMAL_LIKELY", anchorEvent.getExclusionFlag());
+        assertEquals("PORT_OPERATION_LIKELY", portEvent.getExclusionReason());
+        assertEquals("EXCLUDED_NORMAL", anchorEvent.getExclusionFlag());
         assertEquals("ANCHORAGE_WAITING_LIKELY", anchorEvent.getExclusionReason());
         assertTrue(portEvent.getEventScore() < anchorEvent.getEventScore());
     }
@@ -261,20 +261,20 @@ public class ShipAlongsideDetectorTest {
 
     @Test
     public void roleAndSceneProduceAuditableNonLegalInterpretations() {
-        assertInterpretation("小型加油船", false, "BUNKER_OR_SUPPLY", "OFF_PORT_BUNKERING_REVIEW", "REVIEW");
-        assertInterpretation("驳船", false, "BARGE_OR_LIGHTER", "POSSIBLE_LIGHTERING", "REVIEW");
-        assertInterpretation("拖轮", true, "TUG_OR_SERVICE", "PORT_ASSISTANCE_LIKELY", "REVIEW");
-        assertInterpretation("拖轮", false, "TUG_OR_SERVICE", "OFF_PORT_SERVICE_CONTACT_REVIEW", "REVIEW");
-        assertInterpretation(null, false, "UNKNOWN", "UNKNOWN_COUNTERPARTY_CONTACT", "REVIEW");
+        assertInterpretation("小型加油船", "PORT_APPROACH", "BUNKER_OR_SUPPLY", "OFF_PORT_BUNKERING_REVIEW", "REVIEW");
+        assertInterpretation("驳船", "PORT_APPROACH", "BARGE_OR_LIGHTER", "POSSIBLE_LIGHTERING", "REVIEW");
+        assertInterpretation("拖轮", "PORT_OPERATIONAL", "TUG_OR_SERVICE", "PORT_ASSISTANCE_LIKELY", "REVIEW");
+        assertInterpretation("拖轮", "OFFSHORE", "TUG_OR_SERVICE", "OFF_PORT_SERVICE_CONTACT_REVIEW", "REVIEW");
+        assertInterpretation(null, "OFFSHORE", "UNKNOWN", "UNKNOWN_OFFSHORE_COUNTERPARTY_CONTACT", "REVIEW");
     }
 
-    private void assertInterpretation(String targetType, boolean nearPort, String role,
+    private void assertInterpretation(String targetType, String sceneType, String role,
                                       String interpretation, String decision) {
         TargetRoleClassification target = new ShipTypeClassifier()
                 .classifyTargetShipWithReason(targetType, null);
-        ShipAlongsideDetector.AlongsideContext context = ShipAlongsideDetector.AlongsideContext.asymmetric(
+        ShipAlongsideDetector.AlongsideContext context = ShipAlongsideDetector.AlongsideContext.asymmetricWithScene(
                 "油轮", targetType, OwnShipEligibility.ELIGIBLE_MERCHANT, target,
-                nearPort, false, !nearPort, true, 2);
+                sceneType, 1, "Test Port", 8.0, true, 2);
         String detail = detector.detectWithTrace("413433610",
                 points("413433610", 0.0, 0.0, 13, 5, 1.8, 90.0, null), "413193000",
                 points("413193000", 0.001, 0.001, 13, 5, 1.7, 92.0, null), v3Rule(), context)
@@ -282,6 +282,7 @@ public class ShipAlongsideDetectorTest {
         assertTrue(detail, detail.contains("\"targetVesselRole\":\"" + role + "\""));
         assertTrue(detail, detail.contains("\"riskInterpretation\":\"" + interpretation + "\""));
         assertTrue(detail, detail.contains("\"decisionStatus\":\"" + decision + "\""));
+        assertTrue(detail, detail.contains("\"sceneType\":\"" + sceneType + "\""));
         assertFalse(detail.contains("ILLEGAL_STS"));
         assertFalse(detail.contains("SMUGGLING"));
     }

@@ -76,7 +76,7 @@ public class LoiteringProductionTestService {
     @Value("${ship.behavior.loitering.production.max-points-per-ship:200000}")
     private int maxPointsPerShip;
 
-    @Value("${ship.behavior.loitering.rule-version:LOITERING_V2_PORT_APPROACH_V1}")
+    @Value("${ship.behavior.loitering.rule-version:LOITERING_V2_INSURANCE_SCENE_V1}")
     private String loiteringRuleVersion;
 
     public Result run(String rawParams) {
@@ -317,7 +317,8 @@ public class LoiteringProductionTestService {
                 + "|PORT_SCENE=" + portScene.getFingerprint()
                 + "|MIN_SPEED=" + loiteringPortSceneProperties.getMinSpeed()
                 + "|PORT_DISTANCE_NM=" + loiteringPortSceneProperties.getMaxDistanceNm()
-                + "|SCENE_COVERAGE=" + loiteringPortSceneProperties.getMinEvidenceCoverage()
+                + "|SCENE_POLICY=PORT_OPERATIONAL_AND_ANCHORAGE_HARD_EXCLUDE"
+                + "|OFFSHORE_ENABLED=" + loiteringPortSceneProperties.isOffshoreEnabled()
                 + "|RULE=" + loiteringRuleVersion;
     }
 
