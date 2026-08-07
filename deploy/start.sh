@@ -31,8 +31,9 @@ if [ ! -f "${BASE_DIR}/application.properties" ]; then
   echo "application.properties not found in ${BASE_DIR}" >&2
   exit 1
 fi
-CONFIG_ARG="--spring.config.additional-location=file:${BASE_DIR}/application.properties"
+CONFIG_ARG="--spring.config.location=file:${BASE_DIR}/application.properties"
 
+cd "${BASE_DIR}"
 nohup java ${JAVA_OPTS} \
   -jar "${JAR_PATH}" \
   --spring.profiles.active="${SPRING_PROFILE}" \
