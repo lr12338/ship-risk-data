@@ -40,9 +40,8 @@ public class LoiteringPortSceneLoader {
                     + "WHERE bound IS NOT NULL AND ST_GeometryType(bound) IN ('POLYGON','MULTIPOLYGON') "
                     + "AND (LOWER(name) LIKE '%anchor%' OR name LIKE '%锚地%' OR name LIKE '%锚泊%')", (rs, n) ->
                     new Row("ANCHORAGE_ZONE", rs.getInt(1), rs.getString(2), rs.getBytes(3)));
-            List<LoiteringPortSceneSnapshot.Port> ports = dataanalysis.query("SELECT m.port_id,p.portname,p.lon,p.lat "
-                    + "FROM dataanalysis.portcode_portid_mapping m JOIN dataanalysis.newports p ON p.portcode=m.portcode "
-                    + "WHERE p.lon IS NOT NULL AND p.lat IS NOT NULL", (rs, n) -> new LoiteringPortSceneSnapshot.Port(
+            List<LoiteringPortSceneSnapshot.Port> ports = dataanalysis.query("SELECT port_id,name,ST_X(ST_Centroid(bound)),ST_Y(ST_Centroid(bound)) "
+                    + "FROM dataanalysis.zones_with_port_id WHERE is_delete=0 AND bound IS NOT NULL AND port_id > 0", (rs, n) -> new LoiteringPortSceneSnapshot.Port(
                     rs.getInt(1), rs.getString(2), rs.getDouble(3), rs.getDouble(4)));
             return build(operational, anchors, ports);
         } catch (Exception ex) {
