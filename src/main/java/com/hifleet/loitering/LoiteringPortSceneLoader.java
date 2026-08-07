@@ -67,7 +67,9 @@ public class LoiteringPortSceneLoader {
                 STRtree index = "PORT_OPERATIONAL_ZONE".equals(row.type) ? opIndex : anchorIndex;
                 index.insert(geometry.getEnvelopeInternal(), LoiteringPortSceneSnapshot.entry(geometry, PreparedGeometryFactory.prepare(geometry)));
             }
-            Collections.sort(ports, Comparator.comparingInt(port -> port.id));
+            Collections.sort(ports, Comparator.comparingInt((LoiteringPortSceneSnapshot.Port port) -> port.id)
+                    .thenComparing(port -> port.name == null ? "" : port.name)
+                    .thenComparingDouble(port -> port.lon).thenComparingDouble(port -> port.lat));
             for (LoiteringPortSceneSnapshot.Port port : ports) {
                 if (!Double.isFinite(port.lon) || !Double.isFinite(port.lat) || port.lon < -180 || port.lon > 180 || port.lat < -90 || port.lat > 90) throw new IllegalStateException("LOITERING_PORT_SCENE_UNAVAILABLE");
                 update(digest, "PORT"); update(digest, String.valueOf(port.id)); update(digest, port.name);
