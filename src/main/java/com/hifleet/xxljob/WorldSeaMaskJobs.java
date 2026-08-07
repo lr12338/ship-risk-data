@@ -25,6 +25,8 @@ public class WorldSeaMaskJobs {
             result.put("status", "PASS");
             result.put("tableExists", true);
             result.put("featureCount", value.getFeatureCount());
+            result.put("invalidGeometryCount", 0);
+            result.put("activeDatasetCount", 1);
             result.put("polygonCount", value.getPolygonCount());
             result.put("multiPolygonCount", value.getMultiPolygonCount());
             result.put("vertexCount", value.getVertexCount());
@@ -33,6 +35,8 @@ public class WorldSeaMaskJobs {
             result.put("datasetVersion", value.getDatasetVersion());
             result.put("loadedAt", value.getLoadedAt());
             result.put("loadElapsedMs", value.getLoadElapsedMs());
+            result.put("preparedGeometryBuildElapsedMs", value.getPreparedGeometryBuildElapsedMs());
+            result.put("strtreeBuildElapsedMs", value.getStrtreeBuildElapsedMs());
             result.put("coordinateAssumption", value.getCoordinateAssumption());
             result.put("indexReady", true);
             result.put("sampleAreaNames", value.getSampleAreaNames());

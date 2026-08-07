@@ -70,6 +70,7 @@ public class WorldSeaMaskLoader {
             int polygons = 0;
             int multiPolygons = 0;
             long vertices = 0L;
+            long preparedGeometryBuildNanos = 0L;
             for (Row row : sortedRows) {
                 if (!ids.add(row.id)) throw new IllegalStateException("WORLD_SEA_MASK duplicate ID=" + row.id);
                 if (row.wkb == null || row.wkb.length == 0) throw new IllegalStateException("WORLD_SEA_MASK empty geometry ID=" + row.id);
@@ -91,10 +92,15 @@ public class WorldSeaMaskLoader {
                 update(digest, bytes(row.name));
                 update(digest, bytes(row.cnName));
                 update(digest, row.wkb);
+                long prepareStarted = System.nanoTime();
+                org.locationtech.jts.geom.prep.PreparedGeometry prepared = PreparedGeometryFactory.prepare(geometry);
+                preparedGeometryBuildNanos += System.nanoTime() - prepareStarted;
                 index.insert(geometry.getEnvelopeInternal(), WorldSeaMaskSnapshot.entry(
-                        row.id, row.name, row.cnName, geometry, PreparedGeometryFactory.prepare(geometry)));
+                        row.id, row.name, row.cnName, geometry, prepared));
             }
+            long indexStarted = System.nanoTime();
             index.build();
+            long strtreeBuildNanos = System.nanoTime() - indexStarted;
             String fingerprint = hex(digest.digest());
             String expectedFingerprint = string(meta.get("geometry_fingerprint"));
             if (!fingerprint.equalsIgnoreCase(expectedFingerprint)) {
@@ -108,7 +114,9 @@ public class WorldSeaMaskLoader {
             for (int i = 0; i < Math.min(5, sortedRows.size()); i++) samples.add(sortedRows.get(i).name);
             return new WorldSeaMaskSnapshot(index, rows.size(), polygons, multiPolygons, vertices,
                     string(meta.get("dataset_version")), string(meta.get("source_file_sha256")),
-                    fingerprint, System.currentTimeMillis() - started, assumption, samples);
+                    fingerprint, System.currentTimeMillis() - started, assumption, samples,
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(preparedGeometryBuildNanos),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(strtreeBuildNanos));
         } catch (IllegalStateException ex) {
             throw ex;
         } catch (Exception ex) {

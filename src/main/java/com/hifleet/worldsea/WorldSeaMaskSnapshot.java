@@ -24,6 +24,8 @@ public final class WorldSeaMaskSnapshot {
     private final String geometryFingerprint;
     private final String loadedAt;
     private final long loadElapsedMs;
+    private final long preparedGeometryBuildElapsedMs;
+    private final long strtreeBuildElapsedMs;
     private final String coordinateAssumption;
     private final List<String> sampleAreaNames;
 
@@ -33,13 +35,23 @@ public final class WorldSeaMaskSnapshot {
                          long loadElapsedMs, String coordinateAssumption) {
         this(index, featureCount, polygonCount, multiPolygonCount, vertexCount, datasetVersion,
                 sourceFileSha256, geometryFingerprint, loadElapsedMs, coordinateAssumption,
-                Collections.<String>emptyList());
+                Collections.<String>emptyList(), 0L, 0L);
     }
 
     WorldSeaMaskSnapshot(STRtree index, int featureCount, int polygonCount,
                          int multiPolygonCount, long vertexCount, String datasetVersion,
                          String sourceFileSha256, String geometryFingerprint,
                          long loadElapsedMs, String coordinateAssumption, List<String> sampleAreaNames) {
+        this(index, featureCount, polygonCount, multiPolygonCount, vertexCount, datasetVersion,
+                sourceFileSha256, geometryFingerprint, loadElapsedMs, coordinateAssumption,
+                sampleAreaNames, 0L, 0L);
+    }
+
+    WorldSeaMaskSnapshot(STRtree index, int featureCount, int polygonCount,
+                         int multiPolygonCount, long vertexCount, String datasetVersion,
+                         String sourceFileSha256, String geometryFingerprint,
+                         long loadElapsedMs, String coordinateAssumption, List<String> sampleAreaNames,
+                         long preparedGeometryBuildElapsedMs, long strtreeBuildElapsedMs) {
         this.index = index;
         this.featureCount = featureCount;
         this.polygonCount = polygonCount;
@@ -50,6 +62,8 @@ public final class WorldSeaMaskSnapshot {
         this.geometryFingerprint = geometryFingerprint;
         this.loadedAt = LocalDateTime.now().toString();
         this.loadElapsedMs = loadElapsedMs;
+        this.preparedGeometryBuildElapsedMs = preparedGeometryBuildElapsedMs;
+        this.strtreeBuildElapsedMs = strtreeBuildElapsedMs;
         this.coordinateAssumption = coordinateAssumption;
         this.sampleAreaNames = Collections.unmodifiableList(new ArrayList<String>(sampleAreaNames));
     }
@@ -109,6 +123,8 @@ public final class WorldSeaMaskSnapshot {
     public String getGeometryFingerprint() { return geometryFingerprint; }
     public String getLoadedAt() { return loadedAt; }
     public long getLoadElapsedMs() { return loadElapsedMs; }
+    public long getPreparedGeometryBuildElapsedMs() { return preparedGeometryBuildElapsedMs; }
+    public long getStrtreeBuildElapsedMs() { return strtreeBuildElapsedMs; }
     public String getCoordinateAssumption() { return coordinateAssumption; }
     public List<String> getSampleAreaNames() { return sampleAreaNames; }
 }
