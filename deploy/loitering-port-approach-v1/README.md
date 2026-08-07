@@ -8,6 +8,8 @@ Run `scene-preflight.sql` in an approved database client before every retry to v
 
 The 55 source geometries were repaired on 2026-08-07 after review: 54 self-intersecting geometries were fixed with JTS `GeometryFixer`, and alert zone `2459165` was reconstructed from its published center and 0.3-nautical-mile radius. Original WKB is recoverable from `dataanalysis.loitering_scene_geometry_backup_20260807` and `ais41.loitering_scene_geometry_backup_20260807`.
 
+The same production check also found port-zone `dataanalysis.zones_with_port_id.id=15713` with a valid polygon but an out-of-range centroid longitude (`-256.537263`). Its coordinates were normalized by adding 360 degrees to longitude; the original WKB was added to `dataanalysis.loitering_scene_geometry_backup_20260807` before the single-row update. Recheck port centroids before retrying if `LOITERING_PORT_SCENE_UNAVAILABLE` is raised from the port list.
+
 Use `query.sql` after the manual run. It separates run-window counts, WORLD_SEA audit totals, event subtype, SOG, and distance-to-port distributions. Port-scene dry-run counters are deliberately emitted in the XXL execution log because dry runs do not persist formal events.
 
 Expected version: `LOITERING_V2_PORT_APPROACH_V1`. A successful service restart only means the code is deployable; it does not validate the rule against production trajectories.
