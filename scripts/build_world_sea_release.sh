@@ -81,18 +81,15 @@ mkdir -p "$(dirname "$output_dir")"
 staging_dir="$(mktemp -d "$(dirname "$output_dir")/.world-sea-mask-v1r1.XXXXXX")"
 cp "$jar_source" "$staging_dir/ship-risk-data-0.0.1-SNAPSHOT.jar"
 for artifact in README.md application.properties.delta migration.sql query.sql preflight.sql \
-  rollback.md release-state-machine.md failure-recovery-matrix.md xxl-job-params.json release-authorization.json; do
+  rollback.md release-state-machine.md failure-recovery-matrix.md xxl-job-params.json release-authorization.json \
+  manual-xxl-validation.md release-validation-report.md; do
   cp "$build_worktree/deploy/world-sea-mask-v1/$artifact" "$staging_dir/$artifact"
 done
 for report in repair-report.json repair-report.csv repair-report.md repair-atlas.html \
   original-invalid.geojson repaired-preview.geojson repair-difference.geojson; do
   cp "$report_dir/$report" "$staging_dir/$report"
 done
-if [ -f "$report_dir/repair-approval.json" ]; then
-  cp "$report_dir/repair-approval.json" "$staging_dir/repair-approval.json"
-else
-  cp "$report_dir/repair-approval.template.json" "$staging_dir/repair-approval.json"
-fi
+cp "$report_dir/repair-approval.template.json" "$staging_dir/repair-approval.template.json"
 jar_sha="$(shasum -a 256 "$staging_dir/ship-risk-data-0.0.1-SNAPSHOT.jar" | awk '{print $1}')"
 printf '%s  %s\n' "$jar_sha" ship-risk-data-0.0.1-SNAPSHOT.jar \
   >"$staging_dir/ship-risk-data-0.0.1-SNAPSHOT.jar.sha256"

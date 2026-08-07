@@ -1,5 +1,24 @@
 # WORLD_SEA_MASK V1R1 可恢复发布状态机
 
+## 本次发布终态
+
+2026-08-07 已通过状态机完成 `REGISTER_STAGE → PUBLISH_STAGE → ACTIVATE_DATASET`：
+
+```text
+releaseId=WORLD_SEA_102_V1R1_31dd89bd4968_20260806_180406
+authorizationMode=OPERATOR_OVERRIDE
+reviewStatus=OPERATOR_AUTHORIZED
+status=ACTIVE
+lastCompletedStep=ACTIVATE_DATASET
+formalRows=102
+formalFingerprint=31dd89bd4968f8f436135b57cdb81e870ac7b827d4dc2c086282e7dfe91ab9c6
+activeCount=1
+recoveryNeeded=false
+nextAllowedAction=NONE
+```
+
+以下状态表保留为故障恢复参考，不表示当前仍处于待授权或待发布状态。
+
 | 状态/现实 | 已完成步骤 | 唯一正常下一步 |
 |---|---|---|
 | repaired stage + `PENDING_REVIEW` | 修复、审计、严格校验 | 安装有效授权 |
