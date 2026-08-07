@@ -95,8 +95,9 @@ public final class WorldSeaImportTool {
         Validation formalValue = tableExists(connection, FORMAL) ? inspectTable(connection, FORMAL, false) : null;
         Active active = active(connection);
         int activeCount = activeCount(connection);
-        RepairAuditState repairAudit = stageValue != null && tableExists(connection, REPAIR_AUDIT)
-                ? repairAuditState(connection, stage, stageValue.fingerprint) : null;
+        RepairAuditState repairAudit = tableExists(connection, REPAIR_AUDIT)
+                ? (stageValue != null ? repairAuditState(connection, stage, stageValue.fingerprint)
+                : release == null ? null : repairAuditState(connection, release.repairReleaseId)) : null;
         boolean stageExists = stageValue != null;
         boolean formalExists = formalValue != null;
         boolean backupExists = release != null && release.backupTable != null
@@ -561,6 +562,23 @@ public final class WorldSeaImportTool {
         }
     }
 
+    private static RepairAuditState repairAuditState(Connection connection, String repairReleaseId) throws Exception {
+        if (repairReleaseId == null) return null;
+        String sql = "SELECT MIN(review_status),MAX(review_status),COUNT(*),COUNT(DISTINCT feature_id) "
+                + "FROM `" + SCHEMA + "`.`" + REPAIR_AUDIT + "` WHERE repair_release_id=?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, repairReleaseId);
+            try (ResultSet rs = statement.executeQuery()) {
+                rs.next(); String minimumStatus = rs.getString(1), maximumStatus = rs.getString(2);
+                RepairAuditState value = new RepairAuditState(repairReleaseId, minimumStatus, rs.getInt(3));
+                if (!equal(minimumStatus, maximumStatus) || value.rows != 7 || rs.getInt(4) != 7) {
+                    throw new IllegalStateException("repair audit state/count is inconsistent");
+                }
+                return value;
+            }
+        }
+    }
+
     private static String nextBeforeRegistration(RepairAuditState repairAudit) {
         if (repairAudit == null) return "CREATE_REPAIRED_STAGE";
         return ("APPROVED".equals(repairAudit.reviewStatus)
@@ -716,7 +734,7 @@ public final class WorldSeaImportTool {
         if (!tableExists(connection, RELEASE)) return null;
         String sql = "SELECT release_id,source_file_sha256,geometry_fingerprint,status,last_completed_step,"
                 + "backup_table_name,failed_table_name,publish_mode,previous_active_dataset_version,previous_active_fingerprint,"
-                + "review_status,authorization_mode,authorization_ref,authorized_at "
+                + "review_status,authorization_mode,authorization_ref,authorized_at,repair_release_id "
                 + "FROM `" + SCHEMA + "`.`" + RELEASE + "` WHERE stage_table_name=? ORDER BY created_at DESC LIMIT 1";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, stage);
@@ -726,7 +744,7 @@ public final class WorldSeaImportTool {
                         WorldSeaReleaseStateMachine.Status.valueOf(rs.getString(4)), rs.getString(5),
                         safeOptionalTable(rs.getString(6)), safeOptionalTable(rs.getString(7)), rs.getString(8),
                         rs.getString(9), rs.getString(10), rs.getString(11), rs.getString(12),
-                        rs.getString(13), rs.getTimestamp(14));
+                        rs.getString(13), rs.getTimestamp(14), rs.getString(15));
             }
         }
     }
@@ -869,14 +887,14 @@ public final class WorldSeaImportTool {
     private static final class ReleaseRow {
         final String releaseId, sourceSha, fingerprint, lastCompletedStep, backupTable, failedTable, publishMode;
         final WorldSeaReleaseStateMachine.Status status;
-        final String previousActiveDataset, previousActiveFingerprint, reviewStatus;
+        final String previousActiveDataset, previousActiveFingerprint, reviewStatus, repairReleaseId;
         final String authorizationMode, authorizationRef;
         final java.sql.Timestamp authorizedAt;
         ReleaseRow(String releaseId, String sourceSha, String fingerprint,
                    WorldSeaReleaseStateMachine.Status status, String lastCompletedStep,
                    String backupTable, String failedTable, String publishMode, String previousActiveDataset,
                    String previousActiveFingerprint, String reviewStatus, String authorizationMode,
-                   String authorizationRef, java.sql.Timestamp authorizedAt) {
+                   String authorizationRef, java.sql.Timestamp authorizedAt, String repairReleaseId) {
             this.releaseId = releaseId; this.sourceSha = sourceSha; this.fingerprint = fingerprint;
             this.status = status; this.lastCompletedStep = lastCompletedStep;
             this.backupTable = backupTable; this.failedTable = failedTable;
@@ -885,6 +903,7 @@ public final class WorldSeaImportTool {
             this.previousActiveFingerprint = previousActiveFingerprint;
             this.reviewStatus = reviewStatus; this.authorizationMode = authorizationMode;
             this.authorizationRef = authorizationRef; this.authorizedAt = authorizedAt;
+            this.repairReleaseId = repairReleaseId;
         }
     }
     private static final class Active {
