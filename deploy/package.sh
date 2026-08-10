@@ -27,7 +27,7 @@ cp "${DEPLOY_DIR}/stop.sh" "${DIST_DIR}/"
 cp "${DEPLOY_DIR}/status.sh" "${DIST_DIR}/"
 cp "${DEPLOY_DIR}/restart.sh" "${DIST_DIR}/"
 cp "${DEPLOY_DIR}/application.properties" "${DIST_DIR}/application.properties.example"
-cp -R "${DEPLOY_DIR}/production-test-5000" "${DIST_DIR}/"
+cp -R "${DEPLOY_DIR}/behavior-insurance-rules-v1" "${DIST_DIR}/"
 (cd "${DIST_DIR}" && shasum -a 256 "${JAR_NAME}" > "${JAR_NAME}.sha256")
 chmod +x "${DIST_DIR}/"*.sh
 
@@ -40,7 +40,7 @@ echo "[NEXT] upload to server /data/zhengyi (no extract needed):"
 echo "  scp dist/${JAR_NAME} user@39.96.38.242:/data/zhengyi/${JAR_NAME}.uploading"
 echo ""
 echo "[NEXT] on server:"
-echo "  follow dist/production-test-5000/README.md"
+echo "  follow dist/behavior-insurance-rules-v1/manual-deployment.md"
 echo ""
 echo "[NOTE] prod config lives in /data/zhengyi/application.properties on server."
 echo "       update jar only; do NOT overwrite server application.properties."
