@@ -29,18 +29,47 @@ public class AlongsideReplaySearchResult {
     }
 
     public void addReplayResult(ReplayQueryResult result) {
+        recordTerminalReplayResult(result);
+        if (result != null && result.isSuccess() && !result.isTruncated()) {
+            recordSuccessfulReplayQueries(1);
+            addReplayData(result);
+        }
+    }
+
+    public void recordSplitReplayResult(ReplayQueryResult result) {
         replayQueryCount++;
-        if (result != null && result.isTruncated()) truncatedQueries++;
+        if (result != null) {
+            elapsedMs += result.getElapsedMs();
+        }
+    }
+
+    public void recordTerminalReplayResult(ReplayQueryResult result) {
+        replayQueryCount++;
+        if (result != null) {
+            elapsedMs += result.getElapsedMs();
+        }
         if (result == null || !result.isSuccess()) {
             replayFailures++;
             return;
         }
-        successfulReplayQueries++;
+        if (result.isTruncated()) {
+            truncatedQueries++;
+            return;
+        }
+    }
+
+    public void recordSuccessfulReplayQueries(int count) {
+        successfulReplayQueries += Math.max(0, count);
+    }
+
+    public void addReplayData(ReplayQueryResult result) {
+        if (result == null) {
+            return;
+        }
         returnedVessels += result.getRawVesselCount();
         rawPoints += result.getRawPointCount();
         validPoints += result.getValidPointCount();
         parseErrors += result.getParseErrorCount();
-        elapsedMs += result.getElapsedMs();
     }
 
     public int getReplayQueryCount() {

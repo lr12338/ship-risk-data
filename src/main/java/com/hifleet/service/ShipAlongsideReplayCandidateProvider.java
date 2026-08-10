@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -33,6 +34,8 @@ import java.util.Set;
 public class ShipAlongsideReplayCandidateProvider {
 
     private static final Logger LOG = LoggerFactory.getLogger(ShipAlongsideReplayCandidateProvider.class);
+    private static final DateTimeFormatter TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static volatile boolean legacyWarningLogged;
 
     @Value("${ship.behavior.alongside.replay.enabled:true}")
@@ -43,6 +46,12 @@ public class ShipAlongsideReplayCandidateProvider {
 
     @Value("${ship.behavior.alongside.replay.window-minutes:30}")
     private long replayWindowMinutes;
+
+    @Value("${ship.behavior.alongside.replay.min-window-minutes:10}")
+    private long replayMinWindowMinutes;
+
+    @Value("${ship.behavior.alongside.replay.split-on-truncated:true}")
+    private boolean splitOnTruncated;
 
     @Value("${ship.behavior.alongside.replay.bbox-buffer-nm:10.0}")
     private double replayBboxBufferNm;
@@ -108,12 +117,11 @@ public class ShipAlongsideReplayCandidateProvider {
         AlongsideReplayQueryPlan plan = planQueries(windows, ownPointsByWindow, batchNo);
         for (AlongsideReplayQueryPlan.PlannedQuery planned : plan.getQueries()) {
             ReplayQueryRequest request = planned.getRequest();
-            ReplayQueryResult queryResult = spatialAisReplayClient.query(request);
-            result.addReplayResult(queryResult);
-            if (logQueries) {
-                logReplayQuery(result.getReplayQueryCount(), request, queryResult, batchNo);
-            }
-            if (queryResult == null || !queryResult.isSuccess()) continue;
+            ReplayExecution execution = executeReplay(request, result, batchNo, logQueries, 0);
+            if (!execution.complete) continue;
+            ReplayQueryResult queryResult = execution.result;
+            result.recordSuccessfulReplayQueries(execution.leafQueries);
+            result.addReplayData(queryResult);
             for (AlongsideReplayQueryPlan.QueryContext context : planned.getContexts()) {
                 collectCandidates(ownMmsi, context.getWindow(), context.getOwnWindowPoints(), queryResult,
                         candidatesByTargetAndWindow, result);
@@ -133,6 +141,146 @@ public class ShipAlongsideReplayCandidateProvider {
         }
         return new AlongsideReplayQueryPlanner().plan(windows, ownPointsByWindow, batchNo,
                 replayWindowMinutes, replayBboxBufferNm, replayDefaultRadiusNm, replayDevSize);
+    }
+
+    private ReplayExecution executeReplay(ReplayQueryRequest request,
+                                          AlongsideReplaySearchResult searchResult,
+                                          String batchNo, boolean logQueries, int depth) {
+        ReplayQueryResult queryResult = spatialAisReplayClient.query(request);
+        if (queryResult != null && queryResult.isSuccess() && queryResult.isTruncated()
+                && splitOnTruncated && canSplit(request)) {
+            searchResult.recordSplitReplayResult(queryResult);
+            if (logQueries) {
+                logReplayQuery(searchResult.getReplayQueryCount(), request, queryResult, batchNo);
+            }
+            List<ReplayQueryRequest> children = split(request);
+            XxlJobLogger.log("ALONGSIDE_V3 replay_split depth=" + depth
+                    + " parentStart=" + request.getStartTime()
+                    + " parentEnd=" + request.getEndTime()
+                    + " child1Start=" + children.get(0).getStartTime()
+                    + " child1End=" + children.get(0).getEndTime()
+                    + " child2Start=" + children.get(1).getStartTime()
+                    + " child2End=" + children.get(1).getEndTime()
+                    + " rawPoints=" + queryResult.getRawPointCount()
+                    + " batchNo=" + batchNo);
+            ReplayExecution first = executeReplay(children.get(0), searchResult, batchNo, logQueries, depth + 1);
+            if (!first.complete) {
+                return ReplayExecution.incomplete();
+            }
+            ReplayExecution second = executeReplay(children.get(1), searchResult, batchNo, logQueries, depth + 1);
+            if (!second.complete) {
+                return ReplayExecution.incomplete();
+            }
+            ReplayQueryResult merged = merge(request, first.result, second.result);
+            XxlJobLogger.log("ALONGSIDE_V3 replay_split_recovered depth=" + depth
+                    + " start=" + request.getStartTime()
+                    + " end=" + request.getEndTime()
+                    + " leafQueries=" + (first.leafQueries + second.leafQueries)
+                    + " vessels=" + merged.getRawVesselCount()
+                    + " points=" + merged.getValidPointCount()
+                    + " batchNo=" + batchNo);
+            return ReplayExecution.complete(merged, first.leafQueries + second.leafQueries);
+        }
+
+        searchResult.recordTerminalReplayResult(queryResult);
+        if (logQueries) {
+            logReplayQuery(searchResult.getReplayQueryCount(), request, queryResult, batchNo);
+        }
+        if (queryResult == null || !queryResult.isSuccess()) {
+            return ReplayExecution.incomplete();
+        }
+        if (queryResult.isTruncated()) {
+            XxlJobLogger.log("ALONGSIDE_V3 replay_split_terminal depth=" + depth
+                    + " start=" + request.getStartTime()
+                    + " end=" + request.getEndTime()
+                    + " rawPoints=" + queryResult.getRawPointCount()
+                    + " minWindowMinutes=" + Math.max(1L, replayMinWindowMinutes)
+                    + " splitEnabled=" + splitOnTruncated
+                    + " batchNo=" + batchNo);
+            return ReplayExecution.incomplete();
+        }
+        return ReplayExecution.complete(queryResult, 1);
+    }
+
+    private boolean canSplit(ReplayQueryRequest request) {
+        LocalDateTime start = LocalDateTime.parse(request.getStartTime(), TIME_FORMATTER);
+        LocalDateTime end = LocalDateTime.parse(request.getEndTime(), TIME_FORMATTER);
+        return Duration.between(start, end).getSeconds()
+                > Math.max(1L, replayMinWindowMinutes) * 60L;
+    }
+
+    private List<ReplayQueryRequest> split(ReplayQueryRequest request) {
+        LocalDateTime start = LocalDateTime.parse(request.getStartTime(), TIME_FORMATTER);
+        LocalDateTime end = LocalDateTime.parse(request.getEndTime(), TIME_FORMATTER);
+        long minSeconds = Math.max(1L, replayMinWindowMinutes) * 60L;
+        LocalDateTime firstEnd = start.plusSeconds(minSeconds);
+        LocalDateTime secondStart = firstEnd;
+        if (Duration.between(firstEnd, end).getSeconds() < minSeconds) {
+            secondStart = end.minusSeconds(minSeconds);
+        }
+        List<ReplayQueryRequest> children = new ArrayList<ReplayQueryRequest>();
+        children.add(copyWithTime(request, start, firstEnd));
+        children.add(copyWithTime(request, secondStart, end));
+        return children;
+    }
+
+    private ReplayQueryRequest copyWithTime(ReplayQueryRequest source,
+                                            LocalDateTime start, LocalDateTime end) {
+        ReplayQueryRequest copy = new ReplayQueryRequest();
+        copy.setStartTime(start.format(TIME_FORMATTER));
+        copy.setEndTime(end.format(TIME_FORMATTER));
+        copy.setMinLat(source.getMinLat());
+        copy.setMaxLat(source.getMaxLat());
+        copy.setMinLon(source.getMinLon());
+        copy.setMaxLon(source.getMaxLon());
+        copy.setCenterLon(source.getCenterLon());
+        copy.setCenterLat(source.getCenterLat());
+        copy.setRadiusNm(source.getRadiusNm());
+        copy.setDevSize(source.getDevSize());
+        copy.setBatchNo(source.getBatchNo());
+        return copy;
+    }
+
+    private ReplayQueryResult merge(ReplayQueryRequest request,
+                                    ReplayQueryResult first, ReplayQueryResult second) {
+        Map<String, List<TrajectoryPoint>> tracks = new HashMap<String, List<TrajectoryPoint>>();
+        mergeTracks(tracks, first.getTracksByMmsi());
+        mergeTracks(tracks, second.getTracksByMmsi());
+        int validPoints = 0;
+        for (Map.Entry<String, List<TrajectoryPoint>> entry : tracks.entrySet()) {
+            List<TrajectoryPoint> clean = cleanAndSort(entry.getValue());
+            entry.setValue(clean);
+            validPoints += clean.size();
+        }
+        ReplayQueryResult merged = new ReplayQueryResult();
+        merged.setRequest(request);
+        merged.setSuccess(true);
+        merged.setTruncated(false);
+        merged.setLargeResult(first.isLargeResult() || second.isLargeResult());
+        merged.setRawVesselCount(tracks.size());
+        merged.setValidPointCount(validPoints);
+        merged.setParseErrorCount(first.getParseErrorCount() + second.getParseErrorCount());
+        merged.setRawPointCount(validPoints + merged.getParseErrorCount());
+        merged.setElapsedMs(first.getElapsedMs() + second.getElapsedMs());
+        merged.setTracksByMmsi(tracks);
+        return merged;
+    }
+
+    private void mergeTracks(Map<String, List<TrajectoryPoint>> target,
+                             Map<String, List<TrajectoryPoint>> source) {
+        if (source == null) {
+            return;
+        }
+        for (Map.Entry<String, List<TrajectoryPoint>> entry : source.entrySet()) {
+            List<TrajectoryPoint> points = target.get(entry.getKey());
+            if (points == null) {
+                points = new ArrayList<TrajectoryPoint>();
+                target.put(entry.getKey(), points);
+            }
+            if (entry.getValue() != null) {
+                points.addAll(entry.getValue());
+            }
+        }
     }
 
     private void collectCandidates(String ownMmsi, ShipAlongsideDetector.LowSpeedWindow window,
@@ -355,6 +503,26 @@ public class ShipAlongsideReplayCandidateProvider {
 
         private double getAvgDistanceNm() {
             return totalDistanceNm / Math.max(1, matchedPointCount);
+        }
+    }
+
+    private static class ReplayExecution {
+        private final boolean complete;
+        private final ReplayQueryResult result;
+        private final int leafQueries;
+
+        private ReplayExecution(boolean complete, ReplayQueryResult result, int leafQueries) {
+            this.complete = complete;
+            this.result = result;
+            this.leafQueries = leafQueries;
+        }
+
+        private static ReplayExecution complete(ReplayQueryResult result, int leafQueries) {
+            return new ReplayExecution(true, result, leafQueries);
+        }
+
+        private static ReplayExecution incomplete() {
+            return new ReplayExecution(false, null, 0);
         }
     }
 }

@@ -886,7 +886,9 @@ public class ShipBehaviorAnalysisService {
         if (worldSeaEventGate != null) allTraces = worldSeaEventGate.filterAndAnnotate(allTraces);
         List<ShipBehaviorEvent> detected = extractEvents(allTraces);
         tagBatch(detected, jobParams);
-        boolean completeHistoryWindow = failed == 0 && replaySearchResult.getReplayFailures() == 0;
+        boolean completeHistoryWindow = failed == 0
+                && replaySearchResult.getReplayFailures() == 0
+                && replaySearchResult.getTruncatedQueries() == 0;
         boolean shouldInsert = enableInsert && (!replaceExisting || completeHistoryWindow);
         if (shouldInsert) {
             if (replaceExisting) {

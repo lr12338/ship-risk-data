@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyBoolean;
@@ -80,6 +81,27 @@ public class AlongsideProductionTestServiceTest {
         for (List captured : tracesCaptor.getAllValues()) {
             assertEquals(1, captured.size());
         }
+    }
+
+    @Test
+    public void terminalTruncationFailsWindowAndDoesNotWriteEvents() {
+        Fixture fixture = fixture();
+        when(fixture.status.findCompletedWindows(eq("truncated-batch"), any(Set.class)))
+                .thenReturn(Collections.<String>emptySet());
+        when(fixture.analysis.analysisAlongsideProductionWindow(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(new ShipBehaviorAnalysisService.AlongsideWindowResult(
+                        10, 1, 0, 0, 1, 0, 1,
+                        0, 0, 0, 0, Collections.<ShipBehaviorTrace>emptyList()));
+
+        AlongsideProductionTestService.Result result = fixture.service.run(
+                params(true, "truncated-batch"));
+
+        assertFalse(result.isSuccess());
+        assertTrue(result.summary().contains("windowsFailed=7"));
+        verify(fixture.store, never()).replace(
+                anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyList(), anyList(), anyBoolean(), any(Runnable.class));
     }
 
     private Fixture fixture() {

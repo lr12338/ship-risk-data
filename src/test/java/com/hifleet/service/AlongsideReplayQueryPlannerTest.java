@@ -67,7 +67,7 @@ public class AlongsideReplayQueryPlannerTest {
         result.addReplayResult(failed); result.addReplayResult(truncated);
 
         assertEquals(2, result.getAttemptedReplayQueryCount());
-        assertEquals(1, result.getSuccessfulReplayQueryCount());
+        assertEquals(0, result.getSuccessfulReplayQueryCount());
         assertEquals(1, result.getFailedReplayQueryCount());
         assertEquals(1, result.getTruncatedReplayQueryCount());
         int baseline = 5, filtered = 2;
