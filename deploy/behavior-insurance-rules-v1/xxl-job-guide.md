@@ -19,8 +19,12 @@ ship.behavior.loitering.port-approach.required=false
 ship.behavior.loitering.offshore.enabled=true
 ship.behavior.loitering.weak.store-enabled=false
 ship.behavior.loitering.scene.fail-closed=true
+ship.behavior.loitering.scene-data.available=true
 ship.behavior.alongside.rule-version=ALONGSIDE_V3_INSURANCE_SCENE_V2
+ship.behavior.alongside.scene-data.available=true
 ```
+
+本轮 Loitering 只使用 `engines:["V2"]`，`ship.behavior.loitering.production.scene-ready` 可以继续为 false；该开关只保护 V3 production 链路。
 
 3. 在 `dataanalysis` 执行 `query.sql` 的固定名单预检，确认 `total_rows=5000`、`enabled_rows=5000`、`distinct_mmsi=5000`。
 4. 所有任务均人工触发。先 20，再 100，再 500，最后才允许 5000；Loitering 与 Alongside 不得并发。
@@ -146,6 +150,9 @@ ship.behavior.alongside.rule-version=ALONGSIDE_V3_INSURANCE_SCENE_V2
 ## 六、执行与判断
 
 1. 在 XXL 控制台确认执行器在线，打开对应任务，核对 Handler、阻塞策略和单行参数，再点击一次“执行一次”。
+   - 任务参数必须从左花括号 `{` 开始、右花括号 `}` 结束。
+   - 不要粘贴 Markdown 代码围栏、`json` 标记、`Param:`、Handler 名称或外层 `params`。
+   - 控制台参数框里不得换行；当前八条参数长度为 408–428 字符。
 2. 日志出现 `Production Start` 后观察 `batchNo`、`shipLimit`、`parallelism`、`enableInsert` 是否与计划一致；不一致立即终止。
 3. 成功日志应以 `Loitering Production Summary` 或 `Alongside Production Summary` 结束，且 `shipsFailed=0`、`windowsFailed=0`。Alongside 还要求 replay failure/truncated 为 0。
 4. XXL 显示成功后仍必须执行 `query.sql`。dry-run 的候选事件数看状态表 `event_count`，`ship_behavior_event` 中该 batchNo 必须为 0。
@@ -157,3 +164,4 @@ ship.behavior.alongside.rule-version=ALONGSIDE_V3_INSURANCE_SCENE_V2
 - 使用原任务、原单行参数、原 `batchNo`、`resume=true` 再执行；已完成窗口会跳过。
 - 不得改 batchNo 掩盖失败，不得把 dry-run 改成正式写库后继续原批次，不得同时启动另一行为任务。
 - 若部署 JAR/配置错误，按 `manual-deployment.md` 回滚；不要删除状态表、审计表或既有事件。
+- 出现 `LOITERING_PORT_SCENE_UNAVAILABLE` 时先停止任务，核对新 JAR SHA、港口参考数9,251、锚地2,945、港区8,764以及几何 PREVIEW/APPLY结果；不要通过修改 batchNo 绕过。

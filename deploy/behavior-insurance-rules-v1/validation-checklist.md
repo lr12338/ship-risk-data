@@ -6,6 +6,7 @@
 - [ ] JAR 的 Git SHA、构建时间、SHA-256 已记录，并与上传文件一致。
 - [ ] WORLD_SEA active dataset 为 `WORLD_SEA_102_V1R1`；港区/锚地 scene 加载成功。
 - [ ] 服务器配置只合并 delta，保留数据源、WORLD_SEA 与 XXL-Job 原有配置。
+- [ ] `loitering.scene-data.available=true`、`alongside.scene-data.available=true`；本轮V2测试保持 `loitering.production.scene-ready=false`。
 - [ ] 港口参考集合为 9,251 条，`zones_type=1`/锚地名称混入为 0。
 - [ ] 几何 PREVIEW 为26条且 `databaseWrites=0`；APPLY source fingerprint 与 PREVIEW 完全一致。
 - [ ] 几何备份表为26条且哈希无误；APPLY 为 `databaseWrites=26`，修复后26条均通过 JTS。

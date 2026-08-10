@@ -10,5 +10,7 @@ ship.behavior.loitering.anchor.exclude=true
 ship.behavior.loitering.weak.enabled=true
 ship.behavior.loitering.weak.store-enabled=false
 ship.behavior.loitering.scene.fail-closed=true
+ship.behavior.loitering.scene-data.available=true
 
 ship.behavior.alongside.rule-version=ALONGSIDE_V3_INSURANCE_SCENE_V2
+ship.behavior.alongside.scene-data.available=true
