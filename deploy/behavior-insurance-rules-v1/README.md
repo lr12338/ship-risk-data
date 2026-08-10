@@ -9,6 +9,7 @@
 | WORLD_SEA_102_V1R1 | 统一全球命名海域 Gate；仅表示 `WORLD_SEA_NAMED_AREA`，不表示法律公海、EEZ 或领海。 |
 | LOITERING_V2_PORT_APPROACH_V1 | 引入港口/锚地场景数据；此版本曾把港口距离作为 Loitering 硬 Gate。 |
 | 行为保险规则 V1 | 将行为识别、场景分类、保险解释分层；Loitering 规则升级为 `LOITERING_V2_INSURANCE_SCENE_V1`，Alongside 升级为 `ALONGSIDE_V3_INSURANCE_SCENE_V2`。 |
+| 港口锚地几何修复 V1 | 港口参考边界排除 `zones_type=1`/锚地名称；固定修复26条自相交锚地并保留可回滚备份。 |
 
 ## 三层计算链路
 
@@ -36,5 +37,6 @@
 
 1. 按 [release-manifest.md](release-manifest.md) 核对本地构建身份，再按 [manual-deployment.md](manual-deployment.md) 构建、校验并手工部署 JAR。
 2. 仅逐项合并 [application.properties.delta](application.properties.delta)。
-3. 按 [xxl-job-guide.md](xxl-job-guide.md) 依次执行 20、100、500 dry-run；参数见 [xxl-job-params.json](xxl-job-params.json)。
-4. 使用 [query.sql](query.sql) 与 [validation-checklist.md](validation-checklist.md) 验收。5000 正式写库任务需前序全部通过和人工确认，两个行为任务不得并发。
+3. 按 [geometry-repair.md](geometry-repair.md) 完成只读预演、受控写回与场景验收；需要恢复原始 WKB 时使用 [geometry-repair-rollback.sql](geometry-repair-rollback.sql)。
+4. 按 [xxl-job-guide.md](xxl-job-guide.md) 依次执行 20、100、500 dry-run；参数见 [xxl-job-params.json](xxl-job-params.json)。
+5. 使用 [query.sql](query.sql) 与 [validation-checklist.md](validation-checklist.md) 验收。5000 正式写库任务需前序全部通过和人工确认，两个行为任务不得并发。

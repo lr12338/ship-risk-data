@@ -2,6 +2,29 @@
 -- 每次只修改 @batch_no；不要修改已经创建的批次不可变参数。
 SET @batch_no = 'loitering-merchant20-2025-insurance-scene-v1';
 
+-- 场景与几何修复验收：port_reference_count预期9251，anchorage_leak_count预期0。
+SELECT COUNT(*) AS port_reference_count,
+       SUM(zones_type=1 OR LOWER(name) LIKE '%anchor%' OR name LIKE '%锚地%' OR name LIKE '%锚泊%') AS anchorage_leak_count
+FROM dataanalysis.zones_with_port_id
+WHERE is_delete=0 AND bound IS NOT NULL AND port_id>0
+  AND COALESCE(zones_type,0)<>1
+  AND (name IS NULL OR (LOWER(name) NOT LIKE '%anchor%' AND name NOT LIKE '%锚地%' AND name NOT LIKE '%锚泊%'));
+
+-- 修复备份预期26条、唯一ID 26、backup_hash_mismatch=0。
+SELECT COUNT(*) AS backup_rows,COUNT(DISTINCT id) AS unique_ids,
+       SUM(original_wkb_sha256<>SHA2(AsBinary(bound),256)) AS backup_hash_mismatch,
+       MIN(backup_at) AS first_backup_at,MAX(backup_at) AS last_backup_at
+FROM dataanalysis.loitering_scene_geometry_backup_20260810_port_anchor_v1
+WHERE repair_run_id='PORT_ANCHOR_20260810_V1';
+
+-- 源表与备份哈希差异预期26，表示26条均已写入修复后WKB；JTS有效性以修复工具回读校验为准。
+SELECT COUNT(*) AS repaired_rows,
+       SUM(SHA2(AsBinary(source.bound),256)<>backup.original_wkb_sha256) AS changed_wkb_rows,
+       SUM(ST_SRID(source.bound)<>101) AS invalid_srid_rows
+FROM dataanalysis.zones_with_port_id source
+JOIN dataanalysis.loitering_scene_geometry_backup_20260810_port_anchor_v1 backup ON backup.id=source.id
+WHERE backup.repair_run_id='PORT_ANCHOR_20260810_V1';
+
 -- 固定名单预检：预期 total_rows=5000、enabled_rows=5000、distinct_mmsi=5000。
 SELECT COUNT(*) AS total_rows,
        SUM(enabled=1) AS enabled_rows,

@@ -52,6 +52,8 @@ tail -n 200 logs/startup.log
 
 启动后确认无 Bean 初始化、数据源、WORLD_SEA、港区/锚地 scene、XXL-Job handler 注册错误。仅启动成功不代表规则已验收；不要因此触发任何任务。
 
+港口参考集合必须加载 9,251 条，且不得包含 `zones_type=1` 或名称含 `anchor/锚地/锚泊` 的记录。代码部署验收通过后，再按 [geometry-repair.md](geometry-repair.md) 使用同一 JAR 执行 PREVIEW 和 APPLY；不要自动触发 XXL-Job。
+
 ## 5. 回滚
 
 ```bash
@@ -65,3 +67,5 @@ cp "backups/REPLACE_RELEASE_STAMP/application.properties" ./application.properti
 ```
 
 回滚 JAR 不删除批次清单、窗口状态、WORLD_SEA 审计或既有事件；这些数据用于追溯，不得手工清理以掩盖失败。
+
+如果已经执行港口锚地几何 APPLY，完整回滚还必须执行 [geometry-repair-rollback.sql](geometry-repair-rollback.sql) 恢复26条原 WKB，并核对恢复哈希。

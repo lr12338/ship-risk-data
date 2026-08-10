@@ -94,6 +94,15 @@ public class LoiteringPortSceneTest {
     }
 
     @Test
+    public void portReferencesExcludeAnchorageTypeAndNames() {
+        assertTrue(LoiteringPortSceneLoader.PORT_REFERENCE_SQL.contains("COALESCE(zones_type,0) <> 1"));
+        assertTrue(LoiteringPortSceneLoader.PORT_REFERENCE_SQL.contains("LOWER(name) NOT LIKE '%anchor%'"));
+        assertTrue(LoiteringPortSceneLoader.PORT_REFERENCE_SQL.contains("name NOT LIKE '%锚地%'"));
+        assertTrue(LoiteringPortSceneLoader.PORT_REFERENCE_SQL.contains("name NOT LIKE '%锚泊%'"));
+        assertTrue(LoiteringPortSceneLoader.PORT_REFERENCE_SQL.contains("name IS NULL OR"));
+    }
+
+    @Test
     public void invalidGeometryIdentifiesItsSourceAndId() {
         GeometryFactory factory = new GeometryFactory();
         Geometry invalid = factory.createPolygon(new Coordinate[]{new Coordinate(0,0), new Coordinate(1,1), new Coordinate(1,0), new Coordinate(0,1), new Coordinate(0,0)});

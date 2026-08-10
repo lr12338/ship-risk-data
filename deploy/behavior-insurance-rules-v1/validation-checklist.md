@@ -6,6 +6,9 @@
 - [ ] JAR 的 Git SHA、构建时间、SHA-256 已记录，并与上传文件一致。
 - [ ] WORLD_SEA active dataset 为 `WORLD_SEA_102_V1R1`；港区/锚地 scene 加载成功。
 - [ ] 服务器配置只合并 delta，保留数据源、WORLD_SEA 与 XXL-Job 原有配置。
+- [ ] 港口参考集合为 9,251 条，`zones_type=1`/锚地名称混入为 0。
+- [ ] 几何 PREVIEW 为26条且 `databaseWrites=0`；APPLY source fingerprint 与 PREVIEW 完全一致。
+- [ ] 几何备份表为26条且哈希无误；APPLY 为 `databaseWrites=26`，修复后26条均通过 JTS。
 
 ## 20 / 100 / 500 dry-run
 
@@ -26,3 +29,4 @@
 
 - [ ] 窗口失败：修复根因后使用完全相同 JSON、原 `batchNo` 和 `resume=true` 续跑。
 - [ ] JAR/配置启动失败：停止服务，恢复本次备份 JAR 与 `application.properties`，重新启动；不要删除批次状态、审计表或已经生成的正式事件。
+- [ ] 几何写回失败：工具自动回滚事务，不得改 ID 或 fingerprint 强行重试；上线后需完整回退时，同时恢复旧 JAR 和备份中的原始 WKB。
