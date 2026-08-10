@@ -46,13 +46,14 @@ ssh 242 'sha256sum /data/zhengyi/ship-risk-data-0.0.1-SNAPSHOT.jar.uploading'
 - `ship.behavior.scene.port-approach-distance-nm=10.0` 为 Port Approach 场景阈值；正式距离字段使用港口 Polygon 边界。
 - Loitering 使用 `LOITERING_V2_INSURANCE_SCENE_V1`，`min-speed=1.0`、低速 hard split、港区/锚地排除、远海启用、weak 不写库、场景数据 fail closed。
 - Alongside 使用 `ALONGSIDE_V3_INSURANCE_SCENE_V2`；不要恢复 target merchant hard filter，也不要添加“距港口 10nm”存在性 Gate。
+- `ship.behavior.alongside.replay.bbox-buffer-nm=1.0` 是空间 AIS 候选查询的轨迹包络外扩范围，不是 Port Approach 阈值。它必须大于等于候选距离 `0.27nm`；不得与上面的港口 `10.0nm` 配置混淆。
 - 港区、锚地和 WORLD_SEA 已完成预检后，将 `ship.behavior.loitering.scene-data.available`、`ship.behavior.alongside.scene-data.available` 设为 `true`，否则风险解释仍按“场景数据不可用”降级。
 - 本轮 Loitering 参数固定 `engines=["V2"]`，因此保留 `ship.behavior.loitering.production.scene-ready=false`；只有另行验收 V3 后才允许改为 true。
 
 合并后只核对键和值，不输出数据源密码或 XXL access token：
 
 ```bash
-ssh 242 "grep -E '^(ship.behavior.scene.port-approach-distance-nm|ship.behavior.loitering.(rule-version|min-speed|split-below-min-speed|port-approach.required|offshore.enabled|weak.store-enabled|scene.fail-closed|scene-data.available)|ship.behavior.alongside.(rule-version|scene-data.available))=' /data/zhengyi/application.properties"
+ssh 242 "grep -E '^(ship.behavior.scene.port-approach-distance-nm|ship.behavior.loitering.(rule-version|min-speed|split-below-min-speed|port-approach.required|offshore.enabled|weak.store-enabled|scene.fail-closed|scene-data.available)|ship.behavior.alongside.(rule-version|scene-data.available|replay.bbox-buffer-nm))=' /data/zhengyi/application.properties"
 ```
 
 ## 4. 备份、替换、启动
@@ -76,6 +77,12 @@ tail -n 200 logs/startup.log
 港口参考集合必须加载 9,251 条，且不得包含 `zones_type=1` 或名称含 `anchor/锚地/锚泊` 的记录。代码部署验收通过后，再按 [geometry-repair.md](geometry-repair.md) 使用同一 JAR 执行 PREVIEW 和 APPLY；不要自动触发 XXL-Job。
 
 如果你选择先只验证代码查询修复，可以完成 PREVIEW 后暂不执行 APPLY；但进入20船测试前必须明确记录是否已写回26条，以及备份表/回滚状态。
+
+对现有 `alongside-merchant100-2025-insurance-scene-v1` 恢复执行时，必须保持原单行参数、`resume=true`、`enableInsert=true`。预期跳过1296个 DONE 窗口并只重跑4个 FAILED 窗口；验收目标为 `windowsDone=4`、`windowsFailed=0`、数据库 `DONE=1300`、`FAILED=0`。如果1海里 BBOX 下的10分钟叶子仍返回50,000点，必须停止并保留 FAILED，不得继续缩小范围或提高上限。
+
+```json
+{"mode":"production_test","listBatchNo":"liquid-container-5000-2025h2-2026h1-v1","expectedShipCount":5000,"shipLimit":100,"pageSize":50,"parallelism":1,"startTime":"2025-01-01 00:00:00","endTime":"2026-01-01 00:00:00","windowDays":30,"trajectorySliceHours":6,"resume":true,"retryCount":2,"logIntervalShips":10,"batchNo":"alongside-merchant100-2025-insurance-scene-v1","enableInsert":true,"storeDetails":false}
+```
 
 ## 5. 回滚
 

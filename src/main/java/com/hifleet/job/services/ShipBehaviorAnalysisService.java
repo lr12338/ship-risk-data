@@ -2008,8 +2008,14 @@ public class ShipBehaviorAnalysisService {
                     || truncatedReplayQueryCount < 0
                     || savedReplayQueries != Math.max(0,
                     baselinePlannedReplayQueries - filteredPlannedReplayQueries)
-                    || attemptedReplayQueries != successfulReplayQueries + failedReplayQueries) {
-                throw new IllegalArgumentException("invalid alongside replay query metrics");
+                    || successfulReplayQueries + failedReplayQueries
+                    + truncatedReplayQueryCount > attemptedReplayQueries) {
+                throw new IllegalArgumentException("invalid alongside replay query metrics: attempted="
+                        + attemptedReplayQueries + ", successful=" + successfulReplayQueries
+                        + ", failed=" + failedReplayQueries + ", truncated="
+                        + truncatedReplayQueryCount + ", baselinePlanned="
+                        + baselinePlannedReplayQueries + ", filteredPlanned="
+                        + filteredPlannedReplayQueries + ", saved=" + savedReplayQueries);
             }
             this.points = points; this.lowSpeedWindows = lowSpeedWindows;
             this.candidateTargets = candidateTargets; this.candidatePairs = candidatePairs;

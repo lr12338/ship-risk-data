@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.PostConstruct;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -53,7 +54,7 @@ public class ShipAlongsideReplayCandidateProvider {
     @Value("${ship.behavior.alongside.replay.split-on-truncated:true}")
     private boolean splitOnTruncated;
 
-    @Value("${ship.behavior.alongside.replay.bbox-buffer-nm:10.0}")
+    @Value("${ship.behavior.alongside.replay.bbox-buffer-nm:1.0}")
     private double replayBboxBufferNm;
 
     @Value("${ship.behavior.alongside.replay.default-radius-nm:0.5}")
@@ -94,6 +95,13 @@ public class ShipAlongsideReplayCandidateProvider {
 
     void setSpatialAisReplayClient(SpatialAisReplayClient spatialAisReplayClient) {
         this.spatialAisReplayClient = spatialAisReplayClient;
+    }
+
+    @PostConstruct
+    public void validateConfiguration() {
+        if (replayEnabled) {
+            validateReplayBboxBuffer();
+        }
     }
 
     public AlongsideReplaySearchResult findCandidates(String ownMmsi, List<ShipAlongsideDetector.LowSpeedWindow> windows,
@@ -139,8 +147,19 @@ public class ShipAlongsideReplayCandidateProvider {
         if (!replayEnabled) {
             return new AlongsideReplayQueryPlan(Collections.<AlongsideReplayQueryPlan.PlannedQuery>emptyList());
         }
+        validateReplayBboxBuffer();
         return new AlongsideReplayQueryPlanner().plan(windows, ownPointsByWindow, batchNo,
                 replayWindowMinutes, replayBboxBufferNm, replayDefaultRadiusNm, replayDevSize);
+    }
+
+    private void validateReplayBboxBuffer() {
+        if (Double.isNaN(replayBboxBufferNm) || Double.isInfinite(replayBboxBufferNm)
+                || replayBboxBufferNm <= 0.0d
+                || replayBboxBufferNm < candidateMaxDistanceNm) {
+            throw new IllegalStateException("invalid ship.behavior.alongside.replay.bbox-buffer-nm="
+                    + replayBboxBufferNm + ", must be finite, positive and >= "
+                    + "ship.behavior.alongside.candidate.max-distance-nm=" + candidateMaxDistanceNm);
+        }
     }
 
     private ReplayExecution executeReplay(ReplayQueryRequest request,

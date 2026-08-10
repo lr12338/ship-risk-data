@@ -59,6 +59,31 @@ public class AlongsideReplayQueryPlannerTest {
     }
 
     @Test
+    public void expandsMovingTrackEnvelopeByOneNauticalMile() {
+        List<TrajectoryPoint> points = new ArrayList<TrajectoryPoint>();
+        LocalDateTime start = LocalDateTime.of(2026, 1, 1, 0, 0);
+        points.add(new TrajectoryPoint("413000001", start,
+                120.0, 30.0, 2.0, 90.0, null));
+        points.add(new TrajectoryPoint("413000001", start.plusMinutes(30),
+                120.1, 30.1, 2.0, 90.0, null));
+        List<ShipAlongsideDetector.LowSpeedWindow> windows = detector.extractLowSpeedWindows(
+                "413000001", points, 1.0, 3.0, 20, 60);
+        AlongsideReplayQueryPlan plan = planner.plan(windows, map(windows, points),
+                "batch", 30, 1.0, 0.5, 100);
+
+        com.hifleet.domain.ReplayQueryRequest request = plan.getQueries().get(0).getRequest();
+        double latBuffer = 1.0 / 60.0;
+        double lonBuffer = 1.0 / (60.0 * Math.cos(Math.toRadians(30.05)));
+        assertEquals(30.0 - latBuffer, request.getMinLat(), 1e-12);
+        assertEquals(30.1 + latBuffer, request.getMaxLat(), 1e-12);
+        assertEquals(120.0 - lonBuffer, request.getMinLon(), 1e-12);
+        assertEquals(120.1 + lonBuffer, request.getMaxLon(), 1e-12);
+        assertTrue(30.0 - 0.27 / 60.0 >= request.getMinLat());
+        assertTrue(120.0 - 0.27 / (60.0 * Math.cos(Math.toRadians(30.0)))
+                >= request.getMinLon());
+    }
+
+    @Test
     public void failuresAndTruncationDoNotChangePlannedSavings() {
         AlongsideReplaySearchResult result = new AlongsideReplaySearchResult();
         ReplayQueryResult failed = new ReplayQueryResult(); failed.setSuccess(false);
@@ -81,6 +106,35 @@ public class AlongsideReplayQueryPlannerTest {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 Collections.<com.hifleet.domain.ShipBehaviorTrace>emptyList(),
                 0, 0, 0, 0, -1, 0, 0, 0, 0);
+    }
+
+    @Test
+    public void resultModelAcceptsRecoveredSplitQueryMetrics() {
+        new com.hifleet.job.services.ShipBehaviorAnalysisService.AlongsideWindowResult(
+                0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0,
+                Collections.<com.hifleet.domain.ShipBehaviorTrace>emptyList(),
+                0, 0, 1, 1, 0, 5, 3, 0, 0);
+        new com.hifleet.job.services.ShipBehaviorAnalysisService.AlongsideWindowResult(
+                0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0,
+                Collections.<com.hifleet.domain.ShipBehaviorTrace>emptyList(),
+                0, 0, 1, 1, 0, 3, 2, 0, 0);
+    }
+
+    @Test
+    public void resultModelReportsInvalidMetricValues() {
+        try {
+            new com.hifleet.job.services.ShipBehaviorAnalysisService.AlongsideWindowResult(
+                    0, 0, 0, 0, 2, 1, 1, 0, 0, 0, 0,
+                    Collections.<com.hifleet.domain.ShipBehaviorTrace>emptyList(),
+                    0, 0, 1, 1, 0, 2, 1, 1, 1);
+        } catch (IllegalArgumentException ex) {
+            assertTrue(ex.getMessage().contains("attempted=2"));
+            assertTrue(ex.getMessage().contains("successful=1"));
+            assertTrue(ex.getMessage().contains("failed=1"));
+            assertTrue(ex.getMessage().contains("truncated=1"));
+            return;
+        }
+        throw new AssertionError("invalid replay metrics must be rejected");
     }
 
     private Map<String, List<TrajectoryPoint>> map(List<ShipAlongsideDetector.LowSpeedWindow> windows,

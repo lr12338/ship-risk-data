@@ -22,6 +22,7 @@ ship.behavior.loitering.scene.fail-closed=true
 ship.behavior.loitering.scene-data.available=true
 ship.behavior.alongside.rule-version=ALONGSIDE_V3_INSURANCE_SCENE_V2
 ship.behavior.alongside.scene-data.available=true
+ship.behavior.alongside.replay.bbox-buffer-nm=1.0
 ```
 
 本轮 Loitering 只使用 `engines:["V2"]`，`ship.behavior.loitering.production.scene-ready` 可以继续为 false；该开关只保护 V3 production 链路。
@@ -165,3 +166,10 @@ ship.behavior.alongside.scene-data.available=true
 - 不得改 batchNo 掩盖失败，不得把 dry-run 改成正式写库后继续原批次，不得同时启动另一行为任务。
 - 若部署 JAR/配置错误，按 `manual-deployment.md` 回滚；不要删除状态表、审计表或既有事件。
 - 出现 `LOITERING_PORT_SCENE_UNAVAILABLE` 时先停止任务，核对新 JAR SHA、港口参考数9,251、锚地2,945、港区8,764以及几何 PREVIEW/APPLY结果；不要通过修改 batchNo 绕过。
+
+### 现有100船正式批次的受控恢复
+
+`alongside-merchant100-2025-insurance-scene-v1` 已经以 `enableInsert=true` 建立不可变清单，因此本次只能用原参数续跑；这是历史批次恢复特例，不改变新建20/100/500测试必须 dry-run 的规则。
+为避免将这条历史特例误当成新建任务模板，完整单行续跑参数只放在 `manual-deployment.md` 的当前批次恢复段落。
+
+正常续跑应输出 `windowsSkipped=1296`、`windowsDone=4`、`windowsFailed=0`，状态表应为 `DONE=1300`、`FAILED=0`。如果出现 `replay_split_terminal` 且日志显示1海里范围内的10分钟查询仍达50,000点，保持该窗口 FAILED 并停止；不得使用部分轨迹写事件。

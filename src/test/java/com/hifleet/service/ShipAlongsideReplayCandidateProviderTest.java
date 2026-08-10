@@ -181,6 +181,30 @@ public class ShipAlongsideReplayCandidateProviderTest {
         assertTrue(failedResult.getCandidates().isEmpty());
     }
 
+    @Test
+    public void rejectsReplayBboxSmallerThanCandidateDistance() {
+        ShipAlongsideReplayCandidateProvider provider = new ShipAlongsideReplayCandidateProvider();
+        configure(provider);
+        List<TrajectoryPoint> ownPoints = points("413433610", 0, 7, 5,
+                0.0, 0.0, 0.5);
+        List<ShipAlongsideDetector.LowSpeedWindow> windows = new ShipAlongsideDetector()
+                .extractLowSpeedWindows("413433610", ownPoints, 4.0, 20, 30);
+        Map<String, List<TrajectoryPoint>> byWindow = new HashMap<String, List<TrajectoryPoint>>();
+        byWindow.put(provider.windowKey(windows.get(0)), ownPoints);
+
+        double[] invalidBuffers = {0.0, -1.0, 0.26};
+        for (double invalidBuffer : invalidBuffers) {
+            ReflectionTestUtils.setField(provider, "replayBboxBufferNm", invalidBuffer);
+            try {
+                provider.planQueries(windows, byWindow, "invalid-bbox");
+            } catch (IllegalStateException ex) {
+                assertTrue(ex.getMessage().contains("bbox-buffer-nm"));
+                continue;
+            }
+            throw new AssertionError("invalid bbox buffer must be rejected: " + invalidBuffer);
+        }
+    }
+
     private void configure(ShipAlongsideReplayCandidateProvider provider) {
         ReflectionTestUtils.setField(provider, "replayEnabled", true);
         ReflectionTestUtils.setField(provider, "replayDevSize", 50000);

@@ -14,3 +14,4 @@ ship.behavior.loitering.scene-data.available=true
 
 ship.behavior.alongside.rule-version=ALONGSIDE_V3_INSURANCE_SCENE_V2
 ship.behavior.alongside.scene-data.available=true
+ship.behavior.alongside.replay.bbox-buffer-nm=1.0
