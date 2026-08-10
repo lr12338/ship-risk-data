@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -32,10 +33,12 @@ public class BehaviorInsuranceRulesJobParamsTest {
                 Paths.get("deploy/behavior-insurance-rules-v1/xxl-job-params.json")), StandardCharsets.UTF_8));
         assertEquals(8, entries.size());
         Set<String> batchNos = new HashSet<String>();
+        Set<String> canonicalParams = new LinkedHashSet<String>();
         for (Object entryValue : entries) {
             JSONObject entry = (JSONObject) entryValue;
             String handler = entry.getString("handler");
             ProductionTestParams params = ProductionTestParams.parse(entry.getJSONObject("params").toJSONString());
+            canonicalParams.add(entry.getJSONObject("params").toJSONString());
             assertTrue(batchNos.add(params.getBatchNo()));
             assertTrue(params.getBatchNo().length() <= 64);
             assertEquals(5000, params.getExpectedShipCount());
@@ -54,5 +57,16 @@ public class BehaviorInsuranceRulesJobParamsTest {
                 assertFalse(params.isEnableInsert());
             }
         }
+
+        Set<String> documentedParams = new LinkedHashSet<String>();
+        for (String line : Files.readAllLines(Paths.get("deploy/behavior-insurance-rules-v1/xxl-job-guide.md"),
+                StandardCharsets.UTF_8)) {
+            String value = line.trim();
+            if (value.startsWith("{\"mode\":\"production_test\"")) {
+                documentedParams.add(JSON.parseObject(value).toJSONString());
+            }
+        }
+        assertEquals("guide and canonical parameter file must contain the same eight payloads",
+                canonicalParams, documentedParams);
     }
 }
