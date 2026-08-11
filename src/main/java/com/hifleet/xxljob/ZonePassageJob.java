@@ -30,9 +30,14 @@ public class ZonePassageJob {
         return execute(ZonePassagePeriod.MONTH, params);
     }
 
+    /**
+     * 日任务：历史补算截止日之后按自然日续算（含漏跑补算）。
+     * <p>
+     * 例：今天 8/11 → 算 8/10；今天 8/12 → 检查 8/10、8/11，已完成跳过，未完成再算。
+     */
     @XxlJob("zonePassageDayJobHandler")
     public ReturnT<String> zonePassageDayJobHandler(String params) {
-        return execute(ZonePassagePeriod.DAY, params);
+        return runDailyCatchup(params);
     }
 
     @XxlJob("zonePassageWeekJobHandler")
@@ -41,9 +46,10 @@ public class ZonePassageJob {
     }
 
     /**
-     * 历史补算：2025-01-01～2026-06，单次启动内按周循环（每段 7 天），断点自动续跑。
+     * 历史补算：2025-01-01～2026-08-09，单次启动内按周循环（每段 7 天），断点自动续跑。
      * <p>
      * 参数留空即可。从第一个未完成周开始，依次跑完所有周；中途停止后下次从断点周继续。
+     * 8 月 9 日之后由 {@link #zonePassageDayJobHandler} 按自然日续算。
      */
     @XxlJob("zonePassageHistory2025JobHandler")
     public ReturnT<String> zonePassageHistory2025JobHandler(String params) {
@@ -58,6 +64,19 @@ public class ZonePassageJob {
             return ret;
         } catch (Exception ex) {
             log.error("zonePassage weekly backfill job failed", ex);
+            XxlJobLogger.log(ex);
+            return new ReturnT<>(ReturnT.FAIL_CODE, ex.getMessage());
+        }
+    }
+
+    private ReturnT<String> runDailyCatchup(String params) {
+        try {
+            BackfillResult result = zonePassageAnalysisService.analysisZonePassageDailyCatchup(params);
+            ReturnT<String> ret = result.isSuccess() ? ReturnT.SUCCESS : ReturnT.FAIL;
+            ret.setMsg(result.getSummary());
+            return ret;
+        } catch (Exception ex) {
+            log.error("zonePassage daily catchup job failed", ex);
             XxlJobLogger.log(ex);
             return new ReturnT<>(ReturnT.FAIL_CODE, ex.getMessage());
         }
