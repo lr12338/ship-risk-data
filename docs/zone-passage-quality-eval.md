@@ -52,7 +52,7 @@
 ```properties
 # 补算日期范围（评估 Job 默认沿用）
 zone.passage.backfill.from-date=2025-01-01
-zone.passage.backfill.to-date=2026-07-01
+zone.passage.backfill.to-date=2026-08-10
 
 # 质量评估（独立 Job）
 zone.passage.quality.samples-per-stratum=2      # 每个分层抽取 2 艘
