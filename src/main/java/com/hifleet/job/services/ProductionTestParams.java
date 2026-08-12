@@ -5,7 +5,6 @@ import com.alibaba.fastjson.JSONObject;
 import org.apache.commons.lang3.StringUtils;
 
 import java.time.LocalDateTime;
-import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -98,9 +97,6 @@ public class ProductionTestParams {
         LocalDateTime end = LocalDateTime.parse(endTime, TIME_FORMATTER);
         if (!start.isBefore(end)) {
             throw new IllegalArgumentException("startTime must be before endTime");
-        }
-        if (Duration.between(start, end).toDays() > 366) {
-            throw new IllegalArgumentException("production test range must not exceed 366 days");
         }
     }
 

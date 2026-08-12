@@ -162,7 +162,9 @@ tail -f /data/zhengyi/logs/startup.log
 | HTTP 端口 | 8090 |
 | XXL-Job 端口 | 30008 |
 | XXL-Job AppName | ship-risk-data |
-| JobHandler | zoneCrossingStatsJobHandler |
+| 区域统计 Handler | zoneCrossingStatsJobHandler |
+| 搭靠生产测试 Handler | shipAlongsideProductionTestJobHandler |
+| 徘徊生产测试 Handler | shipLoiteringProductionTestJobHandler |
 | JDK | Java 8 |
 
 安全组放行：**30008**（来源 47.93.16.141，XXL-Job Admin）
@@ -186,6 +188,12 @@ cd /data/zhengyi
 ---
 
 ## 8. 快速命令速查
+
+船舶搭靠生产测试的 XXL-Job 自定义时间参数、断点续跑、批次不可变规则和状态库维护见：
+
+- [`docs/alongside-production-test-operations.md`](docs/alongside-production-test-operations.md)
+- [`deploy/production-test-5000/README.md`](deploy/production-test-5000/README.md)
+- [`deploy/production-test-5000/xxl-job-params.json`](deploy/production-test-5000/xxl-job-params.json)
 
 ```bash
 # 本地

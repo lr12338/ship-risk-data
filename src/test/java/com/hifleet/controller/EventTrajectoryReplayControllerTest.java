@@ -58,6 +58,18 @@ public class EventTrajectoryReplayControllerTest {
         assertEquals(200, response.getStatusCodeValue());
     }
 
+    @Test
+    public void previewProjectionUsesPreviewServiceMethod() {
+        Fixture fixture = fixture(true);
+        when(fixture.service.replay(1L, "PREVIEW")).thenReturn(
+                Collections.<String, Object>singletonMap("status", "MATCH"));
+
+        ResponseEntity<?> response = fixture.controller.replay(1L, "secret", "PREVIEW");
+
+        assertEquals(200, response.getStatusCodeValue());
+        verify(fixture.service).replay(1L, "PREVIEW");
+    }
+
     private Fixture fixture(boolean enabled) {
         Fixture fixture = new Fixture();
         fixture.controller = new EventTrajectoryReplayController();

@@ -58,21 +58,28 @@ public class EventTrajectoryReplayService {
     @Value("${ship.behavior.trace.replay.concurrent-requests:2}")
     private int concurrentRequests;
 
+    @Value("${ship.behavior.trace.replay.max-display-points:2000}")
+    private int maxDisplayPoints;
+
     private volatile Semaphore semaphore;
 
     public Map<String, Object> replay(long eventId) {
+        return replay(eventId, "FULL");
+    }
+
+    public Map<String, Object> replay(long eventId, String projection) {
         Semaphore gate = gate();
         if (!gate.tryAcquire()) {
             throw new ReplayException(503, "QUERY_BUSY", "trajectory replay concurrency limit reached");
         }
         try {
-            return doReplay(eventId);
+            return doReplay(eventId, normalizeProjection(projection));
         } finally {
             gate.release();
         }
     }
 
-    private Map<String, Object> doReplay(long eventId) {
+    private Map<String, Object> doReplay(long eventId, String projection) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT id,behavior_type,mmsi,target_mmsi,start_time,end_time,"
                         + "rule_version,score_detail_json FROM dataanalysis.ship_behavior_event WHERE id=?",
@@ -117,7 +124,12 @@ public class EventTrajectoryReplayService {
             value.put("actualPointCount", trace.points.size());
             value.put("expectedFingerprint", trace.expectedFingerprint);
             value.put("actualFingerprint", actual);
-            value.put("points", pointMaps(trace.points));
+            List<TrajectoryPoint> displayPoints = "PREVIEW".equals(projection)
+                    ? samplePoints(trace.points, maxDisplayPoints)
+                    : trace.points;
+            value.put("displayPointCount", displayPoints.size());
+            value.put("sampled", displayPoints.size() < trace.points.size());
+            value.put("points", pointMaps(displayPoints));
             responseRoles.add(value);
         }
         Map<String, Object> response = new LinkedHashMap<String, Object>();
@@ -243,6 +255,10 @@ public class EventTrajectoryReplayService {
             if (points != null) {
                 for (TrajectoryPoint point : points) {
                     merged.put(key(point), point);
+                    if (maxPoints > 0 && merged.size() > maxPoints) {
+                        throw new ReplayException(422, "TRACE_POINT_LIMIT",
+                                "trajectory point count exceeds " + maxPoints);
+                    }
                 }
             }
             start = partEnd;
@@ -305,6 +321,32 @@ public class EventTrajectoryReplayService {
             result.add(value);
         }
         return result;
+    }
+
+    private List<TrajectoryPoint> samplePoints(List<TrajectoryPoint> points, int limit) {
+        if (points == null || points.isEmpty() || limit <= 0 || points.size() <= limit) {
+            return points == null ? Collections.<TrajectoryPoint>emptyList() : points;
+        }
+        int sampleSize = Math.min(limit, points.size());
+        List<TrajectoryPoint> result = new ArrayList<TrajectoryPoint>(sampleSize);
+        if (sampleSize == 1) {
+            result.add(points.get(0));
+            return result;
+        }
+        for (int index = 0; index < sampleSize; index++) {
+            int sourceIndex = (int) (((long) index * (points.size() - 1)) / (sampleSize - 1));
+            result.add(points.get(sourceIndex));
+        }
+        return result;
+    }
+
+    private String normalizeProjection(String projection) {
+        String value = projection == null ? "FULL" : projection.trim().toUpperCase();
+        if (!"FULL".equals(value) && !"PREVIEW".equals(value)) {
+            throw new ReplayException(400, "INVALID_PROJECTION",
+                    "projection must be FULL or PREVIEW");
+        }
+        return value;
     }
 
     private synchronized Semaphore gate() {
