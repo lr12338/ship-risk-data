@@ -8,6 +8,11 @@ import com.hifleet.repository.TargetShipRepository;
 import com.hifleet.service.BehaviorEventTransactionStore;
 import com.hifleet.trajectory.TrajectoryLoaderService;
 import com.hifleet.trajectory.TrajectoryPoint;
+import com.hifleet.loitering.LoiteringPortEventGate;
+import com.hifleet.loitering.LoiteringPortSceneProperties;
+import com.hifleet.loitering.LoiteringPortSceneService;
+import com.hifleet.loitering.LoiteringPortSceneSnapshot;
+import org.locationtech.jts.index.strtree.STRtree;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -32,7 +37,7 @@ import static org.mockito.Mockito.when;
 public class LoiteringProductionTestServiceTest {
 
     @Test
-    public void loadsHalfYearOnceAndRunsBothEnginesBeforeEventOnlyReplace() {
+    public void formalRunLoadsWindowContextAndWritesOnlyCoreEvents() {
         Fixture fixture = fixture();
         List<TrajectoryPoint> points = Arrays.asList(
                 point(0), point(10));
@@ -42,34 +47,29 @@ public class LoiteringProductionTestServiceTest {
         when(fixture.analysis.analysisLoiteringV2Production(
                 anyString(), anyList(), anyString()))
                 .thenReturn(Collections.singletonList(trace(
-                        "LOITERING_V2_INSURANCE")));
-        when(fixture.v3.analyzeV3Production(
-                org.mockito.Matchers.any(ShipLoiteringV3BatchService.TargetShipAdapter.class),
-                anyList(), anyString(), anyInt()))
-                .thenReturn(Collections.singletonList(trace(
-                        "LOITERING_V3_PROD_TEST_2026H1")));
+                        "LOITERING_V2_PORT_APPROACH_V1")));
 
-        LoiteringProductionTestService.Result result = fixture.service.run(params(false));
+        LoiteringProductionTestService.Result result = fixture.service.run(params(true));
 
         assertTrue(result.isSuccess());
         verify(fixture.loader, times(1)).loadSafely(
-                eq("413000001"), eq("2026-01-01 00:00:00"),
-                eq("2026-07-01 00:00:00"), eq(15), eq(6), eq(200000));
+                eq("413000001"), eq("2024-12-31 18:00:00"),
+                eq("2025-01-31 06:00:00"), eq(15), eq(6), eq(200000));
         ArgumentCaptor<List> traces = ArgumentCaptor.forClass(List.class);
         verify(fixture.store).replace(
                 eq(ShipBehaviorEvent.TYPE_LOITERING), eq("loiter-batch"),
-                eq("413000001"), eq("2026-01-01 00:00:00"),
-                eq("2026-07-01 00:00:00"), anyList(),
-                traces.capture(), eq(false));
-        assertEquals(2, traces.getValue().size());
+                eq("413000001"), eq("2025-01-01 00:00:00"),
+                eq("2025-01-31 00:00:00"), anyList(),
+                traces.capture(), eq(false), org.mockito.Matchers.any(Runnable.class));
+        assertEquals(1, traces.getValue().size());
     }
 
     @Test
-    public void resumeSkipsCompletedWholeShipWindow() {
+    public void resumeSkipsCompletedMonthlyWindow() {
         Fixture fixture = fixture();
         String key = ShipBehaviorLoiteringBatchStatusRepository.windowKey(
-                "413000001", "2026-01-01 00:00:00",
-                "2026-07-01 00:00:00");
+                "413000001", "2025-01-01 00:00:00",
+                "2025-01-31 00:00:00");
         when(fixture.status.findCompletedWindows("loiter-batch"))
                 .thenReturn(Collections.singleton(key));
 
@@ -94,12 +94,27 @@ public class LoiteringProductionTestServiceTest {
         fixture.analysis = mock(ShipBehaviorAnalysisService.class);
         fixture.v3 = mock(ShipLoiteringV3BatchService.class);
         fixture.store = mock(BehaviorEventTransactionStore.class);
+        fixture.sceneService = mock(LoiteringPortSceneService.class);
+        fixture.sceneProperties = mock(LoiteringPortSceneProperties.class);
+        fixture.sceneGate = mock(LoiteringPortEventGate.class);
+        LoiteringPortSceneSnapshot snapshot = new LoiteringPortSceneSnapshot(
+                new STRtree(), new STRtree(), Collections.emptyList(), "scene");
+        when(fixture.sceneService.requireSnapshot()).thenReturn(snapshot);
+        when(fixture.sceneProperties.getMinSpeed()).thenReturn(1.0);
+        when(fixture.sceneProperties.getMaxDistanceNm()).thenReturn(10.0);
+        when(fixture.sceneProperties.getMinEvidenceCoverage()).thenReturn(1.0);
+        when(fixture.sceneGate.getLastStats()).thenReturn(new LoiteringPortEventGate.GateStats());
+        when(fixture.analysis.loiteringPortSplitStats()).thenReturn(new com.hifleet.loitering.LoiteringPortTrackSegmenter.Stats());
         ReflectionTestUtils.setField(fixture.service, "targetShipRepository", fixture.targets);
         ReflectionTestUtils.setField(fixture.service, "statusRepository", fixture.status);
         ReflectionTestUtils.setField(fixture.service, "trajectoryLoaderService", fixture.loader);
         ReflectionTestUtils.setField(fixture.service, "analysisService", fixture.analysis);
         ReflectionTestUtils.setField(fixture.service, "v3Service", fixture.v3);
         ReflectionTestUtils.setField(fixture.service, "eventStore", fixture.store);
+        ReflectionTestUtils.setField(fixture.service, "loiteringPortSceneService", fixture.sceneService);
+        ReflectionTestUtils.setField(fixture.service, "loiteringPortSceneProperties", fixture.sceneProperties);
+        ReflectionTestUtils.setField(fixture.service, "loiteringPortEventGate", fixture.sceneGate);
+        ReflectionTestUtils.setField(fixture.service, "loiteringRuleVersion", "LOITERING_V2_PORT_APPROACH_V1");
         ReflectionTestUtils.setField(fixture.service, "simplifyZoom", 15);
         ReflectionTestUtils.setField(fixture.service, "maxPointsPerShip", 200000);
         TargetShip ship = new TargetShip(
@@ -112,17 +127,17 @@ public class LoiteringProductionTestServiceTest {
         return fixture;
     }
 
-    private String params(boolean storeDetails) {
+    private String params(boolean enableInsert) {
         return "{"
                 + "\"mode\":\"production_test\","
                 + "\"listBatchNo\":\"list\","
                 + "\"expectedShipCount\":1,\"shipLimit\":1,"
                 + "\"pageSize\":1,\"parallelism\":1,"
-                + "\"startTime\":\"2026-01-01 00:00:00\","
-                + "\"endTime\":\"2026-07-01 00:00:00\","
-                + "\"engines\":[\"V2\",\"V3\"],"
+                + "\"startTime\":\"2025-01-01 00:00:00\","
+                + "\"endTime\":\"2025-01-31 00:00:00\","
+                + "\"engines\":[\"V2\"],"
                 + "\"trajectorySliceHours\":6,\"resume\":true,\"retryCount\":0,"
-                + "\"storeDetails\":" + storeDetails + ","
+                + "\"enableInsert\":" + enableInsert + ",\"storeDetails\":false,"
                 + "\"batchNo\":\"loiter-batch\"}";
     }
 
@@ -131,6 +146,7 @@ public class LoiteringProductionTestServiceTest {
         event.setBehaviorType(ShipBehaviorEvent.TYPE_LOITERING);
         event.setMmsi("413000001");
         event.setRuleVersion(ruleVersion);
+        event.setStartTime("2025-01-02 00:00:00");
         return new ShipBehaviorTrace(
                 event, Collections.emptyList(), Collections.emptyList());
     }
@@ -149,5 +165,8 @@ public class LoiteringProductionTestServiceTest {
         private ShipBehaviorAnalysisService analysis;
         private ShipLoiteringV3BatchService v3;
         private BehaviorEventTransactionStore store;
+        private LoiteringPortSceneService sceneService;
+        private LoiteringPortSceneProperties sceneProperties;
+        private LoiteringPortEventGate sceneGate;
     }
 }

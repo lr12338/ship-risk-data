@@ -7,6 +7,8 @@ import com.hifleet.repository.ShipBehaviorEventDetailRepository;
 import com.hifleet.repository.ShipBehaviorEventRepository;
 import com.hifleet.trajectory.TrajectoryPoint;
 import com.hifleet.trajectory.TrajectoryUtils;
+import com.hifleet.worldsea.WorldSeaEventGate;
+import com.hifleet.loitering.LoiteringPortEventGate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -43,13 +45,30 @@ public class BehaviorEventTransactionStore {
     @Autowired
     private ShipBehaviorEventDetailRepository detailRepository;
 
+    @Autowired
+    private WorldSeaEventGate worldSeaEventGate;
+
+    @Autowired
+    private LoiteringPortEventGate loiteringPortEventGate;
+
     public void replace(final String behaviorType, final String batchNo,
                         final String mmsi, final String startTime, final String endTime,
                         final List<String> ruleVersions,
                         final List<ShipBehaviorTrace> traces,
                         final boolean storeDetails) {
+        replace(behaviorType, batchNo, mmsi, startTime, endTime, ruleVersions,
+                traces, storeDetails, null);
+    }
+
+    public void replace(final String behaviorType, final String batchNo,
+                        final String mmsi, final String startTime, final String endTime,
+                        final List<String> ruleVersions,
+                        final List<ShipBehaviorTrace> traces,
+                        final boolean storeDetails, final Runnable afterSave) {
         final List<ShipBehaviorTrace> safeTraces = traces == null
                 ? new ArrayList<ShipBehaviorTrace>() : traces;
+        if (worldSeaEventGate != null) worldSeaEventGate.requirePassed(safeTraces);
+        if (loiteringPortEventGate != null) loiteringPortEventGate.requirePassed(safeTraces);
         new TransactionTemplate(new DataSourceTransactionManager(dataSource)).execute(status -> {
             Set<String> versions = new HashSet<String>();
             if (ruleVersions != null) {
@@ -71,6 +90,7 @@ public class BehaviorEventTransactionStore {
             if (storeDetails) {
                 detailRepository.saveDetails(details(safeTraces, batchNo));
             }
+            if (afterSave != null) afterSave.run();
             return null;
         });
     }

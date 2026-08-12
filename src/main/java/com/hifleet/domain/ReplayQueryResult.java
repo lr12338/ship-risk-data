@@ -12,6 +12,7 @@ import java.util.Map;
 public class ReplayQueryResult {
 
     private boolean success;
+    private boolean timeout;
     private boolean truncated;
     private boolean largeResult;
     private int rawVesselCount;
@@ -32,6 +33,14 @@ public class ReplayQueryResult {
 
     public void setSuccess(boolean success) {
         this.success = success;
+    }
+
+    public boolean isTimeout() {
+        return timeout;
+    }
+
+    public void setTimeout(boolean timeout) {
+        this.timeout = timeout;
     }
 
     public boolean isTruncated() {
@@ -149,6 +158,7 @@ public class ReplayQueryResult {
         this.elapsedMs += other.elapsedMs;
         this.truncated = this.truncated || other.truncated;
         this.largeResult = this.largeResult || other.largeResult;
+        this.timeout = this.timeout || other.timeout;
         this.success = this.success || other.success;
         if (other.errorMessage != null) {
             this.errorMessage = other.errorMessage;

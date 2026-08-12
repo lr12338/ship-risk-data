@@ -10,6 +10,7 @@ public class AlongsideReplaySearchResult {
 
     private final List<AlongsideCandidateTarget> candidates = new ArrayList<AlongsideCandidateTarget>();
     private int replayQueryCount;
+    private int successfulReplayQueries;
     private int replayFailures;
     private int truncatedQueries;
     private int returnedVessels;
@@ -28,24 +29,57 @@ public class AlongsideReplaySearchResult {
     }
 
     public void addReplayResult(ReplayQueryResult result) {
+        recordTerminalReplayResult(result);
+        if (result != null && result.isSuccess() && !result.isTruncated()) {
+            recordSuccessfulReplayQueries(1);
+            addReplayData(result);
+        }
+    }
+
+    public void recordSplitReplayResult(ReplayQueryResult result) {
         replayQueryCount++;
+        if (result != null) {
+            elapsedMs += result.getElapsedMs();
+        }
+    }
+
+    public void recordTerminalReplayResult(ReplayQueryResult result) {
+        replayQueryCount++;
+        if (result != null) {
+            elapsedMs += result.getElapsedMs();
+        }
         if (result == null || !result.isSuccess()) {
             replayFailures++;
             return;
         }
         if (result.isTruncated()) {
             truncatedQueries++;
+            return;
+        }
+    }
+
+    public void recordSuccessfulReplayQueries(int count) {
+        successfulReplayQueries += Math.max(0, count);
+    }
+
+    public void addReplayData(ReplayQueryResult result) {
+        if (result == null) {
+            return;
         }
         returnedVessels += result.getRawVesselCount();
         rawPoints += result.getRawPointCount();
         validPoints += result.getValidPointCount();
         parseErrors += result.getParseErrorCount();
-        elapsedMs += result.getElapsedMs();
     }
 
     public int getReplayQueryCount() {
         return replayQueryCount;
     }
+
+    public int getAttemptedReplayQueryCount() { return replayQueryCount; }
+    public int getSuccessfulReplayQueryCount() { return successfulReplayQueries; }
+    public int getFailedReplayQueryCount() { return replayFailures; }
+    public int getTruncatedReplayQueryCount() { return truncatedQueries; }
 
     public int getReplayFailures() {
         return replayFailures;

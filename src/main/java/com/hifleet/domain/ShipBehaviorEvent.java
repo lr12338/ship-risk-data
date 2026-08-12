@@ -28,6 +28,12 @@ public class ShipBehaviorEvent {
     private Boolean nearPort;
     private Boolean nearAnchor;
     private Boolean openSea;
+    private Boolean insideWorldSea;
+    private Integer worldSeaAreaId;
+    private String worldSeaAreaName;
+    private String worldSeaAreaCnName;
+    private String worldSeaMaskDecision;
+    private String waterMaskType;
     private String ownShipType;
     private String targetShipType;
     private Double avgSpeed;
@@ -50,10 +56,23 @@ public class ShipBehaviorEvent {
     private Double centerLat;
     private Double radiusNm;
     private String scoreDetailJson;
+    private String eventSource;
+    private String regionId;
+    private String regionFingerprint;
+    private String eventKey;
 
     public String getBehaviorType() {
         return behaviorType;
     }
+
+    public String getEventSource() { return eventSource; }
+    public void setEventSource(String value) { this.eventSource = value; }
+    public String getRegionId() { return regionId; }
+    public void setRegionId(String value) { this.regionId = value; }
+    public String getRegionFingerprint() { return regionFingerprint; }
+    public void setRegionFingerprint(String value) { this.regionFingerprint = value; }
+    public String getEventKey() { return eventKey; }
+    public void setEventKey(String value) { this.eventKey = value; }
 
     public void setBehaviorType(String behaviorType) {
         this.behaviorType = behaviorType;
@@ -210,6 +229,19 @@ public class ShipBehaviorEvent {
     public void setOpenSea(Boolean openSea) {
         this.openSea = openSea;
     }
+
+    public Boolean getInsideWorldSea() { return insideWorldSea; }
+    public void setInsideWorldSea(Boolean value) { insideWorldSea = value; }
+    public Integer getWorldSeaAreaId() { return worldSeaAreaId; }
+    public void setWorldSeaAreaId(Integer value) { worldSeaAreaId = value; }
+    public String getWorldSeaAreaName() { return worldSeaAreaName; }
+    public void setWorldSeaAreaName(String value) { worldSeaAreaName = value; }
+    public String getWorldSeaAreaCnName() { return worldSeaAreaCnName; }
+    public void setWorldSeaAreaCnName(String value) { worldSeaAreaCnName = value; }
+    public String getWorldSeaMaskDecision() { return worldSeaMaskDecision; }
+    public void setWorldSeaMaskDecision(String value) { worldSeaMaskDecision = value; }
+    public String getWaterMaskType() { return waterMaskType; }
+    public void setWaterMaskType(String value) { waterMaskType = value; }
 
     public String getOwnShipType() {
         return ownShipType;

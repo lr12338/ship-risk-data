@@ -26,14 +26,16 @@ public final class TrajectoryUtils {
     }
 
     public static double averageSpeed(List<TrajectoryPoint> points) {
-        if (points == null || points.isEmpty()) {
-            return 0.0;
-        }
+        if (points == null || points.isEmpty()) { return Double.NaN; }
         double total = 0.0;
+        int valid = 0;
         for (TrajectoryPoint point : points) {
-            total += point.getSpeed();
+            if (point != null && point.isSpeedValid()) {
+                total += point.getSpeed();
+                valid++;
+            }
         }
-        return total / points.size();
+        return valid == 0 ? Double.NaN : total / valid;
     }
 
     public static double maxDistanceFromStartNm(List<TrajectoryPoint> points) {

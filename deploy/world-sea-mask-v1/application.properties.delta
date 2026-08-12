@@ -1,0 +1,20 @@
+# WORLD_SEA_MASK is a named-ocean-area mask, not a legal high-seas/EEZ determination.
+ship.behavior.world-sea-mask.enabled=true
+ship.behavior.world-sea-mask.required=true
+ship.behavior.world-sea-mask.datasource=NEWDATAANALYSIS
+ship.behavior.world-sea-mask.schema=dataanalysis
+ship.behavior.world-sea-mask.table=ship_behavior_world_sea
+ship.behavior.world-sea-mask.dataset-version=WORLD_SEA_102_V1R1
+ship.behavior.world-sea-mask.expected-feature-count=102
+ship.behavior.world-sea-mask.mode=STRICT_ALL_EVIDENCE
+ship.behavior.world-sea-mask.min-evidence-coverage=1.0
+ship.behavior.world-sea-mask.shadow-min-evidence-coverage=0.95
+ship.behavior.world-sea-mask.require-event-center=true
+ship.behavior.world-sea-mask.fail-closed=true
+ship.behavior.world-sea-mask.loitering.split-on-outside=true
+ship.behavior.world-sea-mask.alongside.prefilter-own-windows=true
+ship.behavior.world-sea-mask.alongside.require-own-point=true
+ship.behavior.world-sea-mask.alongside.require-target-point=true
+ship.behavior.world-sea-mask.alongside.require-pair-midpoint=true
+ship.behavior.loitering.production.scene-ready=false
+ship.behavior.code-commit-sha=<FINAL_GIT_SHA>

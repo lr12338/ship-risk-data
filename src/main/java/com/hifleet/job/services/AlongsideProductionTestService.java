@@ -5,8 +5,14 @@ import com.hifleet.domain.ShipBehaviorTrace;
 import com.hifleet.domain.TargetShip;
 import com.hifleet.repository.ShipBehaviorAlongsideBatchStatusRepository;
 import com.hifleet.repository.TargetShipRepository;
+import com.hifleet.repository.ShipBehaviorRunBatchRepository;
+import com.hifleet.repository.WorldSeaMaskAuditRepository;
+import com.hifleet.worldsea.WorldSeaEventGate;
 import com.hifleet.service.BehaviorEventTransactionStore;
 import com.hifleet.service.ShipAlongsideDetector;
+import com.hifleet.worldsea.WorldSeaMaskProperties;
+import com.hifleet.worldsea.WorldSeaMaskService;
+import com.hifleet.worldsea.WorldSeaMaskSnapshot;
 import com.xxl.job.core.log.XxlJobLogger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -42,12 +48,29 @@ public class AlongsideProductionTestService {
     @Autowired
     private BehaviorEventTransactionStore eventStore;
 
-    @Value("${ship.behavior.alongside.rule-version:ALONGSIDE_V3_INSURANCE}")
+    @Autowired
+    private ShipBehaviorRunBatchRepository runBatchRepository;
+
+    @Autowired private WorldSeaMaskService worldSeaMaskService;
+    @Autowired private WorldSeaMaskProperties worldSeaMaskProperties;
+    @Autowired(required = false) private WorldSeaMaskAuditRepository worldSeaMaskAuditRepository;
+    @Autowired(required = false) private WorldSeaEventGate worldSeaEventGate;
+
+    @Value("${ship.behavior.alongside.rule-version:ALONGSIDE_V3_ASYMMETRIC_COUNTERPARTY_V1}")
     private String ruleVersion;
 
     public Result run(String rawParams) {
         final ProductionTestParams params = ProductionTestParams.parse(rawParams);
         params.validateAlongside();
+        WorldSeaMaskSnapshot mask = worldSeaMaskService == null ? null : worldSeaMaskService.requireSnapshot();
+        if (runBatchRepository != null) {
+            runBatchRepository.claim(params.getBatchNo(), ShipBehaviorEvent.TYPE_ALONGSIDE,
+                    params.getListBatchNo(), params.getStartTime(), params.getEndTime(),
+                    ruleVersion, params.isEnableInsert(),
+                    params.configHash(ShipBehaviorEvent.TYPE_ALONGSIDE, ruleVersion,
+                            (mask == null ? "" : worldSeaMaskProperties.identity(mask))
+                                    + "|ALONGSIDE_SCENE=" + analysisService.alongsideRuleConfigHash()));
+        }
         targetShipRepository.validate(params.getListBatchNo(), params.getExpectedShipCount());
         final List<Window> windows = windows(params);
         Result total = new Result(params.getBatchNo());
@@ -134,15 +157,31 @@ public class AlongsideProductionTestService {
                 ShipBehaviorAnalysisService.AlongsideWindowResult computed =
                         executeWithRetry(params, ship.getMmsi(), window);
                 List<ShipBehaviorTrace> strict = strict(computed.getTraces());
+                if (worldSeaMaskAuditRepository != null && worldSeaEventGate != null) {
+                    worldSeaMaskAuditRepository.recordReplay(params.getBatchNo(), ship.getMmsi(),
+                            ShipBehaviorEvent.TYPE_ALONGSIDE, window.start, window.end,
+                            worldSeaEventGate.getLastStats(), computed.getWorldSeaRejectedWindows(),
+                            computed.getBaselinePlannedReplayQueries(),
+                            computed.getFilteredPlannedReplayQueries(), computed.getSavedReplayQueries(),
+                            computed.getAttemptedReplayQueries(), computed.getSuccessfulReplayQueries(),
+                            computed.getFailedReplayQueries(), computed.getTruncatedReplayQueryCount());
+                }
                 if (params.isEnableInsert()) {
+                    final ShipBehaviorAnalysisService.AlongsideWindowResult saved = computed;
+                    final int eventCount = strict.size();
                     eventStore.replace(ShipBehaviorEvent.TYPE_ALONGSIDE,
                             params.getBatchNo(), ship.getMmsi(), window.start, window.end,
-                            Collections.singletonList(ruleVersion), strict, false);
+                            Collections.singletonList(ruleVersion), strict, false, () ->
+                            statusRepository.markDone(statusBatchNo, ship.getMmsi(), window.start, window.end,
+                                    saved.getPoints(), saved.getLowSpeedWindows(),
+                                    saved.getCandidateTargets(), saved.getReplayQueries(),
+                                    saved.getReplayFailures(), eventCount));
+                } else {
+                    statusRepository.markDone(statusBatchNo, ship.getMmsi(), window.start, window.end,
+                            computed.getPoints(), computed.getLowSpeedWindows(),
+                            computed.getCandidateTargets(), computed.getReplayQueries(),
+                            computed.getReplayFailures(), strict.size());
                 }
-                statusRepository.markDone(statusBatchNo, ship.getMmsi(), window.start, window.end,
-                        computed.getPoints(), computed.getLowSpeedWindows(),
-                        computed.getCandidateTargets(), computed.getReplayQueries(),
-                        computed.getReplayFailures(), strict.size());
                 result.windowsDone++;
                 result.events += strict.size();
             } catch (Exception ex) {

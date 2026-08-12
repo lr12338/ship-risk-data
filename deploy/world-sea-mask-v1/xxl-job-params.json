@@ -1,0 +1,133 @@
+{
+  "datasetVersion": "WORLD_SEA_102_V1R1",
+  "repairedGeometryFingerprint": "31dd89bd4968f8f436135b57cdb81e870ac7b827d4dc2c086282e7dfe91ab9c6",
+  "datasetStatus": "OPERATOR_AUTHORIZED",
+  "observedAt": "2026-08-07T10:22:14+08:00",
+  "executionPolicy": {
+    "route": "FIRST",
+    "blockStrategy": "SERIAL_EXECUTION",
+    "parallelism": 1,
+    "manualTriggerOnly": true,
+    "runAlongsideAndLoiteringConcurrently": false,
+    "requirePreviousStagePass": true
+  },
+  "preflight": {
+    "status": "PASS",
+    "handler": "shipBehaviorWorldSeaMaskPreflightJobHandler",
+    "params": {"mode": "WORLD_SEA_MASK_PREFLIGHT"}
+  },
+  "tasks": [
+    {
+      "name": "loitering20DryRun",
+      "status": "PASS",
+      "handler": "shipLoiteringProductionTestJobHandler",
+      "params": {
+        "mode": "production_test", "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+        "expectedShipCount": 5000, "shipLimit": 20, "pageSize": 20, "parallelism": 1,
+        "startTime": "2025-01-01 00:00:00", "endTime": "2026-01-01 00:00:00",
+        "windowDays": 30, "trajectorySliceHours": 6, "engines": ["V2"], "resume": true,
+        "retryCount": 2, "logIntervalShips": 10,
+        "batchNo": "loitering-merchant20-2025-worldsea-v1r1-smoke",
+        "enableInsert": false, "storeDetails": false
+      }
+    },
+    {
+      "name": "alongside20DryRun",
+      "status": "PASS",
+      "handler": "shipAlongsideProductionTestJobHandler",
+      "params": {
+        "mode": "production_test", "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+        "expectedShipCount": 5000, "shipLimit": 20, "pageSize": 20, "parallelism": 1,
+        "startTime": "2025-01-01 00:00:00", "endTime": "2026-01-01 00:00:00",
+        "windowDays": 30, "engines": ["V3"], "resume": true,
+        "retryCount": 2, "logIntervalShips": 10,
+        "batchNo": "alongside-merchant20-2025-worldsea-v1r1-smoke",
+        "enableInsert": false, "storeDetails": false
+      }
+    },
+    {
+      "name": "loitering100DryRun",
+      "status": "RUNNING_MANUAL_HANDOFF",
+      "handler": "shipLoiteringProductionTestJobHandler",
+      "params": {
+        "mode": "production_test", "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+        "expectedShipCount": 5000, "shipLimit": 100, "pageSize": 50, "parallelism": 1,
+        "startTime": "2025-01-01 00:00:00", "endTime": "2026-01-01 00:00:00",
+        "windowDays": 30, "trajectorySliceHours": 6, "engines": ["V2"], "resume": true,
+        "retryCount": 2, "logIntervalShips": 10,
+        "batchNo": "loitering-merchant100-2025-worldsea-v1r1",
+        "enableInsert": false, "storeDetails": false
+      }
+    },
+    {
+      "name": "alongside100DryRun",
+      "status": "NOT_TRIGGERED",
+      "handler": "shipAlongsideProductionTestJobHandler",
+      "params": {
+        "mode": "production_test", "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+        "expectedShipCount": 5000, "shipLimit": 100, "pageSize": 50, "parallelism": 1,
+        "startTime": "2025-01-01 00:00:00", "endTime": "2026-01-01 00:00:00",
+        "windowDays": 30, "engines": ["V3"], "resume": true,
+        "retryCount": 2, "logIntervalShips": 10,
+        "batchNo": "alongside-merchant100-2025-worldsea-v1r1",
+        "enableInsert": false, "storeDetails": false
+      }
+    },
+    {
+      "name": "loitering500DryRun",
+      "status": "NOT_TRIGGERED",
+      "handler": "shipLoiteringProductionTestJobHandler",
+      "params": {
+        "mode": "production_test", "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+        "expectedShipCount": 5000, "shipLimit": 500, "pageSize": 50, "parallelism": 1,
+        "startTime": "2025-01-01 00:00:00", "endTime": "2026-01-01 00:00:00",
+        "windowDays": 30, "trajectorySliceHours": 6, "engines": ["V2"], "resume": true,
+        "retryCount": 2, "logIntervalShips": 10,
+        "batchNo": "loitering-merchant500-2025-worldsea-v1r1",
+        "enableInsert": false, "storeDetails": false
+      }
+    },
+    {
+      "name": "alongside500DryRun",
+      "status": "NOT_TRIGGERED",
+      "handler": "shipAlongsideProductionTestJobHandler",
+      "params": {
+        "mode": "production_test", "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+        "expectedShipCount": 5000, "shipLimit": 500, "pageSize": 50, "parallelism": 1,
+        "startTime": "2025-01-01 00:00:00", "endTime": "2026-01-01 00:00:00",
+        "windowDays": 30, "engines": ["V3"], "resume": true,
+        "retryCount": 2, "logIntervalShips": 10,
+        "batchNo": "alongside-merchant500-2025-worldsea-v1r1",
+        "enableInsert": false, "storeDetails": false
+      }
+    },
+    {
+      "name": "loitering5000Formal",
+      "status": "NOT_TRIGGERED",
+      "handler": "shipLoiteringProductionTestJobHandler",
+      "params": {
+        "mode": "production_test", "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+        "expectedShipCount": 5000, "shipLimit": 5000, "pageSize": 50, "parallelism": 1,
+        "startTime": "2025-01-01 00:00:00", "endTime": "2026-01-01 00:00:00",
+        "windowDays": 30, "trajectorySliceHours": 6, "engines": ["V2"], "resume": true,
+        "retryCount": 2, "logIntervalShips": 20,
+        "batchNo": "loitering-merchant5000-2025-worldsea-v1r1",
+        "enableInsert": true, "storeDetails": false
+      }
+    },
+    {
+      "name": "alongside5000Formal",
+      "status": "NOT_TRIGGERED",
+      "handler": "shipAlongsideProductionTestJobHandler",
+      "params": {
+        "mode": "production_test", "listBatchNo": "liquid-container-5000-2025h2-2026h1-v1",
+        "expectedShipCount": 5000, "shipLimit": 5000, "pageSize": 50, "parallelism": 1,
+        "startTime": "2025-01-01 00:00:00", "endTime": "2026-01-01 00:00:00",
+        "windowDays": 30, "engines": ["V3"], "resume": true,
+        "retryCount": 2, "logIntervalShips": 20,
+        "batchNo": "alongside-merchant5000-2025-worldsea-v1r1",
+        "enableInsert": true, "storeDetails": false
+      }
+    }
+  ]
+}

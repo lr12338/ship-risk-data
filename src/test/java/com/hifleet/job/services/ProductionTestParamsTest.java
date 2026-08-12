@@ -40,13 +40,13 @@ public class ProductionTestParamsTest {
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void alongsideRejectsNonFixedProductionRange() {
+    public void rejectsRangeLongerThan366Days() {
         ProductionTestParams params = ProductionTestParams.parse("{"
                 + "\"mode\":\"production_test\","
                 + "\"listBatchNo\":\"list\","
                 + "\"expectedShipCount\":1,\"shipLimit\":1,"
                 + "\"startTime\":\"2026-01-01 00:00:00\","
-                + "\"endTime\":\"2026-01-02 00:00:00\","
+                + "\"endTime\":\"2027-01-03 00:00:00\","
                 + "\"batchNo\":\"batch\"}");
 
         params.validateAlongside();

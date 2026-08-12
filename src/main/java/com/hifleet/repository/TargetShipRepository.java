@@ -18,6 +18,9 @@ import java.util.List;
 @Repository
 public class TargetShipRepository {
 
+    public static final String EXISTING_5000_SOURCE_BATCH =
+            "liquid-container-5000-2025h2-2026h1-v1";
+
     @Autowired
     @Qualifier("newDataanalysisJdbcTemplate")
     private JdbcTemplate jdbcTemplate;
@@ -111,5 +114,61 @@ public class TargetShipRepository {
                     });
             return null;
         });
+    }
+
+    public void copyExisting5000Immutable(String sourceListBatchNo, String listBatchNo,
+                                          int expectedCount) {
+        if (!EXISTING_5000_SOURCE_BATCH.equals(sourceListBatchNo)
+                || !EXISTING_5000_SOURCE_BATCH.equals(listBatchNo)
+                || expectedCount != 5000) {
+            throw new IllegalArgumentException("EXISTING_5000_TABLE only supports the approved 5000 ship batch");
+        }
+        Integer sourceCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM dataanalysis.ship_behavior_tanker_open_sea_target_ship "
+                        + "WHERE list_batch_no=?", new Object[]{sourceListBatchNo}, Integer.class);
+        Integer invalid = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM dataanalysis.ship_behavior_tanker_open_sea_target_ship "
+                        + "WHERE list_batch_no=? AND mmsi NOT REGEXP '^[0-9]{9}$'",
+                new Object[]{sourceListBatchNo}, Integer.class);
+        Integer distinctMmsi = jdbcTemplate.queryForObject(
+                "SELECT COUNT(DISTINCT mmsi) FROM dataanalysis.ship_behavior_tanker_open_sea_target_ship "
+                        + "WHERE list_batch_no=?", new Object[]{sourceListBatchNo}, Integer.class);
+        Integer minSeq = jdbcTemplate.queryForObject(
+                "SELECT MIN(seq_no) FROM dataanalysis.ship_behavior_tanker_open_sea_target_ship "
+                        + "WHERE list_batch_no=?", new Object[]{sourceListBatchNo}, Integer.class);
+        Integer maxSeq = jdbcTemplate.queryForObject(
+                "SELECT MAX(seq_no) FROM dataanalysis.ship_behavior_tanker_open_sea_target_ship "
+                        + "WHERE list_batch_no=?", new Object[]{sourceListBatchNo}, Integer.class);
+        if (sourceCount == null || sourceCount != expectedCount || distinctMmsi == null
+                || distinctMmsi != expectedCount || invalid == null || invalid != 0
+                || minSeq == null || minSeq != 1 || maxSeq == null || maxSeq != expectedCount) {
+            throw new IllegalStateException("approved source batch failed count/MMSI/sequence validation");
+        }
+        int existing = countAll(listBatchNo);
+        if (existing > 0) {
+            validate(listBatchNo, expectedCount);
+            Integer mismatch = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM dataanalysis.ship_behavior_tanker_open_sea_target_ship s "
+                            + "LEFT JOIN dataanalysis.ship_behavior_target_ship t ON t.list_batch_no=? "
+                            + "AND t.seq_no=s.seq_no AND t.mmsi=s.mmsi AND t.imo <=> s.imo "
+                            + "AND t.ship_name <=> s.ship_name AND t.ship_type <=> s.standard_ship_type "
+                            + "AND t.source_updatetime <=> s.metadata_updated_at "
+                            + "WHERE s.list_batch_no=? AND t.id IS NULL",
+                    new Object[]{listBatchNo, sourceListBatchNo}, Integer.class);
+            if (mismatch != null && mismatch == 0) {
+                return;
+            }
+            throw new IllegalStateException("target list exists but differs from approved source batch");
+        }
+        new TransactionTemplate(new DataSourceTransactionManager(dataSource)).execute(status -> {
+            jdbcTemplate.update("INSERT INTO dataanalysis.ship_behavior_target_ship "
+                            + "(list_batch_no,seq_no,mmsi,imo,ship_name,ship_type,enabled,source_updatetime) "
+                            + "SELECT ?,seq_no,mmsi,imo,ship_name,standard_ship_type,1,metadata_updated_at "
+                            + "FROM dataanalysis.ship_behavior_tanker_open_sea_target_ship "
+                            + "WHERE list_batch_no=? ORDER BY seq_no",
+                    listBatchNo, sourceListBatchNo);
+            return null;
+        });
+        validate(listBatchNo, expectedCount);
     }
 }
