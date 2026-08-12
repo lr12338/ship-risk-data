@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyBoolean;
@@ -26,6 +27,7 @@ import static org.mockito.Matchers.anyString;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -82,6 +84,47 @@ public class AlongsideProductionTestServiceTest {
         }
     }
 
+    @Test
+    public void terminalTruncationFailsWindowAndDoesNotWriteEvents() {
+        Fixture fixture = fixture();
+        when(fixture.status.findCompletedWindows(eq("truncated-batch"), any(Set.class)))
+                .thenReturn(Collections.<String>emptySet());
+        when(fixture.analysis.analysisAlongsideProductionWindow(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(new ShipBehaviorAnalysisService.AlongsideWindowResult(
+                        10, 1, 0, 0, 1, 0, 1,
+                        0, 0, 0, 0, Collections.<ShipBehaviorTrace>emptyList()));
+
+        AlongsideProductionTestService.Result result = fixture.service.run(
+                params(true, "truncated-batch"));
+
+        assertFalse(result.isSuccess());
+        assertTrue(result.summary().contains("windowsFailed=7"));
+        verify(fixture.store, never()).replace(
+                anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyList(), anyList(), anyBoolean(), any(Runnable.class));
+    }
+
+    @Test
+    public void custom577DayRangeCreatesTwentyWindows() {
+        Fixture fixture = fixture();
+        when(fixture.status.findCompletedWindows(eq("custom-range-batch"), any(Set.class)))
+                .thenReturn(Collections.<String>emptySet());
+        when(fixture.analysis.analysisAlongsideProductionWindow(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(new ShipBehaviorAnalysisService.AlongsideWindowResult(
+                        0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, Collections.<ShipBehaviorTrace>emptyList()));
+
+        AlongsideProductionTestService.Result result = fixture.service.run(
+                customRangeParams());
+
+        assertTrue(result.isSuccess());
+        assertTrue(result.summary().contains("windowsDone=20"));
+        verify(fixture.analysis, times(20)).analysisAlongsideProductionWindow(
+                eq("413000001"), anyString(), anyString(), eq("custom-range-batch"));
+    }
+
     private Fixture fixture() {
         Fixture fixture = new Fixture();
         fixture.service = new AlongsideProductionTestService();
@@ -124,6 +167,19 @@ public class AlongsideProductionTestServiceTest {
                 + "\"windowDays\":30,\"resume\":true,\"retryCount\":0,"
                 + "\"enableInsert\":" + enableInsert + ","
                 + "\"batchNo\":\"" + batchNo + "\"}";
+    }
+
+    private String customRangeParams() {
+        return "{"
+                + "\"mode\":\"production_test\","
+                + "\"listBatchNo\":\"list\","
+                + "\"expectedShipCount\":1,\"shipLimit\":1,"
+                + "\"pageSize\":1,\"parallelism\":1,"
+                + "\"startTime\":\"2025-01-01 00:00:00\","
+                + "\"endTime\":\"2026-08-01 00:00:00\","
+                + "\"windowDays\":30,\"resume\":true,\"retryCount\":0,"
+                + "\"enableInsert\":false,"
+                + "\"batchNo\":\"custom-range-batch\"}";
     }
 
     private Set<String> completedWindows() {

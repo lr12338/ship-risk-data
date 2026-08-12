@@ -2,6 +2,8 @@ package com.hifleet.job.services;
 
 import org.junit.Test;
 
+import java.time.format.DateTimeParseException;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -39,16 +41,40 @@ public class ProductionTestParamsTest {
                 + "\"batchNo\":\"batch\"}");
     }
 
-    @Test(expected = IllegalArgumentException.class)
-    public void rejectsRangeLongerThan366Days() {
+    @Test
+    public void acceptsCustomRangeLongerThan366Days() {
         ProductionTestParams params = ProductionTestParams.parse("{"
                 + "\"mode\":\"production_test\","
                 + "\"listBatchNo\":\"list\","
                 + "\"expectedShipCount\":1,\"shipLimit\":1,"
-                + "\"startTime\":\"2026-01-01 00:00:00\","
-                + "\"endTime\":\"2027-01-03 00:00:00\","
+                + "\"startTime\":\"2025-01-01 00:00:00\","
+                + "\"endTime\":\"2026-08-01 00:00:00\","
                 + "\"batchNo\":\"batch\"}");
 
         params.validateAlongside();
+        assertEquals("2025-01-01 00:00:00", params.getStartTime());
+        assertEquals("2026-08-01 00:00:00", params.getEndTime());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsReversedRange() {
+        ProductionTestParams.parse("{"
+                + "\"mode\":\"production_test\","
+                + "\"listBatchNo\":\"list\","
+                + "\"expectedShipCount\":1,\"shipLimit\":1,"
+                + "\"startTime\":\"2026-08-01 00:00:00\","
+                + "\"endTime\":\"2025-01-01 00:00:00\","
+                + "\"batchNo\":\"batch\"}");
+    }
+
+    @Test(expected = DateTimeParseException.class)
+    public void rejectsInvalidTimeFormat() {
+        ProductionTestParams.parse("{"
+                + "\"mode\":\"production_test\","
+                + "\"listBatchNo\":\"list\","
+                + "\"expectedShipCount\":1,\"shipLimit\":1,"
+                + "\"startTime\":\"2025/01/01\","
+                + "\"endTime\":\"2026-08-01 00:00:00\","
+                + "\"batchNo\":\"batch\"}");
     }
 }
