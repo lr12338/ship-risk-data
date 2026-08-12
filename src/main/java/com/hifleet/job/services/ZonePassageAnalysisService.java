@@ -368,7 +368,7 @@ public class ZonePassageAnalysisService {
         jobParams.setBatchMonth(week.getBatchKey());
     }
 
-    /** 日任务起始日：指定 date 则从该日；否则为历史补算结束日（backfill.to-date，即 8/9 次日）。 */
+    /** 日任务起始日：指定 date/fromDate 优先；否则为历史补算结束日（backfill.to-date，即 8/9 次日）。 */
     private LocalDate resolveDailyCatchupStart(JobParams baseParams) {
         if (StringUtils.isNotBlank(baseParams.getDate())) {
             return parseDate(baseParams.getDate());
@@ -532,9 +532,14 @@ public class ZonePassageAnalysisService {
         AtomicInteger totalEvents = new AtomicInteger(0);
         int logInterval = Math.max(1, progressInterval);
         StatusBatchBuffer statusBatchBuffer = new StatusBatchBuffer(zonePassageStatusRepository, statusBatchSize);
+        boolean interrupted = false;
 
         if (parallelism <= 1) {
             for (String mmsi : pendingMmsiList) {
+                if (Thread.currentThread().isInterrupted()) {
+                    interrupted = true;
+                    break;
+                }
                 processShip(mmsi, jobParams, zoneContext, stormRegionIndex, statusBatchBuffer,
                         processed, failed, totalEvents, pendingMmsiList.size(), logInterval);
             }
@@ -555,16 +560,31 @@ public class ZonePassageAnalysisService {
                 try {
                     if (!executor.awaitTermination(7, TimeUnit.DAYS)) {
                         executor.shutdownNow();
+                        interrupted = true;
                         XxlJobLogger.log("任务等待超时，已强制停止线程池");
                     }
                 } catch (InterruptedException ex) {
                     executor.shutdownNow();
+                    interrupted = true;
                     Thread.currentThread().interrupt();
+                    XxlJobLogger.log("任务被中断，本批次未跑完，不进入下一日/周");
                 }
             }
         }
 
         statusBatchBuffer.flush();
+
+        int doneOrFailed = processed.get() + failed.get();
+        if (interrupted || doneOrFailed < pendingMmsiList.size()) {
+            String msg = "本批次未完成：待处理=" + pendingMmsiList.size()
+                    + "，已处理=" + processed.get()
+                    + "，失败=" + failed.get()
+                    + (interrupted ? "（中断/超时）" : "");
+            XxlJobLogger.log(msg);
+            log.warn("区域通行分析任务未完成, batch={}, {}", jobParams.getBatchMonth(), msg);
+            // failed>0 使 isSuccess()=false，日/周循环会停在当前批次
+            return new AnalysisResult(processed.get(), Math.max(1, failed.get()), totalEvents.get());
+        }
 
         AnalysisResult result = new AnalysisResult(processed.get(), failed.get(), totalEvents.get());
         log.info("区域通行分析任务结束, {}", result.getSummary());
