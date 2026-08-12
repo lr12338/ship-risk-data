@@ -1,6 +1,7 @@
 target/
 dist/
 *.tar.gz
+.DS_Store
 .idea/
 *.iml
 .classpath
@@ -9,3 +10,8 @@ dist/
 logs/
 *.log
 var/maritime-scene-data
+tmp/
+world_sea.sql
+__pycache__/
+.pytest_cache/
+.venv/
