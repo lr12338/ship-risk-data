@@ -105,6 +105,11 @@ public class StsBaselineService {
     }
 
     public StsImoResult runOneImo(String imo, StsJobParams params, String batchNo) {
+        return runOneImoWithHooks(imo, params, batchNo, null);
+    }
+
+    public StsImoResult runOneImoWithHooks(String imo, StsJobParams params, String batchNo,
+                                            StsPipelineHooks hooks) {
         long startMs = System.currentTimeMillis();
         StsImoResult r = new StsImoResult();
         r.imo = imo;
@@ -152,8 +157,29 @@ public class StsBaselineService {
             return r;
         }
 
+        List<ShipAlongsideDetector.LowSpeedWindow> replayWindows = allWindows;
+        Map<String, List<TrajectoryPoint>> replayWindowPoints = ownPointsByWindow;
+        if (hooks != null) {
+            replayWindows = new ArrayList<ShipAlongsideDetector.LowSpeedWindow>();
+            replayWindowPoints = new HashMap<String, List<TrajectoryPoint>>();
+            for (ShipAlongsideDetector.LowSpeedWindow w : allWindows) {
+                String key = windowKey(w);
+                List<TrajectoryPoint> wps = ownPointsByWindow.get(key);
+                if (wps == null || wps.isEmpty()) continue;
+                if (hooks.acceptWindow(w.getMmsi(), w, wps)) {
+                    replayWindows.add(w);
+                    replayWindowPoints.put(key, wps);
+                }
+            }
+        }
+
+        if (replayWindows.isEmpty()) {
+            r.durationMs = System.currentTimeMillis() - startMs;
+            return r;
+        }
+
         AlongsideReplaySearchResult replayResult = replayCandidateProvider.findCandidates(
-                primaryMmsi, allWindows, ownPointsByWindow, batchNo);
+                primaryMmsi, replayWindows, replayWindowPoints, batchNo);
 
         r.replayQueries = replayResult.getReplayQueryCount();
         r.replayFailures = replayResult.getReplayFailures();
@@ -201,6 +227,12 @@ public class StsBaselineService {
             List<ShipBehaviorEvent> events = shipAlongsideDetector.detect(
                     ownMmsiForWindow, ownPoints, targetMmsi, targetPoints, baselineRule);
             r.baselineEvents += events.size();
+
+            if (hooks != null && !events.isEmpty()) {
+                for (ShipBehaviorEvent evt : events) {
+                    hooks.onEvent(evt, ownMmsiForWindow, targetMmsi);
+                }
+            }
         }
 
         r.durationMs = System.currentTimeMillis() - startMs;
@@ -325,5 +357,19 @@ public class StsBaselineService {
         public int selfPairEvents;
         public int baselineEvents;
         public long durationMs;
+    }
+
+    /**
+     * Extension hooks for plugging into the baseline pipeline without
+     * duplicating it. Used by STS Phase 1.2 region shadow pipeline.
+     *
+     * - acceptWindow: called before replay to gate windows spatially
+     * - onEvent: called after detection for each baseline event
+     */
+    public interface StsPipelineHooks {
+        boolean acceptWindow(String mmsi, ShipAlongsideDetector.LowSpeedWindow window,
+                             List<TrajectoryPoint> windowPoints);
+
+        void onEvent(ShipBehaviorEvent event, String ownMmsi, String targetMmsi);
     }
 }

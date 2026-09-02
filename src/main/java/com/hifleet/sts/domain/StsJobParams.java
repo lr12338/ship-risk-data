@@ -21,6 +21,12 @@ public class StsJobParams {
     private int parallelism;
     private String writeMode;
 
+    private String regionId;
+    private String regionVersion;
+    private String regionWkt;
+    private double analysisBufferNm;
+    private String batchNo;
+
     public static StsJobParams parse(String params) {
         StsJobParams p = new StsJobParams();
         if (StringUtils.isBlank(params)) {
@@ -54,6 +60,14 @@ public class StsJobParams {
         if (p.parallelism <= 0) p.parallelism = 1;
         p.writeMode = json.getString("writeMode");
         if (StringUtils.isBlank(p.writeMode)) p.writeMode = "LOG_ONLY";
+
+        p.regionId = json.getString("regionId");
+        p.regionVersion = json.getString("regionVersion");
+        p.regionWkt = json.getString("regionWkt");
+        p.analysisBufferNm = json.getDoubleValue("analysisBufferNm");
+        if (p.analysisBufferNm <= 0.0) p.analysisBufferNm = 10.0;
+        p.batchNo = json.getString("batchNo");
+
         return p;
     }
 
@@ -82,4 +96,15 @@ public class StsJobParams {
     public void setParallelism(int parallelism) { this.parallelism = parallelism; }
     public String getWriteMode() { return writeMode; }
     public void setWriteMode(String writeMode) { this.writeMode = writeMode; }
+
+    public String getRegionId() { return regionId; }
+    public void setRegionId(String v) { this.regionId = v; }
+    public String getRegionVersion() { return regionVersion; }
+    public void setRegionVersion(String v) { this.regionVersion = v; }
+    public String getRegionWkt() { return regionWkt; }
+    public void setRegionWkt(String v) { this.regionWkt = v; }
+    public double getAnalysisBufferNm() { return analysisBufferNm; }
+    public void setAnalysisBufferNm(double v) { this.analysisBufferNm = v; }
+    public String getBatchNo() { return batchNo; }
+    public void setBatchNo(String v) { this.batchNo = v; }
 }
