@@ -70,18 +70,14 @@ public class StsBaselineService {
         validateParams(params);
         seedCatalog.loadFromFile(params.getSeedFile());
 
-        List<String> imos = seedCatalog.getAllImos();
-        if (params.getShipLimit() > 0 && params.getShipLimit() < imos.size()) {
-            imos = imos.subList(0, params.getShipLimit());
-        }
-
+        List<String> imos = selectImos(params);
         String batchNo = "sts-baseline-" + System.currentTimeMillis();
         StsRunResult runResult = new StsRunResult();
         runResult.batchNo = batchNo;
         runResult.totalImos = imos.size();
 
-        log.info("STS_PHASE1_BASELINE start: {} IMOs, {} → {}, batch={}",
-                imos.size(), params.getFrom(), params.getTo(), batchNo);
+        log.info("STS_PHASE1_BASELINE start: {} IMOs (explicit={}), {} → {}, batch={}",
+                imos.size(), params.hasExplicitImos(), params.getFrom(), params.getTo(), batchNo);
 
         long startMs = System.currentTimeMillis();
         int success = 0;
@@ -192,6 +188,12 @@ public class StsBaselineService {
             List<TrajectoryPoint> targetPoints = candidate.getTargetPoints();
             if (targetPoints == null || targetPoints.isEmpty()) continue;
 
+            if (ownIdentityMmsis.contains(targetMmsi)) {
+                r.selfPairEvents++;
+                log.error("STS self-pair slipped through filter: IMO={} targetMmsi={}", imo, targetMmsi);
+                continue;
+            }
+
             String ownMmsiForWindow = candidate.getOwnMmsi();
             if (StringUtils.isBlank(ownMmsiForWindow)) ownMmsiForWindow = primaryMmsi;
             List<TrajectoryPoint> ownPoints = trajectoryByMmsi.get(ownMmsiForWindow);
@@ -204,6 +206,25 @@ public class StsBaselineService {
 
         r.durationMs = System.currentTimeMillis() - startMs;
         return r;
+    }
+
+    private List<String> selectImos(StsJobParams params) {
+        if (params.hasExplicitImos()) {
+            List<String> explicit = new ArrayList<String>();
+            for (String imo : params.getImos()) {
+                if (seedCatalog.getByIdentity(imo).isEmpty()) {
+                    log.warn("StsBaselineService: explicit IMO {} not found in seed catalog, skipping", imo);
+                    continue;
+                }
+                explicit.add(imo);
+            }
+            return explicit;
+        }
+        List<String> all = seedCatalog.getAllImos();
+        if (params.getShipLimit() > 0 && params.getShipLimit() < all.size()) {
+            return all.subList(0, params.getShipLimit());
+        }
+        return all;
     }
 
     private void validateParams(StsJobParams params) {
@@ -264,6 +285,7 @@ public class StsBaselineService {
         summary.put("rawCandidateTargets", r.rawCandidateTargets);
         summary.put("selfIdentityRejected", r.selfIdentityRejected);
         summary.put("finalCandidateTargets", r.finalCandidateTargets);
+        summary.put("selfPairEvents", r.selfPairEvents);
         summary.put("baselineEvents", r.baselineEvents);
         summary.put("durationMs", r.durationMs);
         log.info(summary.toJSONString());
@@ -301,6 +323,7 @@ public class StsBaselineService {
         public int selfIdentityRejected;
         public Set<String> rejectedSelfMmsis = Collections.emptySet();
         public int finalCandidateTargets;
+        public int selfPairEvents;
         public int baselineEvents;
         public long durationMs;
     }
