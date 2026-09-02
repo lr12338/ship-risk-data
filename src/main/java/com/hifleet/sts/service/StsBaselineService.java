@@ -63,8 +63,7 @@ public class StsBaselineService {
     @Autowired
     private ShipAlongsideReplayCandidateProvider replayCandidateProvider;
 
-    @Autowired
-    private ShipAlongsideDetector shipAlongsideDetector;
+    private final ShipAlongsideDetector shipAlongsideDetector = new ShipAlongsideDetector();
 
     public StsRunResult runBaseline(StsJobParams params) {
         validateParams(params);
