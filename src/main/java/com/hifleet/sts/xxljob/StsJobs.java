@@ -1,8 +1,10 @@
 package com.hifleet.sts.xxljob;
 
 import com.hifleet.sts.domain.StsJobParams;
+import com.hifleet.sts.domain.StsRegionSetJobParams;
 import com.hifleet.sts.service.StsBaselineService;
 import com.hifleet.sts.service.StsRegionShadowService;
+import com.hifleet.sts.service.StsRegionSetShadowService;
 import com.xxl.job.core.biz.model.ReturnT;
 import com.xxl.job.core.handler.annotation.XxlJob;
 import com.xxl.job.core.log.XxlJobLogger;
@@ -46,6 +48,9 @@ public class StsJobs {
     @Autowired
     private StsRegionShadowService stsRegionShadowService;
 
+    @Autowired
+    private StsRegionSetShadowService stsRegionSetShadowService;
+
     @XxlJob("shipStsHistoryBaselineJobHandler")
     public ReturnT<String> shipStsHistoryBaselineJobHandler(String params) {
         try {
@@ -57,6 +62,48 @@ public class StsJobs {
             return ret;
         } catch (Exception ex) {
             log.error("shipStsHistoryBaselineJobHandler failed", ex);
+            XxlJobLogger.log(ex);
+            return new ReturnT<String>(ReturnT.FAIL_CODE, ex.getMessage());
+        }
+    }
+
+    /**
+     * STS Phase 1.3 — Region Set Shadow Batch Job.
+     *
+     * Uses DB-backed seed identity + DB-backed region sets for batch runs.
+     * mode/writeMode/parallelism are hardcoded to safe defaults.
+     *
+     * Parameters (JSON):
+     * {
+     *   "seedBatchNo": "sts-crude-identity-20260902-v1",
+     *   "expectedShipCount": 786,
+     *   "shipOffset": 0,
+     *   "shipLimit": 100,
+     *   "regionSetCode": "GLOBAL_STS_TEST_REGION_SET_V1",
+     *   "from": "2026-08-01 00:00:00",
+     *   "to": "2026-08-08 00:00:00",
+     *   "batchNo": "sts-global-20260801-001"
+     * }
+     *
+     * Safety constraints:
+     *   - expectedShipCount must match DB count (fail closed on mismatch)
+     *   - shipLimit must be 1-100 (no fleet-wide runs)
+     *   - time span <= 7 days
+     *   - writeMode hardcoded to SHADOW_ONLY
+     *   - parallelism hardcoded to 1
+     */
+    @XxlJob("shipStsHistoryRegionSetShadowJobHandler")
+    public ReturnT<String> shipStsHistoryRegionSetShadowJobHandler(String params) {
+        try {
+            StsRegionSetJobParams jobParams = StsRegionSetJobParams.parse(params);
+            StsRegionSetShadowService.RegionSetShadowRunResult result =
+                    stsRegionSetShadowService.runRegionSetShadow(jobParams);
+            ReturnT<String> ret = result.isSuccess() ? ReturnT.SUCCESS : ReturnT.FAIL;
+            ret.setMsg(result.getSummary());
+            XxlJobLogger.log(result.getSummary());
+            return ret;
+        } catch (Exception ex) {
+            log.error("shipStsHistoryRegionSetShadowJobHandler failed", ex);
             XxlJobLogger.log(ex);
             return new ReturnT<String>(ReturnT.FAIL_CODE, ex.getMessage());
         }

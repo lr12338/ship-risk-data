@@ -27,7 +27,7 @@ import java.util.Set;
  * Phase 1 — in-memory catalog only. No DB tables.
  */
 @Service
-public class StsSeedCatalog {
+public class StsSeedCatalog implements StsSeedLookup {
 
     private static final Logger log = LoggerFactory.getLogger(StsSeedCatalog.class);
 

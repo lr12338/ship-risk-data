@@ -105,19 +105,24 @@ public class StsBaselineService {
     }
 
     public StsImoResult runOneImo(String imo, StsJobParams params, String batchNo) {
-        return runOneImoWithHooks(imo, params, batchNo, null);
+        return runOneImoWithHooks(imo, params, batchNo, null, seedCatalog);
     }
 
     public StsImoResult runOneImoWithHooks(String imo, StsJobParams params, String batchNo,
                                             StsPipelineHooks hooks) {
+        return runOneImoWithHooks(imo, params, batchNo, hooks, seedCatalog);
+    }
+
+    public StsImoResult runOneImoWithHooks(String imo, StsJobParams params, String batchNo,
+                                            StsPipelineHooks hooks, StsSeedLookup seedLookup) {
         long startMs = System.currentTimeMillis();
         StsImoResult r = new StsImoResult();
         r.imo = imo;
         r.from = params.getFrom();
         r.to = params.getTo();
-        r.identityMode = seedCatalog.getIdentityMode(imo);
+        r.identityMode = seedLookup.getIdentityMode(imo);
 
-        List<StsIdentityRecord> records = seedCatalog.getByIdentity(imo);
+        List<StsIdentityRecord> records = seedLookup.getByIdentity(imo);
         Set<String> ownIdentityMmsis = new HashSet<String>();
         for (StsIdentityRecord rec : records) {
             ownIdentityMmsis.add(rec.getMmsi());
@@ -196,7 +201,7 @@ public class StsBaselineService {
                 r.selfIdentityRejected++;
                 continue;
             }
-            String targetImo = seedCatalog.findImoByMmsi(targetMmsi);
+            String targetImo = seedLookup.findImoByMmsi(targetMmsi);
             if (targetImo != null && targetImo.equals(imo)) {
                 rejectedSelfMmsis.add(targetMmsi);
                 r.selfIdentityRejected++;

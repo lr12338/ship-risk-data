@@ -13,6 +13,9 @@ public class StsShadowEvent {
 
     private String algorithmVersion;
 
+    private String seedBatchNo;
+    private String regionSetCode;
+
     private String regionId;
     private String regionVersion;
 
@@ -56,6 +59,12 @@ public class StsShadowEvent {
 
     public String getAlgorithmVersion() { return algorithmVersion; }
     public void setAlgorithmVersion(String v) { this.algorithmVersion = v; }
+
+    public String getSeedBatchNo() { return seedBatchNo; }
+    public void setSeedBatchNo(String v) { this.seedBatchNo = v; }
+
+    public String getRegionSetCode() { return regionSetCode; }
+    public void setRegionSetCode(String v) { this.regionSetCode = v; }
 
     public String getRegionId() { return regionId; }
     public void setRegionId(String v) { this.regionId = v; }

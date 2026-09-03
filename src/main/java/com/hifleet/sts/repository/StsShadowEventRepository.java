@@ -28,6 +28,7 @@ public class StsShadowEventRepository {
 
     private static final String INSERT_SQL = "INSERT IGNORE INTO dataanalysis.ship_sts_shadow_event (" +
             "batch_no, event_key, algorithm_version, " +
+            "seed_batch_no, region_set_code, " +
             "region_id, region_version, " +
             "own_imo, own_mmsi, target_imo, target_mmsi, identity_mode, " +
             "start_time, end_time, duration_minutes, " +
@@ -36,7 +37,7 @@ public class StsShadowEventRepository {
             "min_distance_nm, avg_distance_nm, " +
             "own_avg_speed_kn, target_avg_speed_kn, " +
             "behavior_score, target_role, review_status, score_detail_json" +
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     @Autowired
     @Qualifier("newDataanalysisJdbcTemplate")
@@ -53,6 +54,8 @@ public class StsShadowEventRepository {
             ps.setString(idx++, event.getBatchNo());
             ps.setString(idx++, event.getEventKey());
             ps.setString(idx++, event.getAlgorithmVersion());
+            ps.setString(idx++, event.getSeedBatchNo());
+            ps.setString(idx++, event.getRegionSetCode());
             ps.setString(idx++, event.getRegionId());
             ps.setString(idx++, event.getRegionVersion());
             ps.setString(idx++, event.getOwnImo());
