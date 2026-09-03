@@ -853,3 +853,121 @@ DDL 和初始化 SQL 均不自动执行，需人工运行：
 | `src/main/resources/sql/ship_sts_shadow_event_provenance_alter.sql` | Shadow 表新增 provenance 列 ALTER |
 | `scripts/sts/generate_seed_import_sql.py` | 从 CSV 生成 Seed import SQL 的脚本 |
 | `scripts/sts/init_global_test_region_set.sql` | 12 个测试区域 + 4 个 Region Set 初始化 SQL |
+
+# 26. Phase 1.3 — V2 扩展区域（GLOBAL_STS_EXPANDED_V2）
+
+## 26.1 背景
+
+V1 区域（GLOBAL_STS_TEST_REGION_SET_V1，12 个广域 bbox）覆盖范围较粗，历史扫描产生的 STS-like candidate 数量有限。V2 扩展新增 29 个更聚焦的测试区域，覆盖已知 STS 活跃/高收益海域和主要原油出口港外海。
+
+- **V1**：legacy / historical reproducibility，12 个广域矩形，保持不变
+- **V2**：expanded engineering calibration regions，29 个聚焦区域，新增
+
+所有 V2 区域：`status=TEST`、`source_type=TEST_ONLY_BBOX`、`enabled=1`、`analysis_buffer_nm=10.0`、`version=20260903-v2`。**不是**权威海事/法律/制裁/港口/STS 边界。
+
+## 26.2 V2 Region Sets
+
+| regionSetCode | 区域数 | 说明 |
+|---|---:|---|
+| `STS_HOTSPOT_HIGH_YIELD_V2` | 14 | 已知 STS 高收益测试海域 |
+| `CRUDE_EXPORT_APPROACH_V2` | 15 | 全球主要原油出口港外海 |
+| `GLOBAL_STS_EXPANDED_V2` | 29 | 以上两者全部合并 |
+
+V1 区域集（GLOBAL_STS_TEST_REGION_SET_V1 等）**完全保留**，用于历史批次可重现性。
+
+## 26.3 STS Hotspot High-Yield V2（14 regions）
+
+| region_code | 名称 | 优先级 |
+|---|---|---:|
+| `RIAU_EOPL_NIPAH_STS_V2` | Riau / Malaysia EOPL / Nipah | 10 |
+| `LINGGI_MALACCA_STS_V2` | Linggi / Southern Malacca | 20 |
+| `LOME_OFFSHORE_STS_V2` | Lome Offshore（多哥） | 30 |
+| `PORT_SAID_EASTMED_STS_V2` | Port Said / East Med | 40 |
+| `CYPRUS_OFFSHORE_STS_V2` | Cyprus Offshore | 50 |
+| `MALTA_HURDS_BANK_STS_V2` | Malta / Hurds Bank | 60 |
+| `AUGUSTA_SICILY_STS_V2` | Augusta / Sicily | 70 |
+| `LACONIAN_KALAMATA_STS_V2` | Laconian Gulf / Kalamata | 80 |
+| `CEUTA_GIBRALTAR_STS_V2` | Ceuta / Gibraltar | 90 |
+| `GULF_OMAN_FUJAIRAH_STS_V2` | Gulf of Oman / Fujairah | 100 |
+| `SOHAR_STS_V2` | Sohar | 110 |
+| `NAKHODKA_KOZMINO_STS_V2` | Nakhodka / Kozmino | 120 |
+| `HONG_KONG_OFFSHORE_STS_V2` | Hong Kong Offshore | 130 |
+| `ARUBA_CURACAO_STS_V2` | Aruba / Curacao | 140 |
+
+## 26.4 Crude Export Approach V2（15 regions）
+
+| region_code | 名称 | 优先级 |
+|---|---|---:|
+| `NORTH_GULF_BASRA_KUWAIT_KHARG_V2` | 北波斯湾 — Basra / Kuwait / Kharg | 210 |
+| `CENTRAL_GULF_RAS_TANURA_JUAYMAH_V2` | 中波斯湾 — Ras Tanura / Juaymah | 220 |
+| `SOUTH_GULF_RUWAIS_JEBEL_DHANNA_V2` | 南波斯湾 — Ruwais / Jebel Dhanna | 230 |
+| `SAUDI_YANBU_RED_SEA_V2` | 沙特 Yanbu 红海 | 240 |
+| `VENEZUELA_JOSE_PARIA_V2` | 委内瑞拉 Jose / Paria | 250 |
+| `VENEZUELA_PARAGUANA_V2` | 委内瑞拉 Paraguana | 260 |
+| `RUSSIA_PRIMORSK_USTLUGA_V2` | 俄罗斯 Primorsk / Ust-Luga | 270 |
+| `RUSSIA_NOVOROSSIYSK_TUAPSE_V2` | 俄罗斯 Novorossiysk / Tuapse | 280 |
+| `RUSSIA_TAMAN_KAVKAZ_V2` | 俄罗斯 Taman / Kavkaz | 290 |
+| `NIGERIA_EAST_BONNY_QUAIBOE_V2` | 尼日利亚东部 — Bonny / Qua Iboe | 300 |
+| `NIGERIA_WEST_FORCADOS_ESCRAVOS_V2` | 尼日利亚西部 — Forcados / Escravos | 310 |
+| `ANGOLA_LUANDA_STS_V2` | 安哥拉 Luanda | 320 |
+| `ANGOLA_CABINDA_STS_V2` | 安哥拉 Cabinda | 330 |
+| `LIBYA_SIDRA_RASLANUF_V2` | 利比亚 Sidra / Ras Lanuf | 340 |
+| `CEYHAN_EASTMED_EXPORT_V2` | Ceyhan 东地中海出口 | 350 |
+
+## 26.5 区域重叠与 Primary Attribution
+
+V2 区域故意存在一定 overlap（例如 SOHAR_STS_V2 与 GULF_OMAN_FUJAIRAH_STS_V2、北/中/南波斯湾）。这些不删除，由 **PRIMARY_REGION_ATTRIBUTION_V1** 处理：
+
+1. `priority` 最小者（数值越小优先级越高）
+2. 若相同，核心多边形面积更小者
+3. 若仍相同，`region_code` 字典序
+
+每事件只写 1 条 Shadow，其他匹配区域记录在 `score_detail_json.matchedRegionCodes`。
+
+## 26.6 V2 初始化 SQL
+
+SQL 文件：`src/main/resources/sql/ship_sts_region_v2_expansion_20260903.sql`
+
+- 幂等：使用 `INSERT IGNORE`
+- 安全：V1 数据完全不动，只新增 V2
+- 包含 29 个 region + 3 个 region set + 末尾验证查询
+
+执行后验证：
+
+```sql
+-- 期望 29
+SELECT COUNT(*) AS v2_regions FROM dataanalysis.ship_sts_risk_region
+ WHERE region_code LIKE '%_V2';
+
+-- 期望 14 / 15 / 29
+SELECT region_set_code, COUNT(*)
+  FROM dataanalysis.ship_sts_region_set_item
+ WHERE region_set_code IN (
+   'STS_HOTSPOT_HIGH_YIELD_V2',
+   'CRUDE_EXPORT_APPROACH_V2',
+   'GLOBAL_STS_EXPANDED_V2'
+ ) AND enabled = 1
+ GROUP BY region_set_code ORDER BY region_set_code;
+```
+
+## 26.7 推荐 XXL Job 参数（V2）
+
+**Hotspot V2 — 100 船 × 7 天（第 1 块）**
+
+```json
+{"seedBatchNo":"sts-crude-identity-20260902-v1","expectedShipCount":786,"shipOffset":0,"shipLimit":100,"regionSetCode":"STS_HOTSPOT_HIGH_YIELD_V2","from":"2026-08-01 00:00:00","to":"2026-08-08 00:00:00","batchNo":"sts-hotspot-v2-20260801-001"}
+```
+
+**Hotspot V2 — 100 船 × 7 天（第 2 块）**
+
+```json
+{"seedBatchNo":"sts-crude-identity-20260902-v1","expectedShipCount":786,"shipOffset":100,"shipLimit":100,"regionSetCode":"STS_HOTSPOT_HIGH_YIELD_V2","from":"2026-08-01 00:00:00","to":"2026-08-08 00:00:00","batchNo":"sts-hotspot-v2-20260801-002"}
+```
+
+**Global Expanded V2 — 100 船 × 7 天**
+
+```json
+{"seedBatchNo":"sts-crude-identity-20260902-v1","expectedShipCount":786,"shipOffset":0,"shipLimit":100,"regionSetCode":"GLOBAL_STS_EXPANDED_V2","from":"2026-08-01 00:00:00","to":"2026-08-08 00:00:00","batchNo":"sts-global-v2-20260801-001"}
+```
+
+全部单行 JSON，可直接复制到 XXL Job 参数框。
