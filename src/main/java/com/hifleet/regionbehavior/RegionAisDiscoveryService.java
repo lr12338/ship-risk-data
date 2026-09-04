@@ -43,31 +43,47 @@ public class RegionAisDiscoveryService {
     public RegionAisDiscoveryResult discover(RegionGeometry region, RegionQueryPlan plan,
                                              String batchNo, int maxCandidates,
                                              boolean resume, boolean persist) {
+        return discover(region, plan, batchNo, maxCandidates, resume, persist, null);
+    }
+
+    public RegionAisDiscoveryResult discover(RegionGeometry region, RegionQueryPlan plan,
+                                             String batchNo, int maxCandidates,
+                                             boolean resume, boolean persist,
+                                             Set<String> interestedMmsis) {
         RegionAisDiscoveryResult result = new RegionAisDiscoveryResult();
         activeBatchNo.set(batchNo);
         persistenceEnabled.set(persist);
         Set<String> pointKeys = new HashSet<String>();
-        completedSlices.set(stateRepository != null && resume
-                ? stateRepository.completed(batchNo, "DISCOVERY") : Collections.<String>emptySet());
-        if (stateRepository != null && resume) {
-            for (String mmsi : stateRepository.candidateMmsis(batchNo)) {
-                result.candidates.put(mmsi, new RegionShipCandidate(mmsi));
+        try {
+            completedSlices.set(stateRepository != null && resume
+                    ? stateRepository.completed(batchNo, "DISCOVERY") : Collections.<String>emptySet());
+            if (stateRepository != null && resume) {
+                for (String mmsi : stateRepository.candidateMmsis(batchNo)) {
+                    if (interestedMmsis == null || interestedMmsis.contains(mmsi)) {
+                        result.candidates.put(mmsi, new RegionShipCandidate(mmsi));
+                        if (interestedMmsis != null) result.observeMmsi(mmsi);
+                    }
+                }
             }
-        }
-        for (RegionReplaySlice slice : plan.getSlices()) {
-            query(slice, region, batchNo, maxCandidates, result, pointKeys);
-            if (result.getStatus() == RegionBehaviorStatus.CANDIDATE_LIMIT_EXCEEDED) {
-                break;
+            for (RegionReplaySlice slice : plan.getSlices()) {
+                query(slice, region, batchNo, maxCandidates, result, pointKeys, interestedMmsis);
+                if (result.getStatus() == RegionBehaviorStatus.CANDIDATE_LIMIT_EXCEEDED) break;
             }
+            return result;
+        } finally {
+            activeBatchNo.remove();
+            persistenceEnabled.remove();
+            completedSlices.remove();
         }
-        activeBatchNo.remove();
-        persistenceEnabled.remove();
-        completedSlices.remove();
-        return result;
+    }
+
+    public boolean isResumeAvailable() {
+        return stateRepository != null && stateRepository.isSchemaAvailable();
     }
 
     private void query(RegionReplaySlice slice, RegionGeometry region, String batchNo,
-                       int maxCandidates, RegionAisDiscoveryResult aggregate, Set<String> pointKeys) {
+                       int maxCandidates, RegionAisDiscoveryResult aggregate, Set<String> pointKeys,
+                       Set<String> interestedMmsis) {
         if (completedSlices.get().contains(slice.getSliceId())) {
             aggregate.completed();
             aggregate.addSliceResult(new RegionReplaySliceResult(slice.getSliceId(),
@@ -94,20 +110,20 @@ public class RegionAisDiscoveryService {
             aggregate.timeout();
             record(aggregate, slice, RegionBehaviorStatus.INCOMPLETE_TIMEOUT, response,
                     response.getErrorMessage());
-            mergeDiagnosticPoints(response, region, maxCandidates, aggregate, pointKeys);
+            mergeDiagnosticPoints(response, region, maxCandidates, aggregate, pointKeys, interestedMmsis);
             return;
         }
         if (!response.isSuccess()) {
             aggregate.failed();
             record(aggregate, slice, RegionBehaviorStatus.PARTIAL, response, response.getErrorMessage());
-            mergeDiagnosticPoints(response, region, maxCandidates, aggregate, pointKeys);
+            mergeDiagnosticPoints(response, region, maxCandidates, aggregate, pointKeys, interestedMmsis);
             return;
         }
         if (response.isTruncated()) {
             aggregate.truncated();
             if (slice.canSplitTime(config)) {
                 for (RegionReplaySlice child : slice.splitTime()) {
-                    query(child, region, batchNo, maxCandidates, aggregate, pointKeys);
+                    query(child, region, batchNo, maxCandidates, aggregate, pointKeys, interestedMmsis);
                     if (aggregate.getStatus() == RegionBehaviorStatus.CANDIDATE_LIMIT_EXCEEDED) {
                         break;
                     }
@@ -117,7 +133,7 @@ public class RegionAisDiscoveryService {
             }
             if (slice.canSplitSpace(config)) {
                 for (RegionReplaySlice child : slice.splitSpace()) {
-                    query(child, region, batchNo, maxCandidates, aggregate, pointKeys);
+                    query(child, region, batchNo, maxCandidates, aggregate, pointKeys, interestedMmsis);
                     if (aggregate.getStatus() == RegionBehaviorStatus.CANDIDATE_LIMIT_EXCEEDED) {
                         break;
                     }
@@ -128,7 +144,7 @@ public class RegionAisDiscoveryService {
             aggregate.terminalTruncation();
             record(aggregate, slice, RegionBehaviorStatus.INCOMPLETE_TRUNCATED, response,
                     response.getErrorMessage());
-            mergeDiagnosticPoints(response, region, maxCandidates, aggregate, pointKeys);
+            mergeDiagnosticPoints(response, region, maxCandidates, aggregate, pointKeys, interestedMmsis);
             return;
         }
         double parseRatio = response.getRawPointCount() == 0 ? 0.0
@@ -141,12 +157,12 @@ public class RegionAisDiscoveryService {
             aggregate.completed();
             record(aggregate, slice, RegionBehaviorStatus.COMPLETE, response, null);
         }
-        mergeDiagnosticPoints(response, region, maxCandidates, aggregate, pointKeys);
+        mergeDiagnosticPoints(response, region, maxCandidates, aggregate, pointKeys, interestedMmsis);
     }
 
     private void mergeDiagnosticPoints(ReplayQueryResult response, RegionGeometry region,
                                        int maxCandidates, RegionAisDiscoveryResult aggregate,
-                                       Set<String> pointKeys) {
+                                       Set<String> pointKeys, Set<String> interestedMmsis) {
         if (response.getTracksByMmsi() == null) {
             return;
         }
@@ -156,11 +172,14 @@ public class RegionAisDiscoveryService {
                     || track.getValue() == null) {
                 continue;
             }
+            boolean interested = interestedMmsis == null || interestedMmsis.contains(mmsi);
             for (TrajectoryPoint point : track.getValue()) {
                 if (point == null || point.getTime() == null
                         || !region.containsAnalysis(new Coordinate(point.getLon(), point.getLat()))) {
                     continue;
                 }
+                if (interestedMmsis != null) aggregate.observeMmsi(mmsi);
+                if (!interested) continue;
                 String key = pointKey(mmsi, point);
                 if (!pointKeys.add(key)) {
                     aggregate.countDuplicatePoint();

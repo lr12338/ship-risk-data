@@ -14,11 +14,13 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verifyZeroInteractions;
 
 public class RegionAisDiscoveryServiceTest {
@@ -132,6 +134,56 @@ public class RegionAisDiscoveryServiceTest {
 
         assertEquals(RegionBehaviorStatus.CANDIDATE_LIMIT_EXCEEDED, result.getStatus());
         assertTrue(result.isCappedByMaxCandidates());
+    }
+
+    @Test
+    public void targetAwareAccumulationIgnoresUnrelatedCandidatesWithoutHidingCompleteness() {
+        RegionBehaviorConfig config = config();
+        RegionAisDiscoveryService service = new RegionAisDiscoveryService(new FakeClient() {
+            @Override
+            public ReplayQueryResult query(ReplayQueryRequest request) {
+                List<TrajectoryPoint> points = new java.util.ArrayList<TrajectoryPoint>();
+                for (int i = 0; i < 10000; i++) {
+                    points.add(point(String.valueOf(500000000 + i), 121.5, 30.5));
+                }
+                points.add(point("413000001", 121.5, 30.5));
+                points.add(point("413000002", 121.6, 30.6));
+                return result(request, true, false, false, 0, points);
+            }
+        }, config);
+
+        RegionAisDiscoveryResult result = service.discover(region(config),
+                new RegionQueryPlan(Collections.singletonList(slice(5))), "batch", 2,
+                false, false,
+                new java.util.HashSet<String>(Arrays.asList("413000001", "413000002")));
+
+        assertTrue(result.isQueryComplete());
+        assertFalse(result.isCappedByMaxCandidates());
+        assertEquals(2, result.getCandidates().size());
+        assertEquals(10002, result.getObservedUniqueVessels());
+    }
+
+    @Test
+    public void resumesCompletedDiscoveryWithoutRepeatingReplayQuery() {
+        RegionBehaviorConfig config = config();
+        SpatialAisReplayClient replay = mock(SpatialAisReplayClient.class);
+        RegionAisDiscoveryService service = new RegionAisDiscoveryService(replay, config);
+        RegionBehaviorStateRepository state = mock(RegionBehaviorStateRepository.class);
+        ReflectionTestUtils.setField(service, "stateRepository", state);
+        RegionReplaySlice slice = slice(5);
+        when(state.completed("batch", "DISCOVERY"))
+                .thenReturn(Collections.singleton(slice.getSliceId()));
+        when(state.candidateMmsis("batch"))
+                .thenReturn(Arrays.asList("413000001", "999000001"));
+
+        RegionAisDiscoveryResult result = service.discover(region(config),
+                new RegionQueryPlan(Collections.singletonList(slice)), "batch", 2,
+                true, true, Collections.singleton("413000001"));
+
+        assertTrue(result.isQueryComplete());
+        assertEquals(0, result.getQuerySlices());
+        assertEquals(Collections.singleton("413000001"), result.getCandidates().keySet());
+        verifyZeroInteractions(replay);
     }
 
     @Test

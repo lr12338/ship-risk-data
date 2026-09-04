@@ -5,6 +5,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 
 public class RegionAisDiscoveryResult {
     private RegionBehaviorStatus status = RegionBehaviorStatus.COMPLETE;
@@ -21,6 +23,7 @@ public class RegionAisDiscoveryResult {
     private int duplicatePoints;
     private boolean cappedByMaxCandidates;
     private long elapsedMs;
+    private final Set<String> observedMmsis = new HashSet<String>();
     final Map<String, RegionShipCandidate> candidates =
             new LinkedHashMap<String, RegionShipCandidate>();
     private final List<RegionReplaySliceResult> sliceResults =
@@ -38,6 +41,14 @@ public class RegionAisDiscoveryResult {
     public int getRawPoints() { return rawPoints; }
     public int getValidPoints() { return validPoints; }
     public int getUniqueVessels() { return candidates.size(); }
+    public int getObservedUniqueVessels() {
+        return observedMmsis.isEmpty() ? candidates.size() : observedMmsis.size();
+    }
+    public Set<String> getObservedMmsis() {
+        return observedMmsis.isEmpty()
+                ? Collections.unmodifiableSet(candidates.keySet())
+                : Collections.unmodifiableSet(observedMmsis);
+    }
     public int getUniquePoints() { return uniquePoints; }
     public int getDuplicatePoints() { return duplicatePoints; }
     public boolean isCappedByMaxCandidates() { return cappedByMaxCandidates; }
@@ -65,6 +76,7 @@ public class RegionAisDiscoveryResult {
     void addSliceResult(RegionReplaySliceResult value) { sliceResults.add(value); }
     void countUniquePoint() { uniquePoints++; }
     void countDuplicatePoint() { duplicatePoints++; }
+    void observeMmsi(String mmsi) { observedMmsis.add(mmsi); }
     void candidateLimitExceeded() {
         cappedByMaxCandidates = true;
         status = RegionBehaviorStatus.CANDIDATE_LIMIT_EXCEEDED;

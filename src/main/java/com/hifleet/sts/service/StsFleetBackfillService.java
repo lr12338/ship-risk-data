@@ -64,6 +64,9 @@ public class StsFleetBackfillService {
     @Autowired
     private StsShadowEventRepository shadowEventRepository;
 
+    @Autowired
+    private StsBackfillTaskHeartbeat taskHeartbeat;
+
     public static class BackfillRunResult {
         public boolean success;
         public String batchNo;
@@ -102,6 +105,10 @@ public class StsFleetBackfillService {
         public int shadowInserted;
         public int shadowDuplicateSkipped;
         public int selfPairEvents;
+        public int failedShips;
+        public int heartbeatFailures;
+        public int discoveryInitialSlices;
+        public long discoveryElapsedMs;
         public long taskDurationMs;
 
         public String getSummary() { return summary; }
@@ -207,6 +214,7 @@ public class StsFleetBackfillService {
                 result.currentSliceFrom, result.currentSliceTo);
 
         long taskStartMs = System.currentTimeMillis();
+        StsBackfillTaskHeartbeat.Handle heartbeat = taskHeartbeat.start(task.getId());
 
         try {
             runOneTask(task, selectedFleet, regionRows, regionSet, params, result);
@@ -235,11 +243,15 @@ public class StsFleetBackfillService {
         } catch (Exception ex) {
             log.error("STS_FLEET_BACKFILL task failed: taskId={}, error={}",
                     task.getId(), ex.getMessage(), ex);
-            taskRepository.markFailed(task.getId(), ex.getMessage());
+            taskRepository.markFailed(task.getId(), ex.getMessage(),
+                    result.replayQueries, result.replayFailures, result.replayTruncated);
             batchRepository.updateProgress(params.getBatchNo(), 0, 1,
                     0, 0, 0, 0, 0);
             result.success = false;
             result.taskDurationMs = System.currentTimeMillis() - taskStartMs;
+        } finally {
+            heartbeat.close();
+            result.heartbeatFailures = heartbeat.getFailureCount();
         }
 
         // Update summary
@@ -279,9 +291,14 @@ public class StsFleetBackfillService {
         // Region-first preselection
         StsFleetRegionPreselector.PreselectResult preselect = regionPreselector.preselect(
                 regionRows, sliceFrom, sliceTo, targetMmsis,
-                params.getBatchNo() + ":s" + task.getSliceSeq());
+                params.getBatchNo(), result.regionSetFingerprint);
 
         result.regionDiscoveredMmsis = preselect.allRegionMmsis.size();
+        result.discoveryInitialSlices = preselect.initialPlanSlices;
+        result.discoveryElapsedMs = preselect.elapsedMs;
+        result.replayQueries = preselect.queryCount;
+        result.replayFailures = preselect.failedQueries + preselect.timeoutQueries;
+        result.replayTruncated = preselect.truncatedQueries;
 
         if (!preselect.complete) {
             throw new IllegalStateException(
@@ -320,6 +337,7 @@ public class StsFleetBackfillService {
 
         // Build per-ship result accumulator (via hooks)
         final TaskAccumulator acc = new TaskAccumulator();
+        final List<String> failedShipErrors = new ArrayList<String>();
 
         // Build pipeline hooks
         StsBaselineService.StsPipelineHooks hooks = buildHooks(regionSet, acc, params, catalog);
@@ -346,29 +364,37 @@ public class StsFleetBackfillService {
                 acc.baselineEvents += imoResult.baselineEvents;
                 result.processedPhysicalShips++;
             } catch (Exception ex) {
-                log.error("STS backfill ship failed: key={}, error={}",
-                        ship.getPhysicalShipKey(), ex.getMessage());
                 acc.failedShips++;
+                if (failedShipErrors.size() < 20) {
+                    String summary = ship.getPhysicalShipKey() + ": " + ex.getMessage();
+                    failedShipErrors.add(summary);
+                    log.error("STS backfill ship failed: key={}, error={}",
+                            ship.getPhysicalShipKey(), ex.getMessage());
+                }
             }
         }
+
+        result.trajectoryLoadedShips = acc.trajectoryLoadedShips;
+        result.activityWindows = acc.activityWindows;
+        result.regionActivityWindows = acc.regionActivityWindows;
+        result.replayQueries += acc.replayQueries;
+        result.replayFailures += acc.replayFailures;
+        result.replayTruncated += acc.replayTruncated;
+        result.baselineEvents = acc.baselineEvents;
+        result.regionAcceptedEvents = acc.regionAcceptedEvents;
+        result.shadowInserted = acc.shadowInserted;
+        result.shadowDuplicateSkipped = acc.shadowDuplicateSkipped;
+        result.selfPairEvents = acc.selfPairEvents;
+        result.failedShips = acc.failedShips;
 
         if (acc.selfPairEvents > 0) {
             throw new IllegalStateException(
                     "selfPairEvents > 0: " + acc.selfPairEvents
                             + " — fail closed, task blocked");
         }
-
-        result.trajectoryLoadedShips = acc.trajectoryLoadedShips;
-        result.activityWindows = acc.activityWindows;
-        result.regionActivityWindows = acc.regionActivityWindows;
-        result.replayQueries = acc.replayQueries;
-        result.replayFailures = acc.replayFailures;
-        result.replayTruncated = acc.replayTruncated;
-        result.baselineEvents = acc.baselineEvents;
-        result.regionAcceptedEvents = acc.regionAcceptedEvents;
-        result.shadowInserted = acc.shadowInserted;
-        result.shadowDuplicateSkipped = acc.shadowDuplicateSkipped;
-        result.selfPairEvents = acc.selfPairEvents;
+        if (acc.failedShips > 0) {
+            throw failedShipException(acc.failedShips, failedShipErrors);
+        }
     }
 
     private StsBaselineService.StsPipelineHooks buildHooks(
@@ -649,6 +675,11 @@ public class StsFleetBackfillService {
         return sha256(sb.toString());
     }
 
+    static IllegalStateException failedShipException(int failedShips, List<String> summaries) {
+        return new IllegalStateException("FAILED_SHIPS=" + failedShips
+                + " firstFailures=" + summaries);
+    }
+
     public static String computeRegionSetFingerprint(List<StsRiskRegionRow> regions) {
         List<String> lines = new ArrayList<String>();
         for (StsRiskRegionRow r : regions) {
@@ -746,6 +777,10 @@ public class StsFleetBackfillService {
         s.put("shadowInserted", r.shadowInserted);
         s.put("shadowDuplicateSkipped", r.shadowDuplicateSkipped);
         s.put("selfPairEvents", r.selfPairEvents);
+        s.put("failedShips", r.failedShips);
+        s.put("heartbeatFailures", r.heartbeatFailures);
+        s.put("discoveryInitialSlices", r.discoveryInitialSlices);
+        s.put("discoveryElapsedMs", r.discoveryElapsedMs);
         s.put("taskDurationMs", r.taskDurationMs);
         s.put("parentStatus", r.batchStatus);
         log.info(s.toJSONString());

@@ -21,6 +21,14 @@ public class StsBackfillTaskRepository {
 
     public static final int STALE_TIMEOUT_MINUTES = 180;
     public static final int MAX_RETRY = 3;
+    static final String RECLAIM_STALE_SQL =
+            "UPDATE dataanalysis.ship_sts_backfill_task " +
+            "SET status='PENDING', retry_count = retry_count + 1, last_error = " +
+            "  CASE WHEN last_error IS NULL THEN 'STALE_RECLAIM' " +
+            "       ELSE CONCAT(LEFT(last_error, 900), ' | STALE_RECLAIM') END " +
+            "WHERE batch_no=? AND status='RUNNING' " +
+            "  AND updated_at < DATE_SUB(NOW(), INTERVAL ? MINUTE) " +
+            "  AND retry_count < ?";
 
     @Autowired
     @Qualifier("newDataanalysisJdbcTemplate")
@@ -70,15 +78,7 @@ public class StsBackfillTaskRepository {
         tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         return tx.execute(status -> {
             // First, reclaim stale RUNNING tasks
-            String reclaimSql =
-                "UPDATE dataanalysis.ship_sts_backfill_task " +
-                "SET status='PENDING', retry_count = retry_count + 1, last_error = " +
-                "  CASE WHEN last_error IS NULL THEN 'STALE_RECLAIM' " +
-                "       ELSE CONCAT(LEFT(last_error, 900), ' | STALE_RECLAIM') END " +
-                "WHERE batch_no=? AND status='RUNNING' " +
-                "  AND updated_at < DATE_SUB(NOW(), INTERVAL ? MINUTE) " +
-                "  AND retry_count < ?";
-            jdbcTemplate.update(reclaimSql, batchNo, STALE_TIMEOUT_MINUTES, MAX_RETRY);
+            reclaimStaleRunningTasks(batchNo);
 
             // Claim first PENDING task, ordered by slice_seq
             String selectSql =
@@ -105,6 +105,16 @@ public class StsBackfillTaskRepository {
             // Re-read to get updated timestamps
             return findById(task.getId());
         });
+    }
+
+    public int reclaimStaleRunningTasks(String batchNo) {
+        return jdbcTemplate.update(RECLAIM_STALE_SQL, batchNo,
+                STALE_TIMEOUT_MINUTES, MAX_RETRY);
+    }
+
+    public int touchRunning(Long taskId) {
+        return jdbcTemplate.update("UPDATE dataanalysis.ship_sts_backfill_task "
+                + "SET updated_at=NOW() WHERE id=? AND status='RUNNING'", taskId);
     }
 
     public StsBackfillTaskRow findById(Long id) {
@@ -150,6 +160,15 @@ public class StsBackfillTaskRepository {
                 "status='FAILED', last_error=?, updated_at=NOW() " +
                 "WHERE id=?";
         return jdbcTemplate.update(sql, truncate(errorMessage, 1000), taskId);
+    }
+
+    public int markFailed(Long taskId, String errorMessage,
+                          int replayQueries, int replayFailures, int replayTruncated) {
+        String sql = "UPDATE dataanalysis.ship_sts_backfill_task SET " +
+                "status='FAILED', last_error=?, replay_queries=?, replay_failures=?, " +
+                "replay_truncated=?, updated_at=NOW() WHERE id=?";
+        return jdbcTemplate.update(sql, truncate(errorMessage, 1000), replayQueries,
+                replayFailures, replayTruncated, taskId);
     }
 
     private static Timestamp toTs(java.util.Date d) {

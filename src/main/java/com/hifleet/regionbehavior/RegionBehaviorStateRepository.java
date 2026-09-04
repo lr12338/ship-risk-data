@@ -21,6 +21,15 @@ public class RegionBehaviorStateRepository {
     @Autowired
     private ShipBehaviorTableInitializer initializer;
 
+    public boolean isSchemaAvailable() {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='dataanalysis' "
+                        + "AND table_name IN ('ship_behavior_region_batch_status',"
+                        + "'ship_behavior_region_slice_status','ship_behavior_region_candidate')",
+                Integer.class);
+        return count != null && count == 3;
+    }
+
     public void claim(RegionBehaviorJobParams params, String fingerprint, String paramsHash) {
         initializer.ensureRegionTablesReady();
         String behavior = params.getBehaviorTypes().get(0);
