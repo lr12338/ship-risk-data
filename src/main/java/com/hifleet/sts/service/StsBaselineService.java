@@ -1,14 +1,12 @@
 package com.hifleet.sts.service;
 
 import com.alibaba.fastjson.JSONObject;
-import com.hifleet.domain.AlongsideCandidateTarget;
-import com.hifleet.domain.AlongsideReplaySearchResult;
 import com.hifleet.domain.ShipBehaviorEvent;
+import com.hifleet.domain.ShipBehaviorTrace;
+import com.hifleet.job.services.ShipBehaviorAnalysisService;
 import com.hifleet.service.ShipAlongsideDetector;
-import com.hifleet.service.ShipAlongsideReplayCandidateProvider;
 import com.hifleet.sts.domain.StsIdentityRecord;
 import com.hifleet.sts.domain.StsJobParams;
-import com.hifleet.trajectory.TrajectoryLoaderService;
 import com.hifleet.trajectory.TrajectoryPoint;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -21,11 +19,9 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -35,10 +31,8 @@ import java.util.UUID;
  * Normalized Seed CSV
  *   → IMO/MMSI Identity
  *   → Historical Trajectory
- *   → STS Activity Window (0.0–4.0 kn default)
- *   → Spatial AIS Replay
+ *   → Production Alongside history compute
  *   → Own Identity Exclusion
- *   → ShipAlongsideDetector (ALONGSIDE_V3_BASELINE)
  *   → LOG_ONLY summary
  *
  * Does NOT write any production events. Does NOT modify any production components.
@@ -49,21 +43,13 @@ public class StsBaselineService {
     private static final Logger log = LoggerFactory.getLogger(StsBaselineService.class);
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final long DEFAULT_MIN_WINDOW_MINUTES = 30;
-    private static final long DEFAULT_SPLIT_GAP_MINUTES = 30;
     private static final long MAX_SPAN_DAYS = 7;
-    private static final int SIMPLIFY_ZOOM = 14;
 
     @Autowired
     private StsSeedCatalog seedCatalog;
 
     @Autowired
-    private TrajectoryLoaderService trajectoryLoaderService;
-
-    @Autowired
-    private ShipAlongsideReplayCandidateProvider replayCandidateProvider;
-
-    private final ShipAlongsideDetector shipAlongsideDetector = new ShipAlongsideDetector();
+    private ShipBehaviorAnalysisService analysisService;
 
     public StsRunResult runBaseline(StsJobParams params) {
         validateParams(params);
@@ -130,115 +116,50 @@ public class StsBaselineService {
         }
         r.ownIdentityMmsis = ownIdentityMmsis;
 
-        List<ShipAlongsideDetector.LowSpeedWindow> allWindows = new ArrayList<ShipAlongsideDetector.LowSpeedWindow>();
-        Map<String, List<TrajectoryPoint>> trajectoryByMmsi = new HashMap<String, List<TrajectoryPoint>>();
-        Map<String, List<TrajectoryPoint>> ownPointsByWindow = new HashMap<String, List<TrajectoryPoint>>();
-        String primaryMmsi = records.isEmpty() ? "" : records.get(0).getMmsi();
+        final Set<String> rejectedSelfMmsis = new LinkedHashSet<String>();
+        for (final StsIdentityRecord rec : records) {
+            final String mmsi = rec.getMmsi();
+            ShipBehaviorAnalysisService.AlongsideWindowResult computed =
+                    analysisService.computeAlongsideHistory(mmsi, params.getFrom(), params.getTo(), batchNo,
+                            new ShipBehaviorAnalysisService.AlongsideComputePolicy() {
+                                @Override
+                                public boolean acceptWindow(ShipAlongsideDetector.LowSpeedWindow window,
+                                                            List<TrajectoryPoint> points) {
+                                    return hooks == null || hooks.acceptWindow(mmsi, window, points);
+                                }
 
-        for (StsIdentityRecord rec : records) {
-            String mmsi = rec.getMmsi();
-            List<TrajectoryPoint> points = trajectoryLoaderService.loadSafely(
-                    mmsi, params.getFrom(), params.getTo(), SIMPLIFY_ZOOM, 24, 10000);
-            if (points == null) points = Collections.emptyList();
-            trajectoryByMmsi.put(mmsi, points);
-            r.trajectoryPoints += points.size();
-
-            List<ShipAlongsideDetector.LowSpeedWindow> windows = shipAlongsideDetector.extractLowSpeedWindows(
-                    mmsi, points,
-                    params.getActivityMinSpeedKn(), params.getActivityMaxSpeedKn(),
-                    DEFAULT_MIN_WINDOW_MINUTES, DEFAULT_SPLIT_GAP_MINUTES);
-            allWindows.addAll(windows);
-            r.activityWindows += windows.size();
-
-            for (ShipAlongsideDetector.LowSpeedWindow w : windows) {
-                String key = windowKey(w);
-                List<TrajectoryPoint> windowPoints = collectWindowPoints(points, w);
-                ownPointsByWindow.put(key, windowPoints);
-            }
-        }
-
-        if (allWindows.isEmpty()) {
-            r.durationMs = System.currentTimeMillis() - startMs;
-            return r;
-        }
-
-        List<ShipAlongsideDetector.LowSpeedWindow> replayWindows = allWindows;
-        Map<String, List<TrajectoryPoint>> replayWindowPoints = ownPointsByWindow;
-        if (hooks != null) {
-            replayWindows = new ArrayList<ShipAlongsideDetector.LowSpeedWindow>();
-            replayWindowPoints = new HashMap<String, List<TrajectoryPoint>>();
-            for (ShipAlongsideDetector.LowSpeedWindow w : allWindows) {
-                String key = windowKey(w);
-                List<TrajectoryPoint> wps = ownPointsByWindow.get(key);
-                if (wps == null || wps.isEmpty()) continue;
-                if (hooks.acceptWindow(w.getMmsi(), w, wps)) {
-                    replayWindows.add(w);
-                    replayWindowPoints.put(key, wps);
+                                @Override
+                                public boolean acceptCandidate(String targetMmsi) {
+                                    String targetImo = seedLookup.findImoByMmsi(targetMmsi);
+                                    boolean self = ownIdentityMmsis.contains(targetMmsi)
+                                            || (targetImo != null && targetImo.equals(imo));
+                                    if (self) rejectedSelfMmsis.add(targetMmsi);
+                                    return !self;
+                                }
+                            });
+            r.trajectoryPoints += computed.getPoints();
+            r.activityWindows += computed.getAlongsideLowSpeedWindows();
+            r.replayQueries += computed.getAttemptedReplayQueries();
+            r.replayFailures += computed.getFailedReplayQueries();
+            r.replayTruncated += computed.getTruncatedReplayQueryCount();
+            r.rawCandidateTargets += computed.getCandidateTargets()
+                    + computed.getPolicyRejectedCandidates();
+            r.selfIdentityRejected += computed.getPolicyRejectedCandidates();
+            r.finalCandidateTargets += computed.getCandidateTargets();
+            r.baselineEvents += computed.getEvents();
+            for (ShipBehaviorTrace trace : computed.getTraces()) {
+                ShipBehaviorEvent event = trace.getEvent();
+                String targetMmsi = event.getTargetMmsi();
+                String targetImo = seedLookup.findImoByMmsi(targetMmsi);
+                if (ownIdentityMmsis.contains(targetMmsi)
+                        || (targetImo != null && targetImo.equals(imo))) {
+                    r.selfPairEvents++;
+                    continue;
                 }
+                if (hooks != null) hooks.onEvent(event, mmsi, targetMmsi);
             }
         }
-
-        if (replayWindows.isEmpty()) {
-            r.durationMs = System.currentTimeMillis() - startMs;
-            return r;
-        }
-
-        AlongsideReplaySearchResult replayResult = replayCandidateProvider.findCandidates(
-                primaryMmsi, replayWindows, replayWindowPoints, batchNo);
-
-        r.replayQueries = replayResult.getReplayQueryCount();
-        r.replayFailures = replayResult.getReplayFailures();
-        r.replayTruncated = replayResult.getTruncatedQueries();
-        r.rawCandidateTargets = replayResult.getCandidates().size();
-
-        List<AlongsideCandidateTarget> filtered = new ArrayList<AlongsideCandidateTarget>();
-        Set<String> rejectedSelfMmsis = new LinkedHashSet<String>();
-
-        for (AlongsideCandidateTarget candidate : replayResult.getCandidates()) {
-            String targetMmsi = candidate.getTargetMmsi();
-            if (ownIdentityMmsis.contains(targetMmsi)) {
-                rejectedSelfMmsis.add(targetMmsi);
-                r.selfIdentityRejected++;
-                continue;
-            }
-            String targetImo = seedLookup.findImoByMmsi(targetMmsi);
-            if (targetImo != null && targetImo.equals(imo)) {
-                rejectedSelfMmsis.add(targetMmsi);
-                r.selfIdentityRejected++;
-                continue;
-            }
-            filtered.add(candidate);
-        }
-        r.finalCandidateTargets = filtered.size();
         r.rejectedSelfMmsis = rejectedSelfMmsis;
-
-        ShipAlongsideDetector.AlongsideRule baselineRule = ShipAlongsideDetector.AlongsideRule.defaultRule();
-        for (AlongsideCandidateTarget candidate : filtered) {
-            String targetMmsi = candidate.getTargetMmsi();
-            List<TrajectoryPoint> targetPoints = candidate.getTargetPoints();
-            if (targetPoints == null || targetPoints.isEmpty()) continue;
-
-            if (ownIdentityMmsis.contains(targetMmsi)) {
-                r.selfPairEvents++;
-                log.error("STS self-pair slipped through filter: IMO={} targetMmsi={}", imo, targetMmsi);
-                continue;
-            }
-
-            String ownMmsiForWindow = candidate.getOwnMmsi();
-            if (StringUtils.isBlank(ownMmsiForWindow)) ownMmsiForWindow = primaryMmsi;
-            List<TrajectoryPoint> ownPoints = trajectoryByMmsi.get(ownMmsiForWindow);
-            if (ownPoints == null) ownPoints = Collections.emptyList();
-
-            List<ShipBehaviorEvent> events = shipAlongsideDetector.detect(
-                    ownMmsiForWindow, ownPoints, targetMmsi, targetPoints, baselineRule);
-            r.baselineEvents += events.size();
-
-            if (hooks != null && !events.isEmpty()) {
-                for (ShipBehaviorEvent evt : events) {
-                    hooks.onEvent(evt, ownMmsiForWindow, targetMmsi);
-                }
-            }
-        }
 
         r.durationMs = System.currentTimeMillis() - startMs;
         return r;
@@ -285,24 +206,6 @@ public class StsBaselineService {
         if (!"LOG_ONLY".equals(params.getWriteMode())) {
             throw new IllegalArgumentException("Phase 1 writeMode must be LOG_ONLY, got: " + params.getWriteMode());
         }
-    }
-
-    private String windowKey(ShipAlongsideDetector.LowSpeedWindow window) {
-        return window.getStartTime() + "|" + window.getEndTime();
-    }
-
-    private List<TrajectoryPoint> collectWindowPoints(List<TrajectoryPoint> allPoints,
-                                                       ShipAlongsideDetector.LowSpeedWindow window) {
-        LocalDateTime start = LocalDateTime.parse(window.getStartTime(), TIME_FMT);
-        LocalDateTime end = LocalDateTime.parse(window.getEndTime(), TIME_FMT);
-        List<TrajectoryPoint> result = new ArrayList<TrajectoryPoint>();
-        for (TrajectoryPoint p : allPoints) {
-            if (p.getTime() == null) continue;
-            if (!p.getTime().isBefore(start) && !p.getTime().isAfter(end)) {
-                result.add(p);
-            }
-        }
-        return result;
     }
 
     private void logSummary(StsImoResult r) {

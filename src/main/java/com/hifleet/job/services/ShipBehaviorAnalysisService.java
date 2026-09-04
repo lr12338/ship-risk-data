@@ -17,6 +17,7 @@ import com.hifleet.repository.ShipBehaviorLoiteringBatchStatusRepository;
 import com.hifleet.service.ShipAlongsideDetector;
 import com.hifleet.service.ShipAlongsideReplayCandidateProvider;
 import com.hifleet.service.AlongsideReplayQueryPlan;
+import com.hifleet.service.AlongsideReplayQueryPlanner;
 import com.hifleet.service.ShipLoiteringDetector;
 import com.hifleet.service.ShipTypeClassifier;
 import com.hifleet.service.TraceRecipeService;
@@ -58,6 +59,25 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class ShipBehaviorAnalysisService {
+
+    public interface AlongsideComputePolicy {
+        boolean acceptWindow(ShipAlongsideDetector.LowSpeedWindow window,
+                             List<TrajectoryPoint> ownWindowPoints);
+        boolean acceptCandidate(String targetMmsi);
+    }
+
+    private static final AlongsideComputePolicy ACCEPT_ALL_ALONGSIDE = new AlongsideComputePolicy() {
+        @Override
+        public boolean acceptWindow(ShipAlongsideDetector.LowSpeedWindow window,
+                                    List<TrajectoryPoint> ownWindowPoints) {
+            return true;
+        }
+
+        @Override
+        public boolean acceptCandidate(String targetMmsi) {
+            return true;
+        }
+    };
 
     private static final Logger log = LoggerFactory.getLogger(ShipBehaviorAnalysisService.class);
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -590,6 +610,27 @@ public class ShipBehaviorAnalysisService {
         return analysisAlongsideOneWindow(jobParams, buildAlongsideRule(), true, enableInsert, true);
     }
 
+    public AlongsideWindowResult computeAlongsideHistory(
+            String mmsi, String startTime, String endTime, String batchNo,
+            AlongsideComputePolicy policy) {
+        JobParams jobParams = new JobParams();
+        jobParams.setMmsi(mmsi);
+        jobParams.setStartTime(startTime);
+        jobParams.setEndTime(endTime);
+        jobParams.setBatchNo(batchNo);
+        jobParams.setMode("AUTO");
+        return analysisAlongsideOneWindow(jobParams, buildAlongsideRule(), true,
+                false, false, true, policy == null ? ACCEPT_ALL_ALONGSIDE : policy);
+    }
+
+    public String currentAlongsideRuleVersion() {
+        return buildAlongsideRule().getRuleVersion();
+    }
+
+    public String currentCodeCommitSha() {
+        return codeCommitSha;
+    }
+
     public AlongsideWindowResult analysisAlongsideProductionWindow(
             String mmsi, String startTime, String endTime, String batchNo) {
         JobParams jobParams = new JobParams();
@@ -770,6 +811,17 @@ public class ShipBehaviorAnalysisService {
                                                              boolean enableInsert,
                                                              boolean replaceExisting,
                                                              boolean conciseLog) {
+        return analysisAlongsideOneWindow(jobParams, rule, safeLoad, enableInsert,
+                replaceExisting, conciseLog, ACCEPT_ALL_ALONGSIDE);
+    }
+
+    private AlongsideWindowResult analysisAlongsideOneWindow(JobParams jobParams,
+                                                             ShipAlongsideDetector.AlongsideRule rule,
+                                                             boolean safeLoad,
+                                                             boolean enableInsert,
+                                                             boolean replaceExisting,
+                                                             boolean conciseLog,
+                                                             AlongsideComputePolicy policy) {
         if (worldSeaMaskService != null) worldSeaMaskService.requireSnapshot();
         Set<String> ownMmsi = Collections.singleton(jobParams.getMmsi());
         Map<String, String> ownShipTypes = loadShipTypes(ownMmsi);
@@ -800,6 +852,18 @@ public class ShipBehaviorAnalysisService {
                     alongsideCandidateMinDurationMinutes, alongsideCandidateSplitGapMinutes));
         }
         int worldSeaRejectedWindowCount = Math.max(0, rawLowSpeedWindowCount - windows.size());
+        int alongsideLowSpeedWindowCount = windows.size();
+        if (policy != ACCEPT_ALL_ALONGSIDE) {
+            List<ShipAlongsideDetector.LowSpeedWindow> accepted =
+                    new ArrayList<ShipAlongsideDetector.LowSpeedWindow>();
+            for (ShipAlongsideDetector.LowSpeedWindow window : windows) {
+                List<TrajectoryPoint> windowPoints = collectOwnPointsByWindow(
+                        Collections.singletonList(window), ownPoints).get(
+                        AlongsideReplayQueryPlanner.windowKey(window));
+                if (policy.acceptWindow(window, windowPoints)) accepted.add(window);
+            }
+            windows = accepted;
+        }
         Map<String, List<TrajectoryPoint>> rawOwnPointsByWindow = collectOwnPointsByWindow(rawWindows, ownPoints);
         Map<String, List<TrajectoryPoint>> ownPointsByWindow = collectOwnPointsByWindow(windows, ownPoints);
         AlongsideReplayQueryPlan baselineReplayPlan = alongsideReplayCandidateProvider.planQueries(
@@ -807,13 +871,15 @@ public class ShipBehaviorAnalysisService {
         AlongsideReplayQueryPlan filteredReplayPlan = alongsideReplayCandidateProvider.planQueries(
                 windows, ownPointsByWindow, jobParams.getBatchNo());
         int savedReplayQueryCount = Math.max(0, baselineReplayPlan.size() - filteredReplayPlan.size());
-        AlongsideReplaySearchResult replaySearchResult = conciseLog
-                ? alongsideReplayCandidateProvider.findCandidates(
-                jobParams.getMmsi(), windows, ownPointsByWindow,
-                jobParams.getBatchNo(), false)
-                : alongsideReplayCandidateProvider.findCandidates(
-                jobParams.getMmsi(), windows, ownPointsByWindow,
-                jobParams.getBatchNo());
+        AlongsideReplaySearchResult replaySearchResult = windows.isEmpty() && policy != ACCEPT_ALL_ALONGSIDE
+                ? new AlongsideReplaySearchResult()
+                : conciseLog
+                    ? alongsideReplayCandidateProvider.findCandidates(
+                    jobParams.getMmsi(), windows, ownPointsByWindow,
+                    jobParams.getBatchNo(), false)
+                    : alongsideReplayCandidateProvider.findCandidates(
+                    jobParams.getMmsi(), windows, ownPointsByWindow,
+                    jobParams.getBatchNo());
         if (safeLoad
                 && alongsideBatchMaxReplayQueriesPerWindow > 0
                 && replaySearchResult.getReplayQueryCount() > alongsideBatchMaxReplayQueriesPerWindow) {
@@ -824,6 +890,18 @@ public class ShipBehaviorAnalysisService {
                     + ", maxReplayQueries=" + alongsideBatchMaxReplayQueriesPerWindow);
         }
         List<AlongsideCandidateTarget> candidates = replaySearchResult.getCandidates();
+        int policyRejectedCandidates = 0;
+        if (policy != ACCEPT_ALL_ALONGSIDE) {
+            List<AlongsideCandidateTarget> accepted = new ArrayList<AlongsideCandidateTarget>();
+            for (AlongsideCandidateTarget candidate : candidates) {
+                if (policy.acceptCandidate(candidate.getTargetMmsi())) {
+                    accepted.add(candidate);
+                } else {
+                    policyRejectedCandidates++;
+                }
+            }
+            candidates = accepted;
+        }
         int candidateTargetCount = countUniqueTargets(candidates);
         Set<String> candidateMmsis = new HashSet<String>();
         candidateMmsis.add(jobParams.getMmsi());
@@ -933,7 +1011,7 @@ public class ShipBehaviorAnalysisService {
                     + " safeLoad=" + safeLoad
                     + " batchNo=" + jobParams.getBatchNo());
         }
-        return new AlongsideWindowResult(ownPoints.size(), windows.size(), candidateTargetCount,
+        AlongsideWindowResult result = new AlongsideWindowResult(ownPoints.size(), windows.size(), candidateTargetCount,
                 candidates.size(), replaySearchResult.getReplayQueryCount(),
                 replaySearchResult.getReplayFailures(),
                 replaySearchResult.getTruncatedQueries(), detected.size(),
@@ -945,6 +1023,10 @@ public class ShipBehaviorAnalysisService {
                 replaySearchResult.getSuccessfulReplayQueryCount(),
                 replaySearchResult.getFailedReplayQueryCount(),
                 replaySearchResult.getTruncatedReplayQueryCount());
+        result.alongsideLowSpeedWindows = alongsideLowSpeedWindowCount;
+        result.policyRejectedCandidates = policyRejectedCandidates;
+        result.pairReplayRawPoints = replaySearchResult.getRawPoints();
+        return result;
     }
 
     public AnalysisResult analysisAlongsideBatch(String params) {
@@ -1941,6 +2023,9 @@ public class ShipBehaviorAnalysisService {
         private final int successfulReplayQueries;
         private final int failedReplayQueries;
         private final int truncatedReplayQueryCount;
+        private int alongsideLowSpeedWindows;
+        private int policyRejectedCandidates;
+        private int pairReplayRawPoints;
 
         public AlongsideWindowResult(int points, int lowSpeedWindows, int candidateTargets,
                                      int candidatePairs, int replayQueries, int replayFailures,
@@ -2034,6 +2119,7 @@ public class ShipBehaviorAnalysisService {
             this.successfulReplayQueries = successfulReplayQueries;
             this.failedReplayQueries = failedReplayQueries;
             this.truncatedReplayQueryCount = truncatedReplayQueryCount;
+            this.alongsideLowSpeedWindows = lowSpeedWindows;
         }
 
         public int getPoints() {
@@ -2093,6 +2179,9 @@ public class ShipBehaviorAnalysisService {
         public int getSuccessfulReplayQueries() { return successfulReplayQueries; }
         public int getFailedReplayQueries() { return failedReplayQueries; }
         public int getTruncatedReplayQueryCount() { return truncatedReplayQueryCount; }
+        public int getAlongsideLowSpeedWindows() { return alongsideLowSpeedWindows; }
+        public int getPolicyRejectedCandidates() { return policyRejectedCandidates; }
+        public int getPairReplayRawPoints() { return pairReplayRawPoints; }
     }
 
     private static class LoiteringTaskResult {

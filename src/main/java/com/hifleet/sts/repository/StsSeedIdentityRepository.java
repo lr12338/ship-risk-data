@@ -27,6 +27,31 @@ public class StsSeedIdentityRepository {
         return count != null ? count : 0;
     }
 
+    public int countIdentityRows(String seedBatchNo) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM dataanalysis.ship_sts_seed_identity "
+                        + "WHERE seed_batch_no = ? AND enabled = 1",
+                Integer.class, seedBatchNo);
+        return count != null ? count : 0;
+    }
+
+    public int countDistinctMmsis(String seedBatchNo) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(DISTINCT mmsi) FROM dataanalysis.ship_sts_seed_identity "
+                        + "WHERE seed_batch_no = ? AND enabled = 1",
+                Integer.class, seedBatchNo);
+        return count != null ? count : 0;
+    }
+
+    public int countNonCrudeRows(String seedBatchNo) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM dataanalysis.ship_sts_seed_identity "
+                        + "WHERE seed_batch_no = ? AND enabled = 1 "
+                        + "AND (minotype IS NULL OR minotype <> '原油船')",
+                Integer.class, seedBatchNo);
+        return count != null ? count : 0;
+    }
+
     public List<String> selectImos(String seedBatchNo, int offset, int limit) {
         if (offset < 0) throw new IllegalArgumentException("offset must be >= 0");
         if (limit <= 0) throw new IllegalArgumentException("limit must be > 0");
@@ -36,6 +61,17 @@ public class StsSeedIdentityRepository {
                 "ORDER BY ship_ordinal ASC, imo ASC " +
                 "LIMIT ? OFFSET ?";
         return jdbcTemplate.queryForList(sql, String.class, seedBatchNo, limit, offset);
+    }
+
+    public String findImoByMmsi(String seedBatchNo, String mmsi) {
+        List<String> values = jdbcTemplate.queryForList(
+                "SELECT DISTINCT imo FROM dataanalysis.ship_sts_seed_identity "
+                        + "WHERE seed_batch_no = ? AND mmsi = ? AND enabled = 1 LIMIT 2",
+                String.class, seedBatchNo, mmsi);
+        if (values.size() > 1) {
+            throw new IllegalStateException("MMSI belongs to multiple IMOs in seed: " + mmsi);
+        }
+        return values.isEmpty() ? null : values.get(0);
     }
 
     public List<StsSeedIdentityRow> selectIdentityRows(String seedBatchNo, List<String> selectedImos) {

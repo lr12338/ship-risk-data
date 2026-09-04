@@ -1,10 +1,12 @@
 package com.hifleet.sts.xxljob;
 
 import com.hifleet.sts.domain.StsFleetBackfillJobParams;
+import com.hifleet.sts.domain.StsAlongsideHistoryJobParams;
 import com.hifleet.sts.domain.StsJobParams;
 import com.hifleet.sts.domain.StsRegionSetJobParams;
 import com.hifleet.sts.service.StsBaselineService;
 import com.hifleet.sts.service.StsFleetBackfillService;
+import com.hifleet.sts.service.StsAlongsideHistoryService;
 import com.hifleet.sts.service.StsRegionShadowService;
 import com.hifleet.sts.service.StsRegionSetShadowService;
 import com.xxl.job.core.biz.model.ReturnT;
@@ -55,6 +57,26 @@ public class StsJobs {
 
     @Autowired
     private StsFleetBackfillService stsFleetBackfillService;
+
+    @Autowired
+    private StsAlongsideHistoryService stsAlongsideHistoryService;
+
+    @XxlJob("shipStsAlongsideHistoryJobHandler")
+    public ReturnT<String> shipStsAlongsideHistoryJobHandler(String params) {
+        try {
+            StsAlongsideHistoryJobParams jobParams = StsAlongsideHistoryJobParams.parse(params);
+            StsAlongsideHistoryService.RunResult result =
+                    stsAlongsideHistoryService.runOneInvocation(jobParams);
+            ReturnT<String> ret = result.success ? ReturnT.SUCCESS : ReturnT.FAIL;
+            ret.setMsg(result.getSummary());
+            XxlJobLogger.log(result.getSummary());
+            return ret;
+        } catch (Exception ex) {
+            log.error("shipStsAlongsideHistoryJobHandler failed", ex);
+            XxlJobLogger.log(ex);
+            return new ReturnT<String>(ReturnT.FAIL_CODE, ex.getMessage());
+        }
+    }
 
     @XxlJob("shipStsHistoryBaselineJobHandler")
     public ReturnT<String> shipStsHistoryBaselineJobHandler(String params) {
