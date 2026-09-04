@@ -29,6 +29,30 @@ public class StsBackfillTaskRepository {
             "WHERE batch_no=? AND status='RUNNING' " +
             "  AND updated_at < DATE_SUB(NOW(), INTERVAL ? MINUTE) " +
             "  AND retry_count < ?";
+    static final String FAIL_EXHAUSTED_STALE_SQL =
+            "UPDATE dataanalysis.ship_sts_backfill_task " +
+            "SET status='FAILED', finished_at=NOW(), updated_at=NOW(), last_error = " +
+            "  CASE WHEN last_error IS NULL THEN 'STALE_RETRY_EXHAUSTED' " +
+            "       ELSE CONCAT(LEFT(last_error, 900), ' | STALE_RETRY_EXHAUSTED') END " +
+            "WHERE batch_no=? AND status='RUNNING' " +
+            "  AND updated_at < DATE_SUB(NOW(), INTERVAL ? MINUTE) " +
+            "  AND retry_count >= ?";
+    static final String SELECT_CLAIMABLE_SQL =
+            "SELECT * FROM dataanalysis.ship_sts_backfill_task " +
+            "WHERE batch_no=? AND ((status='PENDING' AND retry_count <= ?) " +
+            "OR (status='FAILED' AND retry_count < ?)) " +
+            "ORDER BY slice_seq ASC LIMIT 1 FOR UPDATE";
+    static final String CLAIM_SQL =
+            "UPDATE dataanalysis.ship_sts_backfill_task SET " +
+            "retry_count=CASE WHEN status='FAILED' THEN retry_count + 1 ELSE retry_count END, " +
+            "status='RUNNING', started_at=NOW(), finished_at=NULL, last_error=NULL, " +
+            "candidate_ship_count=0, processed_ship_count=0, trajectory_loaded_ship_count=0, " +
+            "activity_windows=0, region_activity_windows=0, replay_queries=0, " +
+            "replay_failures=0, replay_truncated=0, baseline_events=0, " +
+            "region_accepted_events=0, shadow_inserted=0, shadow_duplicate_skipped=0, " +
+            "self_pair_events=0, updated_at=NOW() " +
+            "WHERE id=? AND ((status='PENDING' AND retry_count <= ?) " +
+            "OR (status='FAILED' AND retry_count < ?))";
 
     @Autowired
     @Qualifier("newDataanalysisJdbcTemplate")
@@ -77,29 +101,22 @@ public class StsBackfillTaskRepository {
                 new DataSourceTransactionManager(dataSource));
         tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         return tx.execute(status -> {
-            // First, reclaim stale RUNNING tasks
+            // First, recover stale RUNNING attempts using the same retry budget.
             reclaimStaleRunningTasks(batchNo);
+            failExhaustedStaleRunningTasks(batchNo);
 
-            // Claim first PENDING task, ordered by slice_seq
-            String selectSql =
-                "SELECT * FROM dataanalysis.ship_sts_backfill_task " +
-                "WHERE batch_no=? AND status='PENDING' AND retry_count < ? " +
-                "ORDER BY slice_seq ASC LIMIT 1 FOR UPDATE";
             StsBackfillTaskRow task = null;
             try {
-                task = jdbcTemplate.queryForObject(selectSql,
-                        new Object[]{batchNo, MAX_RETRY}, new TaskRowMapper());
+                task = jdbcTemplate.queryForObject(SELECT_CLAIMABLE_SQL,
+                        new Object[]{batchNo, MAX_RETRY, MAX_RETRY}, new TaskRowMapper());
             } catch (Exception e) {
                 return null;
             }
 
             if (task == null) return null;
 
-            String updateSql =
-                "UPDATE dataanalysis.ship_sts_backfill_task " +
-                "SET status='RUNNING', started_at=NOW(), updated_at=NOW() " +
-                "WHERE id=?";
-            int updated = jdbcTemplate.update(updateSql, task.getId());
+            int updated = jdbcTemplate.update(CLAIM_SQL,
+                    task.getId(), MAX_RETRY, MAX_RETRY);
             if (updated == 0) return null;
 
             // Re-read to get updated timestamps
@@ -109,6 +126,11 @@ public class StsBackfillTaskRepository {
 
     public int reclaimStaleRunningTasks(String batchNo) {
         return jdbcTemplate.update(RECLAIM_STALE_SQL, batchNo,
+                STALE_TIMEOUT_MINUTES, MAX_RETRY);
+    }
+
+    public int failExhaustedStaleRunningTasks(String batchNo) {
+        return jdbcTemplate.update(FAIL_EXHAUSTED_STALE_SQL, batchNo,
                 STALE_TIMEOUT_MINUTES, MAX_RETRY);
     }
 
@@ -143,7 +165,7 @@ public class StsBackfillTaskRepository {
                 "baseline_events=?, region_accepted_events=?, " +
                 "shadow_inserted=?, shadow_duplicate_skipped=?, " +
                 "self_pair_events=?, " +
-                "finished_at=NOW(), updated_at=NOW() " +
+                "last_error=NULL, finished_at=NOW(), updated_at=NOW() " +
                 "WHERE id=?";
         return jdbcTemplate.update(sql,
                 candidateShipCount, processedShipCount,
@@ -155,20 +177,28 @@ public class StsBackfillTaskRepository {
                 selfPairEvents, taskId);
     }
 
-    public int markFailed(Long taskId, String errorMessage) {
-        String sql = "UPDATE dataanalysis.ship_sts_backfill_task SET " +
-                "status='FAILED', last_error=?, updated_at=NOW() " +
-                "WHERE id=?";
-        return jdbcTemplate.update(sql, truncate(errorMessage, 1000), taskId);
-    }
-
     public int markFailed(Long taskId, String errorMessage,
-                          int replayQueries, int replayFailures, int replayTruncated) {
+                          int candidateShipCount, int processedShipCount,
+                          int trajectoryLoadedShipCount,
+                          int activityWindows, int regionActivityWindows,
+                          int replayQueries, int replayFailures, int replayTruncated,
+                          int baselineEvents, int regionAcceptedEvents,
+                          int shadowInserted, int shadowDuplicateSkipped,
+                          int selfPairEvents) {
         String sql = "UPDATE dataanalysis.ship_sts_backfill_task SET " +
-                "status='FAILED', last_error=?, replay_queries=?, replay_failures=?, " +
-                "replay_truncated=?, updated_at=NOW() WHERE id=?";
-        return jdbcTemplate.update(sql, truncate(errorMessage, 1000), replayQueries,
-                replayFailures, replayTruncated, taskId);
+                "status='FAILED', last_error=?, " +
+                "candidate_ship_count=?, processed_ship_count=?, " +
+                "trajectory_loaded_ship_count=?, activity_windows=?, region_activity_windows=?, " +
+                "replay_queries=?, replay_failures=?, replay_truncated=?, " +
+                "baseline_events=?, region_accepted_events=?, " +
+                "shadow_inserted=?, shadow_duplicate_skipped=?, self_pair_events=?, " +
+                "finished_at=NOW(), updated_at=NOW() WHERE id=?";
+        return jdbcTemplate.update(sql, truncate(errorMessage, 1000),
+                candidateShipCount, processedShipCount, trajectoryLoadedShipCount,
+                activityWindows, regionActivityWindows,
+                replayQueries, replayFailures, replayTruncated,
+                baselineEvents, regionAcceptedEvents,
+                shadowInserted, shadowDuplicateSkipped, selfPairEvents, taskId);
     }
 
     private static Timestamp toTs(java.util.Date d) {

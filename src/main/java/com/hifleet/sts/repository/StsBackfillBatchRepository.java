@@ -14,6 +14,42 @@ import java.sql.Timestamp;
 @Repository
 public class StsBackfillBatchRepository {
 
+    static final String REFRESH_PROGRESS_SQL =
+            "UPDATE dataanalysis.ship_sts_backfill_batch b " +
+            "JOIN (SELECT batch_no, COUNT(*) AS total_tasks, " +
+            "SUM(CASE WHEN status='COMPLETE' THEN 1 ELSE 0 END) AS completed_tasks, " +
+            "SUM(CASE WHEN status='FAILED' THEN 1 ELSE 0 END) AS failed_tasks, " +
+            "SUM(CASE WHEN status='RUNNING' THEN 1 ELSE 0 END) AS running_tasks, " +
+            "SUM(CASE WHEN status='PENDING' THEN 1 ELSE 0 END) AS pending_tasks, " +
+            "SUM(CASE WHEN status='FAILED' AND retry_count < ? THEN 1 ELSE 0 END) AS retryable_failed_tasks, " +
+            "COALESCE(SUM(candidate_ship_count),0) AS candidate_ships, " +
+            "COALESCE(SUM(processed_ship_count),0) AS processed_ships, " +
+            "COALESCE(SUM(baseline_events),0) AS baseline_events, " +
+            "COALESCE(SUM(shadow_inserted),0) AS shadow_inserted, " +
+            "COALESCE(SUM(shadow_duplicate_skipped),0) AS duplicate_skipped " +
+            "FROM dataanalysis.ship_sts_backfill_task WHERE batch_no=? GROUP BY batch_no) t " +
+            "ON b.batch_no=t.batch_no SET " +
+            "b.total_tasks=t.total_tasks, b.completed_tasks=t.completed_tasks, " +
+            "b.failed_tasks=t.failed_tasks, " +
+            "b.total_candidate_ships=t.candidate_ships, " +
+            "b.total_processed_ships=t.processed_ships, " +
+            "b.total_baseline_events=t.baseline_events, " +
+            "b.total_shadow_inserted=t.shadow_inserted, " +
+            "b.total_duplicate_skipped=t.duplicate_skipped, " +
+            "b.status=CASE " +
+            "WHEN t.running_tasks > 0 OR t.pending_tasks > 0 OR t.retryable_failed_tasks > 0 THEN 'RUNNING' " +
+            "WHEN t.failed_tasks > 0 THEN 'PARTIAL_FAILED' " +
+            "WHEN t.total_tasks > 0 AND t.completed_tasks=t.total_tasks THEN 'COMPLETE' " +
+            "ELSE 'RUNNING' END, " +
+            "b.last_error=CASE WHEN t.running_tasks=0 AND t.pending_tasks=0 " +
+            "AND t.retryable_failed_tasks=0 AND t.failed_tasks > 0 " +
+            "THEN CONCAT(t.failed_tasks, ' tasks failed') ELSE NULL END, " +
+            "b.finished_at=CASE " +
+            "WHEN t.running_tasks=0 AND t.pending_tasks=0 AND t.retryable_failed_tasks=0 " +
+            "AND (t.failed_tasks > 0 OR (t.total_tasks > 0 AND t.completed_tasks=t.total_tasks)) " +
+            "THEN COALESCE(b.finished_at,NOW()) ELSE NULL END, b.updated_at=NOW() " +
+            "WHERE b.batch_no=?";
+
     @Autowired
     @Qualifier("newDataanalysisJdbcTemplate")
     private JdbcTemplate jdbcTemplate;
@@ -63,31 +99,9 @@ public class StsBackfillBatchRepository {
                 lastError != null ? truncate(lastError, 1000) : null, batchNo);
     }
 
-    public int updateProgress(String batchNo, int completedTasks, int failedTasks,
-                               int candidateShips, int processedShips,
-                               int baselineEvents, int shadowInserted, int duplicateSkipped) {
-        String sql = "UPDATE dataanalysis.ship_sts_backfill_batch SET " +
-                "completed_tasks=?, failed_tasks=?, " +
-                "total_candidate_ships=total_candidate_ships+?, " +
-                "total_processed_ships=total_processed_ships+?, " +
-                "total_baseline_events=total_baseline_events+?, " +
-                "total_shadow_inserted=total_shadow_inserted+?, " +
-                "total_duplicate_skipped=total_duplicate_skipped+?, " +
-                "updated_at=NOW() " +
-                "WHERE batch_no=?";
-        return jdbcTemplate.update(sql,
-                completedTasks, failedTasks,
-                candidateShips, processedShips,
-                baselineEvents, shadowInserted, duplicateSkipped,
-                batchNo);
-    }
-
-    public int markFinished(String batchNo, String status, String lastError) {
-        String sql = "UPDATE dataanalysis.ship_sts_backfill_batch SET " +
-                "status=?, last_error=?, finished_at=NOW(), updated_at=NOW() " +
-                "WHERE batch_no=?";
-        return jdbcTemplate.update(sql, status,
-                lastError != null ? truncate(lastError, 1000) : null, batchNo);
+    public int refreshProgressFromTasks(String batchNo) {
+        return jdbcTemplate.update(REFRESH_PROGRESS_SQL,
+                StsBackfillTaskRepository.MAX_RETRY, batchNo, batchNo);
     }
 
     private static Timestamp toTs(java.util.Date d) {

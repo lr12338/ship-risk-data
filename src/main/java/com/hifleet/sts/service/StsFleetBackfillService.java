@@ -190,8 +190,7 @@ public class StsFleetBackfillService {
         // 6. Claim next task
         StsBackfillTaskRow task = taskRepository.claimNextTask(params.getBatchNo());
         if (task == null) {
-            // All tasks complete or blocked
-            updateFinalBatchStatus(params.getBatchNo());
+            batchRepository.refreshProgressFromTasks(params.getBatchNo());
             StsBackfillBatchRow finalBatch = batchRepository.findByBatchNo(params.getBatchNo());
             result.batchStatus = finalBatch != null ? finalBatch.getStatus() : "UNKNOWN";
             result.totalTasks = finalBatch != null ? finalBatch.getTotalTasks() : 0;
@@ -227,11 +226,6 @@ public class StsFleetBackfillService {
                     result.shadowInserted, result.shadowDuplicateSkipped,
                     result.selfPairEvents);
 
-            // Update parent batch progress
-            batchRepository.updateProgress(params.getBatchNo(), 1, 0,
-                    result.candidatePhysicalShips, result.processedPhysicalShips,
-                    result.baselineEvents, result.shadowInserted, result.shadowDuplicateSkipped);
-
             result.success = result.selfPairEvents == 0;
             result.taskDurationMs = System.currentTimeMillis() - taskStartMs;
 
@@ -244,9 +238,13 @@ public class StsFleetBackfillService {
             log.error("STS_FLEET_BACKFILL task failed: taskId={}, error={}",
                     task.getId(), ex.getMessage(), ex);
             taskRepository.markFailed(task.getId(), ex.getMessage(),
-                    result.replayQueries, result.replayFailures, result.replayTruncated);
-            batchRepository.updateProgress(params.getBatchNo(), 0, 1,
-                    0, 0, 0, 0, 0);
+                    result.candidatePhysicalShips, result.processedPhysicalShips,
+                    result.trajectoryLoadedShips,
+                    result.activityWindows, result.regionActivityWindows,
+                    result.replayQueries, result.replayFailures, result.replayTruncated,
+                    result.baselineEvents, result.regionAcceptedEvents,
+                    result.shadowInserted, result.shadowDuplicateSkipped,
+                    result.selfPairEvents);
             result.success = false;
             result.taskDurationMs = System.currentTimeMillis() - taskStartMs;
         } finally {
@@ -254,19 +252,7 @@ public class StsFleetBackfillService {
             result.heartbeatFailures = heartbeat.getFailureCount();
         }
 
-        // Update summary
-        StsBackfillBatchRow updatedBatch = batchRepository.findByBatchNo(params.getBatchNo());
-        if (updatedBatch != null) {
-            result.totalTasks = updatedBatch.getTotalTasks();
-            result.completedTasks = updatedBatch.getCompletedTasks();
-            result.failedTasks = updatedBatch.getFailedTasks();
-            result.batchStatus = updatedBatch.getStatus();
-        }
-
-        // Update batch final status if all done
-        if (result.completedTasks + result.failedTasks >= result.totalTasks) {
-            updateFinalBatchStatus(params.getBatchNo());
-        }
+        refreshResultFromTasks(params.getBatchNo(), result);
 
         result.summary = buildSummary(result);
         logSummary(result);
@@ -644,22 +630,20 @@ public class StsFleetBackfillService {
         }
     }
 
-    private void updateFinalBatchStatus(String batchNo) {
+    void refreshResultFromTasks(String batchNo, BackfillRunResult result) {
+        batchRepository.refreshProgressFromTasks(batchNo);
         StsBackfillBatchRow batch = batchRepository.findByBatchNo(batchNo);
-        if (batch == null) return;
-
-        int done = batch.getCompletedTasks() + batch.getFailedTasks();
-        if (done < batch.getTotalTasks()) return;
-
-        String status;
-        String error = null;
-        if (batch.getFailedTasks() > 0) {
-            status = "PARTIAL_FAILED";
-            error = batch.getFailedTasks() + " tasks failed";
-        } else {
-            status = "COMPLETE";
+        if (batch == null) {
+            result.batchStatus = "UNKNOWN";
+            result.totalTasks = 0;
+            result.completedTasks = 0;
+            result.failedTasks = 0;
+            return;
         }
-        batchRepository.markFinished(batchNo, status, error);
+        result.batchStatus = batch.getStatus();
+        result.totalTasks = batch.getTotalTasks();
+        result.completedTasks = batch.getCompletedTasks();
+        result.failedTasks = batch.getFailedTasks();
     }
 
     public static String computeFleetFingerprint(List<StsFleetShipIdentity> fleet) {
@@ -727,7 +711,7 @@ public class StsFleetBackfillService {
         }
     }
 
-    private String buildSummary(BackfillRunResult r) {
+    String buildSummary(BackfillRunResult r) {
         return String.format(
                 "STS fleet backfill: batch=%s, task=%s, candidates=%d/%d, " +
                         "processed=%d, events=%d, shadow=%d, status=%s, %d/%d tasks",

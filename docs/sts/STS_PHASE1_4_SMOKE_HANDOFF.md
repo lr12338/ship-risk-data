@@ -204,3 +204,11 @@ D: {"targetListBatchNo":"merchant-50k-2026h1-v1","expectedTargetCount":44760,"sh
 ## 14. Production safety
 
 Phase1.4.1 不修改 `ShipAlongsideDetector`、`ShipBehaviorAnalysisService`、生产 Alongside rule/threshold、Replay API 协议或并发语义。`ship_behavior_target_ship` 仍只读；正式 `ship_behavior_event` / `ship_behavior_event_detail` 写路径为 0，`FORMAL_EVENT_WRITE_PATHS=NONE`。只允许现有 shadow event 写入。
+
+## 15. P0 state consistency fix
+
+Parent batch progress 现在只从 `ship_sts_backfill_task` 聚合，不再由 runner 对 completed/failed 和事件指标做增量更新。普通 FAILED task 可在下一次 invocation 重试；`retry_count` 表示已经发生的 retry 次数，初次执行为 0，最多允许 3 次 retry。可重试 FAILED 仍使 Parent 保持 RUNNING，只有 retry 耗尽后才进入 PARTIAL_FAILED。
+
+旧行为：单 Task 完成后，DB 最终为 COMPLETE，但 XXL Summary 可能显示 `RUNNING 1/1`。
+
+新预期：Task terminal transition 后先刷新 Parent、再重新读取 Parent，单 Task Smoke 的 DB 与 XXL Summary 均显示 `COMPLETE 1/1`。
