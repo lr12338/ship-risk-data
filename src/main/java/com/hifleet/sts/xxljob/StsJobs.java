@@ -1,8 +1,10 @@
 package com.hifleet.sts.xxljob;
 
+import com.hifleet.sts.domain.StsFleetBackfillJobParams;
 import com.hifleet.sts.domain.StsJobParams;
 import com.hifleet.sts.domain.StsRegionSetJobParams;
 import com.hifleet.sts.service.StsBaselineService;
+import com.hifleet.sts.service.StsFleetBackfillService;
 import com.hifleet.sts.service.StsRegionShadowService;
 import com.hifleet.sts.service.StsRegionSetShadowService;
 import com.xxl.job.core.biz.model.ReturnT;
@@ -50,6 +52,9 @@ public class StsJobs {
 
     @Autowired
     private StsRegionSetShadowService stsRegionSetShadowService;
+
+    @Autowired
+    private StsFleetBackfillService stsFleetBackfillService;
 
     @XxlJob("shipStsHistoryBaselineJobHandler")
     public ReturnT<String> shipStsHistoryBaselineJobHandler(String params) {
@@ -104,6 +109,54 @@ public class StsJobs {
             return ret;
         } catch (Exception ex) {
             log.error("shipStsHistoryRegionSetShadowJobHandler failed", ex);
+            XxlJobLogger.log(ex);
+            return new ReturnT<String>(ReturnT.FAIL_CODE, ex.getMessage());
+        }
+    }
+
+    /**
+     * STS Phase 1.4 — Fleet Historical Backfill Job.
+     *
+     * Uses ship_behavior_target_ship as fleet source, DB-backed region sets,
+     * multi-year time range auto-split into <=7-day tasks, region-first
+     * preselection, and resumable batch tracking.
+     *
+     * Each XXL invocation executes exactly ONE slice task.
+     * Writes ONLY to dataanalysis.ship_sts_shadow_event + backfill batch/task tables.
+     *
+     * Parameters (JSON, single line):
+     * {
+     *   "targetListBatchNo": "merchant-50k-2026h1-v1",
+     *   "expectedTargetCount": 44760,
+     *   "shipOffset": 0,
+     *   "shipCount": 100,
+     *   "regionSetCode": "STS_HOTSPOT_HIGH_YIELD_V2",
+     *   "from": "2024-01-01 00:00:00",
+     *   "to": "2024-02-01 00:00:00",
+     *   "sliceDays": 7,
+     *   "batchNo": "sts-backfill-test-001"
+     * }
+     *
+     * Safety constraints:
+     *   - shipCount max 5000 per job
+     *   - sliceDays 1-7
+     *   - max parent span 5 years / 261 slices
+     *   - expectedTargetCount must match DB physical ship count
+     *   - target list / region set fingerprint change = fail closed on resume
+     *   - shadow only, no production event writes
+     */
+    @XxlJob("shipStsHistoricalFleetBackfillJobHandler")
+    public ReturnT<String> shipStsHistoricalFleetBackfillJobHandler(String params) {
+        try {
+            StsFleetBackfillJobParams jobParams = StsFleetBackfillJobParams.parse(params);
+            StsFleetBackfillService.BackfillRunResult result =
+                    stsFleetBackfillService.runOneInvocation(jobParams);
+            ReturnT<String> ret = result.success ? ReturnT.SUCCESS : ReturnT.FAIL;
+            ret.setMsg(result.getSummary());
+            XxlJobLogger.log(result.getSummary());
+            return ret;
+        } catch (Exception ex) {
+            log.error("shipStsHistoricalFleetBackfillJobHandler failed", ex);
             XxlJobLogger.log(ex);
             return new ReturnT<String>(ReturnT.FAIL_CODE, ex.getMessage());
         }
