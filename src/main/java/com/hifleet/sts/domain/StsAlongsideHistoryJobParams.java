@@ -59,8 +59,8 @@ public class StsAlongsideHistoryJobParams {
         if (StringUtils.isBlank(seedBatchNo)) throw new IllegalArgumentException("seedBatchNo is required");
         if (StringUtils.isBlank(regionSetCode)) throw new IllegalArgumentException("regionSetCode is required");
         if (shipOffset < 0) throw new IllegalArgumentException("shipOffset must be >= 0");
-        if (imos.isEmpty() && (shipCount < 1 || shipCount > 786)) {
-            throw new IllegalArgumentException("shipCount must be 1-786");
+        if (imos.isEmpty() && (shipCount < 1 || shipCount > 757)) {
+            throw new IllegalArgumentException("shipCount must be 1-757");
         }
         if (StringUtils.isBlank(from) || StringUtils.isBlank(to)) {
             throw new IllegalArgumentException("from and to are required");

@@ -4,6 +4,8 @@ import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.locationtech.jts.index.strtree.STRtree;
 import org.locationtech.jts.io.WKBReader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -19,6 +21,7 @@ import java.util.List;
 
 @Service
 public class LoiteringPortSceneLoader {
+    private static final Logger log = LoggerFactory.getLogger(LoiteringPortSceneLoader.class);
     static final String PORT_REFERENCE_SQL = "SELECT port_id,name,ST_X(ST_Centroid(bound)),ST_Y(ST_Centroid(bound)),AsBinary(bound) "
             + "FROM dataanalysis.zones_with_port_id WHERE is_delete=0 AND bound IS NOT NULL AND port_id > 0 "
             + "AND COALESCE(zones_type,0) <> 1 AND (name IS NULL OR (LOWER(name) NOT LIKE '%anchor%' "
@@ -62,15 +65,35 @@ public class LoiteringPortSceneLoader {
             WKBReader reader = new WKBReader(); MessageDigest digest = MessageDigest.getInstance("SHA-256");
             List<Row> rows = new ArrayList<Row>(); rows.addAll(operational); rows.addAll(anchors);
             Collections.sort(rows, Comparator.comparing(Row::sortKey));
+            int skipped = 0;
             for (Row row : rows) {
-                Geometry geometry = reader.read(row.wkb);
-                if (geometry.isEmpty()) throw invalid(row, geometry, "empty geometry");
-                if (!geometry.isValid()) throw invalid(row, geometry, "invalid geometry");
-                if (!("Polygon".equals(geometry.getGeometryType()) || "MultiPolygon".equals(geometry.getGeometryType())))
-                    throw invalid(row, geometry, "unsupported geometry type");
+                Geometry geometry;
+                try {
+                    geometry = reader.read(row.wkb);
+                } catch (Exception ex) {
+                    skipped++;
+                    log.warn("skip unreadable port scene geometry: source={} id={} name={} reason={}",
+                            "PORT_OPERATIONAL_ZONE".equals(row.type) ? "dataanalysis.zones_with_port_id" : "ais41.alertzones",
+                            row.id, row.name, ex.getMessage());
+                    continue;
+                }
+                if (geometry.isEmpty() || !geometry.isValid()
+                        || !("Polygon".equals(geometry.getGeometryType()) || "MultiPolygon".equals(geometry.getGeometryType()))) {
+                    skipped++;
+                    String reason = geometry.isEmpty() ? "empty geometry"
+                            : (!geometry.isValid() ? "invalid geometry" : "unsupported type=" + geometry.getGeometryType());
+                    log.warn("skip invalid port scene geometry: source={} id={} name={} reason={}",
+                            "PORT_OPERATIONAL_ZONE".equals(row.type) ? "dataanalysis.zones_with_port_id" : "ais41.alertzones",
+                            row.id, row.name, reason);
+                    continue;
+                }
                 update(digest, row.type); update(digest, String.valueOf(row.id)); update(digest, row.name); digest.update(row.wkb);
                 STRtree index = "PORT_OPERATIONAL_ZONE".equals(row.type) ? opIndex : anchorIndex;
                 index.insert(geometry.getEnvelopeInternal(), LoiteringPortSceneSnapshot.entry(geometry, PreparedGeometryFactory.prepare(geometry)));
+            }
+            if (skipped > 0) {
+                log.warn("port scene loaded with {} skipped invalid geometries (operational={}, anchors={})",
+                        skipped, operational.size(), anchors.size());
             }
             Collections.sort(ports, Comparator.comparingInt((LoiteringPortSceneSnapshot.Port port) -> port.id)
                     .thenComparing(port -> port.name == null ? "" : port.name)

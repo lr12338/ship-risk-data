@@ -46,8 +46,8 @@ import java.util.Set;
 public class StsAlongsideHistoryService {
     static final String RUNNER_VERSION = "ALONGSIDE_DERIVED_STS_CANDIDATE_V1";
     static final String BEHAVIOR_TYPE = "ALONGSIDE_DERIVED_STS_CANDIDATE";
-    private static final int EXPECTED_IMOS = 786;
-    private static final int EXPECTED_IDENTITIES = 857;
+    private static final int EXPECTED_IMOS = 757;
+    private static final int EXPECTED_IDENTITIES = 825;
     private static final String MEETING_REGION_SET = "STS_MEETING_PRIORITY_REGION_SET_V1";
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final Logger log = LoggerFactory.getLogger(StsAlongsideHistoryService.class);
