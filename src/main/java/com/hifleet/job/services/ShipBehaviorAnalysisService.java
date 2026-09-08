@@ -690,9 +690,9 @@ public class ShipBehaviorAnalysisService {
         JSONObject value = new JSONObject(true);
         value.put("rule", buildAlongsideRule());
         value.put("worldSeaFingerprint", worldSeaMaskService.requireSnapshot().getGeometryFingerprint());
-        value.put("sceneFingerprint", loiteringPortSceneService.requireSnapshot().getFingerprint());
         value.put("portApproachDistanceNm", loiteringPortSceneProperties.getMaxDistanceNm());
         value.put("sceneClassificationVersion", "INSURANCE_SCENE_V1");
+        value.put("sceneAvailabilityPolicy", "OPTIONAL_CONTEXT_UNKNOWN_ON_UNAVAILABLE");
         return TraceRecipeService.configHash(value);
     }
 

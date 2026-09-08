@@ -80,7 +80,8 @@ public class AlongsideSceneService {
             this.nearAnchor = nearAnchor;
             this.outsideKnownPortAndAnchor = outsideKnownPortAndAnchor;
             this.dataAvailable = dataAvailable;
-            this.sceneType = nearPort ? "PORT_OPERATIONAL" : nearAnchor ? "ANCHORAGE" : "OFFSHORE";
+            this.sceneType = !dataAvailable ? "UNKNOWN"
+                    : nearPort ? "PORT_OPERATIONAL" : nearAnchor ? "ANCHORAGE" : "OFFSHORE";
             this.nearestPortId = null;
             this.nearestPortName = null;
             this.distanceToNearestPortNm = Double.NaN;

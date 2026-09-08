@@ -8,6 +8,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.Collections;
 import java.util.List;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -22,6 +23,7 @@ public class AlongsideSceneServiceTest {
         assertFalse(scene.isDataAvailable());
         assertFalse(scene.isOpenSea());
         assertFalse(scene.isOutsideKnownPortAndAnchor());
+        assertEquals("UNKNOWN", scene.getSceneType());
     }
 
     @Test

@@ -465,7 +465,7 @@ public class ShipAlongsideDetector {
         return new AlongsideScore(baseEvidenceScore, sceneRiskScore, counterpartyRiskScore,
                 behaviorRiskScore, durationRiskScore, recurrenceRiskScore, normalSceneAdjustment,
                 rawScore, score, rawSeverity, severity, severityCapReason, exclusionFlag, exclusionReason,
-                rule.isSceneDataAvailable() || context.isSceneDataAvailable(), rule.getRuleVersion(),
+                context.isSceneDataAvailable(), rule.getRuleVersion(),
                 rule.getCodeCommitSha(), feature, context);
     }
 
@@ -1071,7 +1071,7 @@ public class ShipAlongsideDetector {
             boolean nearAnchor = "ANCHORAGE".equals(sceneType);
             return new AlongsideContext(ownShipType, targetShipType, null, ownShipEligibility,
                     effective.getRole(), effective.getConfidence(), effective.getReasonCodes(), nearPort, nearAnchor,
-                    !nearPort && !nearAnchor, sceneDataAvailable, nearbyVesselCount, sceneType,
+                    sceneDataAvailable && !nearPort && !nearAnchor, sceneDataAvailable, nearbyVesselCount, sceneType,
                     nearestPortId, nearestPortName, distanceToNearestPortNm);
         }
 
@@ -1371,14 +1371,15 @@ public class ShipAlongsideDetector {
             json.put("riskInterpretation", context.riskInterpretation());
             json.put("decisionStatus", context.decisionStatus(feature));
             json.put("reasonCodes", context.reasonCodes(feature));
-            json.put("nearPort", context.isNearPort());
-            json.put("nearAnchor", context.isNearAnchor());
+            json.put("nearPort", context.isSceneDataAvailable() ? context.isNearPort() : null);
+            json.put("nearAnchor", context.isSceneDataAvailable() ? context.isNearAnchor() : null);
             json.put("sceneType", context.getSceneType());
             json.put("nearestPortId", context.getNearestPortId());
             json.put("nearestPortName", context.getNearestPortName());
             json.put("distanceToNearestPortNm", context.getDistanceToNearestPortNm());
-            json.put("openSea", context.isOpenSea());
-            json.put("outsideKnownPortAndAnchor", context.isOutsideKnownPortAndAnchor());
+            json.put("openSea", context.isSceneDataAvailable() ? context.isOpenSea() : null);
+            json.put("outsideKnownPortAndAnchor", context.isSceneDataAvailable()
+                    ? context.isOutsideKnownPortAndAnchor() : null);
             json.put("sceneContextComplete", context.isSceneDataAvailable());
             json.put("nearbyVesselCount", context.getNearbyVesselCount());
             json.put("ownShipType", context.getOwnShipType());

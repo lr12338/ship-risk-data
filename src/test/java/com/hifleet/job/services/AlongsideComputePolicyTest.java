@@ -65,9 +65,11 @@ public class AlongsideComputePolicyTest {
         assertEquals("2024-01-01 00:30:00", actual.getEndTime());
         assertEquals("413000002", actual.getTargetMmsi());
         assertEquals(0.05437846722207226d, actual.getMinDistanceNm(), 0.000000000001d);
-        assertEquals(65.0d, actual.getEventScore(), 0.0001d);
+        assertEquals(60.0d, actual.getEventScore(), 0.0001d);
         assertEquals("ALONGSIDE_CONFIRMED_CANDIDATE", actual.getEventSubType());
         assertEquals("ALONGSIDE_TEST", actual.getRuleVersion());
+        verify(extracted.events, never()).saveEvents(anyList());
+        verify(extracted.details, never()).saveDetails(anyList());
     }
 
     @Test

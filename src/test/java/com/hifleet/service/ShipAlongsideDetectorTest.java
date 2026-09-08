@@ -268,6 +268,27 @@ public class ShipAlongsideDetectorTest {
         assertInterpretation(null, "OFFSHORE", "UNKNOWN", "UNKNOWN_OFFSHORE_COUNTERPARTY_CONTACT", "REVIEW");
     }
 
+    @Test
+    public void unavailableSceneIsIncompleteRatherThanOffshore() {
+        TargetRoleClassification target = new ShipTypeClassifier()
+                .classifyTargetShipWithReason(null, null);
+        ShipAlongsideDetector.AlongsideContext context = ShipAlongsideDetector.AlongsideContext.asymmetricWithScene(
+                "油轮", null, OwnShipEligibility.ELIGIBLE_MERCHANT, target,
+                "UNKNOWN", null, null, Double.NaN, false, 0);
+
+        assertFalse(context.isOutsideKnownPortAndAnchor());
+        String detail = detector.detectWithTrace("413433610",
+                points("413433610", 0.0, 0.0, 13, 5, 1.8, 90.0, null), "413193000",
+                points("413193000", 0.001, 0.001, 13, 5, 1.7, 92.0, null), v3Rule(), context)
+                .get(0).getEvent().getScoreDetailJson();
+        assertTrue(detail, detail.contains("SCENE_CONTEXT_INCOMPLETE"));
+        assertFalse(detail, detail.contains("OUTSIDE_KNOWN_PORT_AND_ANCHOR"));
+        assertTrue(detail, detail.contains("\"sceneDataAvailable\":false"));
+        assertFalse(detail, detail.contains("\"nearPort\""));
+        assertFalse(detail, detail.contains("\"nearAnchor\""));
+        assertFalse(detail, detail.contains("\"outsideKnownPortAndAnchor\""));
+    }
+
     private void assertInterpretation(String targetType, String sceneType, String role,
                                       String interpretation, String decision) {
         TargetRoleClassification target = new ShipTypeClassifier()
