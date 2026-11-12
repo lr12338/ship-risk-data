@@ -935,7 +935,16 @@ ALONGSIDE_BATCH annual_score mmsi=... eventCount=... validEventCount=... highRis
 - 写入或更新 `ship_behavior_alongside_batch_status`
 - 输出 `ALONGSIDE_BATCH start / ship_window / progress / summary / annual_score`
 
-### 14.4 单元测试
+### 14.4 5000 船生产测试入口
+
+固化名单的长时间生产测试使用 `shipAlongsideProductionTestJobHandler`，`mode` 固定为 `production_test`。当前已取消 366 天总时长限制，仍保留时间格式、时间先后和 30 天窗口校验。
+
+该入口与本节前述的单船/批量 `AUTO` 参数不通用。可直接复制的 smoke、5000 船正式参数、完整字段定义和断点续跑规则见：
+
+- [`alongside-production-test-operations.md`](alongside-production-test-operations.md)
+- [`../deploy/production-test-5000/xxl-job-params.json`](../deploy/production-test-5000/xxl-job-params.json)
+
+### 14.5 单元测试
 
 测试类：
 
@@ -975,7 +984,7 @@ java -cp "target/classes:target/test-classes:$(cat target/test-classpath.txt)" o
 OK (14 tests)
 ```
 
-### 14.5 AUTO 召回排障样例
+### 14.6 AUTO 召回排障样例
 
 若 PAIR 模式可命中 `413433610 + 413193000`，但 AUTO 没命中，应按以下顺序看日志：
 

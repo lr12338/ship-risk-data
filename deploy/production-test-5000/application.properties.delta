@@ -1,0 +1,9 @@
+# Merge these keys into /data/zhengyi/application.properties; do not replace that file.
+ship.behavior.alongside.rule-version=ALONGSIDE_V3_ASYMMETRIC_COUNTERPARTY_V1
+ship.behavior.loitering.production.scene-ready=false
+ship.behavior.region.enabled=true
+ship.behavior.region.dry-run-only=true
+# Keep false through deployment and Region dry-run. Change to true only for approved formal Region runs.
+ship.behavior.region.write-enabled=false
+ship.behavior.region.max-candidate-vessels=100
+ship.behavior.region.max-run-hours=24

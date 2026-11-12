@@ -16,19 +16,22 @@ import static org.junit.Assert.assertTrue;
 public class AIS41GeneralQueryRepositoryTest {
 
     @Test
-    public void recentShipsPageUsesMmsiCursorAndLimit() {
+    public void recentShipsPageUsesMmsiCursorActivityWindowAndLimit() {
         CapturingJdbcTemplate jdbcTemplate = new CapturingJdbcTemplate();
         AIS41GeneralQueryRepository repository = new AIS41GeneralQueryRepository();
         ReflectionTestUtils.setField(repository, "ais41JdbcTemplate", jdbcTemplate);
 
-        List<ShipForm> ships = repository.selectRecentShipsPage("413000001", 100);
+        List<ShipForm> ships = repository.selectRecentShipsPage(
+                "413000001", 100, "2026-07-27 10:20:00");
 
         assertEquals(1, ships.size());
         assertEquals("413000002", ships.get(0).getMmsi());
         assertTrue(jdbcTemplate.sql.contains("mmsi > ?"));
+        assertTrue(jdbcTemplate.sql.contains("updatetime >= ?"));
+        assertTrue(jdbcTemplate.sql.contains("CHAR_LENGTH(CAST(mmsi AS CHAR)) = 9"));
         assertTrue(jdbcTemplate.sql.contains("ORDER BY mmsi"));
         assertTrue(jdbcTemplate.sql.contains("LIMIT ?"));
-        assertArrayEquals(new Object[]{413000001L, 100}, jdbcTemplate.params);
+        assertArrayEquals(new Object[]{413000001L, "2026-07-27 10:20:00", 100}, jdbcTemplate.params);
     }
 
     private static class CapturingJdbcTemplate extends JdbcTemplate {

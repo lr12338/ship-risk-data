@@ -84,7 +84,7 @@ public class TrajectoryLoaderService {
         return result;
     }
 
-    private TrajectoryPoint convert(NewShipForm rawPoint) {
+    TrajectoryPoint convert(NewShipForm rawPoint) {
         if (rawPoint == null
                 || StringUtils.isBlank(rawPoint.getM())
                 || StringUtils.isBlank(rawPoint.getTi())
@@ -98,8 +98,9 @@ public class TrajectoryLoaderService {
                     LocalDateTime.parse(normalizeTime(rawPoint.getTi()), TIME_FORMATTER),
                     Double.parseDouble(rawPoint.getLo().trim()),
                     Double.parseDouble(rawPoint.getLa().trim()),
-                    parseDouble(rawPoint.getSp()),
-                    parseDouble(rawPoint.getCo()),
+                    parseNullableDouble(rawPoint.getSp()),
+                    parseNullableDouble(rawPoint.getCo()),
+                    parseNullableDouble(rawPoint.getHdg()),
                     rawPoint.getNavstatus());
         } catch (Exception ex) {
             return null;
@@ -115,9 +116,9 @@ public class TrajectoryLoaderService {
         return point.getMmsi() + "|" + point.getTime() + "|" + point.getLon() + "|" + point.getLat();
     }
 
-    private double parseDouble(String value) {
+    private Double parseNullableDouble(String value) {
         if (StringUtils.isBlank(value) || "null".equalsIgnoreCase(value.trim())) {
-            return 0.0;
+            return null;
         }
         return Double.parseDouble(value.trim());
     }

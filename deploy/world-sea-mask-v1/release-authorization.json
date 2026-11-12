@@ -1,0 +1,10 @@
+{
+  "datasetVersion": "WORLD_SEA_102_V1R1",
+  "repairedGeometryFingerprint": "31dd89bd4968f8f436135b57cdb81e870ac7b827d4dc2c086282e7dfe91ab9c6",
+  "authorizationMode": "OPERATOR_OVERRIDE",
+  "authorizationRef": "PROJECT_OWNER_EXPLICIT_AUTHORIZATION_2026-08-07_WORLD_SEA_V1R1",
+  "authorizedAt": "2026-08-07T09:42:06+08:00",
+  "reviewedFeatureIds": [11, 26, 85, 91, 92, 99, 24556],
+  "baffinCollapsedLineDecision": "DROP_NON_POLYGONAL_COLLAPSE",
+  "boHaiTinyComponentDecision": "RETAIN"
+}

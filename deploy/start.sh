@@ -5,7 +5,7 @@ JAR_NAME="ship-risk-data-0.0.1-SNAPSHOT.jar"
 SPRING_PROFILE="${SPRING_PROFILE:-prod}"
 
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
-JAVA_OPTS="${JAVA_OPTS:--Xms512m -Xmx2g -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${BASE_DIR}/logs/heapdump.hprof -Dfile.encoding=UTF-8}"
+JAVA_OPTS="${JAVA_OPTS:--Xms512m -Xmx2g -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${BASE_DIR}/logs/heapdump.hprof -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai}"
 JAR_PATH="${BASE_DIR}/${JAR_NAME}"
 PID_FILE="${BASE_DIR}/${APP_NAME}.pid"
 LOG_DIR="${BASE_DIR}/logs"
@@ -31,8 +31,9 @@ if [ ! -f "${BASE_DIR}/application.properties" ]; then
   echo "application.properties not found in ${BASE_DIR}" >&2
   exit 1
 fi
-CONFIG_ARG="--spring.config.additional-location=file:${BASE_DIR}/application.properties"
+CONFIG_ARG="--spring.config.location=file:${BASE_DIR}/application.properties"
 
+cd "${BASE_DIR}"
 nohup java ${JAVA_OPTS} \
   -jar "${JAR_PATH}" \
   --spring.profiles.active="${SPRING_PROFILE}" \

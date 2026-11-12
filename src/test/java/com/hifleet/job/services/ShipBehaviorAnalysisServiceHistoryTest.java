@@ -8,6 +8,7 @@ import com.hifleet.repository.ShipBehaviorEventDetailRepository;
 import com.hifleet.repository.ShipBehaviorEventRepository;
 import com.hifleet.service.ShipAlongsideDetector;
 import com.hifleet.service.ShipAlongsideReplayCandidateProvider;
+import com.hifleet.service.ShipTypeClassifier;
 import com.hifleet.trajectory.TrajectoryLoaderService;
 import com.hifleet.trajectory.TrajectoryPoint;
 import org.junit.Test;
@@ -31,6 +32,7 @@ public class ShipBehaviorAnalysisServiceHistoryTest {
         ReflectionTestUtils.setField(service, "trajectoryLoaderService", new EmptyTrajectoryLoader());
         ReflectionTestUtils.setField(service, "alongsideReplayCandidateProvider", new EmptyCandidateProvider());
         ReflectionTestUtils.setField(service, "ais41GeneralQueryRepository", new EmptyShipRepository());
+        ReflectionTestUtils.setField(service, "shipTypeClassifier", new ShipTypeClassifier());
         ReflectionTestUtils.setField(service, "shipBehaviorEventRepository", eventRepository);
         ReflectionTestUtils.setField(service, "shipBehaviorEventDetailRepository", detailRepository);
 
@@ -69,7 +71,7 @@ public class ShipBehaviorAnalysisServiceHistoryTest {
     private static class EmptyShipRepository extends AIS41GeneralQueryRepository {
         @Override
         public Map<String, String> selectShipTypes(Set<String> mmsis) {
-            return Collections.emptyMap();
+            return Collections.singletonMap("413000001", "油轮");
         }
     }
 

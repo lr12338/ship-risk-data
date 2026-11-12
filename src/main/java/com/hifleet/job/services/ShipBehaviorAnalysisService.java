@@ -6,6 +6,7 @@ import com.hifleet.beans.ShipForm;
 import com.hifleet.domain.AlongsideCandidateTarget;
 import com.hifleet.domain.AlongsideDailyStats;
 import com.hifleet.domain.AlongsideReplaySearchResult;
+import com.hifleet.domain.CandidateFunnelStats;
 import com.hifleet.domain.ShipBehaviorEvent;
 import com.hifleet.domain.ShipBehaviorEventDetail;
 import com.hifleet.domain.ShipBehaviorTrace;
@@ -16,12 +17,24 @@ import com.hifleet.repository.ShipBehaviorEventRepository;
 import com.hifleet.repository.ShipBehaviorLoiteringBatchStatusRepository;
 import com.hifleet.service.ShipAlongsideDetector;
 import com.hifleet.service.ShipAlongsideReplayCandidateProvider;
+import com.hifleet.service.AlongsideReplayQueryPlan;
+import com.hifleet.service.AlongsideReplayQueryPlanner;
 import com.hifleet.service.ShipLoiteringDetector;
 import com.hifleet.service.ShipTypeClassifier;
+import com.hifleet.service.TraceRecipeService;
 import com.hifleet.service.AlongsideSceneService;
+import com.hifleet.service.OwnShipEligibility;
+import com.hifleet.service.TargetRoleClassification;
 import com.hifleet.trajectory.TrajectoryLoaderService;
 import com.hifleet.trajectory.TrajectoryPoint;
 import com.hifleet.trajectory.TrajectoryUtils;
+import com.hifleet.worldsea.WorldSeaEventGate;
+import com.hifleet.worldsea.WorldSeaMaskService;
+import com.hifleet.worldsea.WorldSeaTrackSegmenter;
+import com.hifleet.loitering.LoiteringPortEventGate;
+import com.hifleet.loitering.LoiteringPortSceneProperties;
+import com.hifleet.loitering.LoiteringPortSceneService;
+import com.hifleet.loitering.LoiteringPortTrackSegmenter;
 import com.xxl.job.core.log.XxlJobLogger;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -48,6 +61,26 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class ShipBehaviorAnalysisService {
 
+    public interface AlongsideComputePolicy {
+        boolean acceptWindow(ShipAlongsideDetector.LowSpeedWindow window,
+                             List<TrajectoryPoint> ownWindowPoints);
+        boolean acceptCandidate(String targetMmsi);
+        default boolean ownsEligibilityDecision() { return false; }
+    }
+
+    private static final AlongsideComputePolicy ACCEPT_ALL_ALONGSIDE = new AlongsideComputePolicy() {
+        @Override
+        public boolean acceptWindow(ShipAlongsideDetector.LowSpeedWindow window,
+                                    List<TrajectoryPoint> ownWindowPoints) {
+            return true;
+        }
+
+        @Override
+        public boolean acceptCandidate(String targetMmsi) {
+            return true;
+        }
+    };
+
     private static final Logger log = LoggerFactory.getLogger(ShipBehaviorAnalysisService.class);
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -72,7 +105,7 @@ public class ShipBehaviorAnalysisService {
     @Value("${ship.behavior.loitering.min-points:3}")
     private int loiteringMinPoints;
 
-    @Value("${ship.behavior.loitering.rule-version:LOITERING_V2_INSURANCE}")
+    @Value("${ship.behavior.loitering.rule-version:LOITERING_V2_INSURANCE_SCENE_V1}")
     private String loiteringRuleVersion;
 
     @Value("${ship.behavior.loitering.max-gap-minutes:30}")
@@ -174,6 +207,9 @@ public class ShipBehaviorAnalysisService {
     @Value("${ship.behavior.loitering.weak.store-enabled:true}")
     private boolean loiteringWeakStoreEnabled;
 
+    @Value("${ship.behavior.loitering.min-speed:1.0}")
+    private double loiteringMinSpeed;
+
     @Value("${ship.behavior.loitering.weak.min-duration-minutes:60}")
     private long loiteringWeakMinDurationMinutes;
 
@@ -228,8 +264,11 @@ public class ShipBehaviorAnalysisService {
     @Value("${ship.behavior.alongside.min-points:3}")
     private int alongsideMinPoints;
 
-    @Value("${ship.behavior.alongside.rule-version:ALONGSIDE_V3_INSURANCE}")
+    @Value("${ship.behavior.alongside.rule-version:ALONGSIDE_V3_ASYMMETRIC_COUNTERPARTY_V1}")
     private String alongsideRuleVersion;
+
+    @Value("${ship.behavior.code-commit-sha:UNKNOWN}")
+    private String codeCommitSha;
 
     @Value("${ship.behavior.alongside.mode.auto.enabled:true}")
     private boolean alongsideAutoEnabled;
@@ -345,6 +384,14 @@ public class ShipBehaviorAnalysisService {
     @Autowired
     private AlongsideSceneService alongsideSceneService;
 
+    @Autowired private WorldSeaMaskService worldSeaMaskService;
+    @Autowired private WorldSeaTrackSegmenter worldSeaTrackSegmenter;
+    @Autowired private WorldSeaEventGate worldSeaEventGate;
+    @Autowired private LoiteringPortSceneService loiteringPortSceneService;
+    @Autowired private LoiteringPortSceneProperties loiteringPortSceneProperties;
+    @Autowired private LoiteringPortTrackSegmenter loiteringPortTrackSegmenter;
+    @Autowired private LoiteringPortEventGate loiteringPortEventGate;
+
     public AnalysisResult analysisLoitering(String params) {
         JobParams jobParams = parseParams(params);
         applyDefaultTimeRange(jobParams);
@@ -374,6 +421,8 @@ public class ShipBehaviorAnalysisService {
     private LoiteringWindowResult analysisLoiteringOneWindow(JobParams jobParams, String mmsi,
                                                              ShipLoiteringDetector.LoiteringConfig config,
                                                              ShipLoiteringDetector detector) {
+        if (worldSeaMaskService != null) worldSeaMaskService.requireSnapshot();
+        loiteringPortSceneService.requireSnapshot();
         XxlJobLogger.log("LOITERING_V2 start mmsi=" + mmsi
                 + " startTime=" + jobParams.getStartTime()
                 + " endTime=" + jobParams.getEndTime()
@@ -381,7 +430,16 @@ public class ShipBehaviorAnalysisService {
                 + " ruleVersion=" + config.getRuleVersion());
         List<TrajectoryPoint> points = trajectoryLoaderService.load(
                 mmsi, jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
-        List<ShipBehaviorTrace> traces = detector.detectWithTrace(mmsi, points, config);
+        List<ShipBehaviorTrace> traces = new ArrayList<ShipBehaviorTrace>();
+        List<List<TrajectoryPoint>> seaSegments = worldSeaTrackSegmenter == null
+                ? Collections.singletonList(points) : worldSeaTrackSegmenter.splitInside(points);
+        for (List<TrajectoryPoint> seaSegment : seaSegments) {
+            for (List<TrajectoryPoint> segment : loiteringPortTrackSegmenter.splitEligible(seaSegment)) {
+                traces.addAll(detector.detectWithTrace(mmsi, segment, config));
+            }
+        }
+        traces = loiteringPortEventGate.filterAndAnnotate(traces);
+        if (worldSeaEventGate != null) traces = worldSeaEventGate.filterAndAnnotate(traces);
         ShipLoiteringDetector.DetectionStats stats = detector.getLastStats();
         List<ShipBehaviorEvent> detected = extractEvents(traces);
         tagBatch(detected, jobParams);
@@ -554,7 +612,108 @@ public class ShipBehaviorAnalysisService {
         return analysisAlongsideOneWindow(jobParams, buildAlongsideRule(), true, enableInsert, true);
     }
 
+    public AlongsideWindowResult computeAlongsideHistory(
+            String mmsi, String startTime, String endTime, String batchNo,
+            AlongsideComputePolicy policy) {
+        JobParams jobParams = new JobParams();
+        jobParams.setMmsi(mmsi);
+        jobParams.setStartTime(startTime);
+        jobParams.setEndTime(endTime);
+        jobParams.setBatchNo(batchNo);
+        jobParams.setMode("AUTO");
+        return analysisAlongsideOneWindow(jobParams, buildAlongsideRule(), true,
+                false, false, true, policy == null ? ACCEPT_ALL_ALONGSIDE : policy);
+    }
+
+    public String currentAlongsideRuleVersion() {
+        return buildAlongsideRule().getRuleVersion();
+    }
+
+    public String currentCodeCommitSha() {
+        return codeCommitSha;
+    }
+
+    public AlongsideWindowResult analysisAlongsideProductionWindow(
+            String mmsi, String startTime, String endTime, String batchNo) {
+        JobParams jobParams = new JobParams();
+        jobParams.setMmsi(mmsi);
+        jobParams.setStartTime(startTime);
+        jobParams.setEndTime(endTime);
+        jobParams.setBatchNo(batchNo);
+        jobParams.setMode("AUTO");
+        return analysisAlongsideOneWindow(jobParams, buildAlongsideRule(),
+                true, false, false, true);
+    }
+
+    public List<ShipBehaviorTrace> analysisLoiteringV2Production(
+            String mmsi, List<TrajectoryPoint> points, String batchNo) {
+        if (worldSeaMaskService != null) worldSeaMaskService.requireSnapshot();
+        loiteringPortSceneService.requireSnapshot();
+        ShipLoiteringDetector detector = new ShipLoiteringDetector();
+        ShipLoiteringDetector.LoiteringConfig config = buildLoiteringConfig();
+        List<ShipBehaviorTrace> traces = new ArrayList<ShipBehaviorTrace>();
+        List<List<TrajectoryPoint>> seaSegments = worldSeaTrackSegmenter == null
+                ? Collections.singletonList(points) : worldSeaTrackSegmenter.splitInside(points);
+        for (List<TrajectoryPoint> seaSegment : seaSegments) {
+            for (List<TrajectoryPoint> segment : loiteringPortTrackSegmenter.splitEligible(seaSegment)) {
+                traces.addAll(detector.detectWithTrace(mmsi, segment, config));
+            }
+        }
+        traces = loiteringPortEventGate.filterAndAnnotate(traces);
+        if (worldSeaEventGate != null) traces = worldSeaEventGate.filterAndAnnotate(traces);
+        for (ShipBehaviorTrace trace : traces) {
+            ShipBehaviorEvent event = trace.getEvent();
+            event.setBatchNo(batchNo);
+            TraceRecipeService.attachLoitering(trace, "V2",
+                    event.getStartTime(), event.getEndTime(), trajectorySimplifyZoom,
+                    loiteringV2RuleConfigHash());
+        }
+        return traces;
+    }
+
+    public String loiteringV2RuleConfigHash() {
+        JSONObject value = new JSONObject(true);
+        value.put("rule", buildLoiteringConfig());
+        value.put("worldSeaFingerprint", worldSeaMaskService.requireSnapshot().getGeometryFingerprint());
+        value.put("portSceneFingerprint", loiteringPortSceneService.requireSnapshot().getFingerprint());
+        value.put("minSpeed", loiteringMinSpeed);
+        value.put("portApproachDistanceNm", loiteringPortSceneProperties.getMaxDistanceNm());
+        value.put("scenePolicy", "PORT_OPERATIONAL_AND_ANCHORAGE_HARD_EXCLUDE;OFFSHORE_ENABLED=" + loiteringPortSceneProperties.isOffshoreEnabled());
+        value.put("weakStoreEnabled", loiteringWeakStoreEnabled);
+        value.put("ruleVersion", loiteringRuleVersion);
+        return TraceRecipeService.configHash(value);
+    }
+
+    public LoiteringPortTrackSegmenter.Stats loiteringPortSplitStats() {
+        return loiteringPortTrackSegmenter.getLastStats();
+    }
+
+    public String alongsideRuleConfigHash() {
+        JSONObject value = new JSONObject(true);
+        value.put("rule", buildAlongsideRule());
+        value.put("worldSeaFingerprint", worldSeaMaskService.requireSnapshot().getGeometryFingerprint());
+        value.put("portApproachDistanceNm", loiteringPortSceneProperties.getMaxDistanceNm());
+        value.put("sceneClassificationVersion", "INSURANCE_SCENE_V1");
+        value.put("sceneAvailabilityPolicy", "OPTIONAL_CONTEXT_UNKNOWN_ON_UNAVAILABLE");
+        return TraceRecipeService.configHash(value);
+    }
+
+    public List<ShipBehaviorTrace> analysisAlongsideReplay(
+            String mmsi, String targetMmsi,
+            List<TrajectoryPoint> ownPoints, List<TrajectoryPoint> targetPoints) {
+        Set<String> pair = new HashSet<String>();
+        pair.add(mmsi);
+        pair.add(targetMmsi);
+        Map<String, String> shipTypes = loadShipTypes(pair);
+        ShipAlongsideDetector.AlongsideContext context = buildAlongsideContext(
+                mmsi, targetMmsi, shipTypes, ownPoints, targetPoints, 2);
+        List<ShipBehaviorTrace> traces = alongsideDetector.detectWithTrace(mmsi, ownPoints, targetMmsi,
+                targetPoints, buildAlongsideRule(), context);
+        return worldSeaEventGate == null ? traces : worldSeaEventGate.filterAndAnnotate(traces);
+    }
+
     private AnalysisResult analysisAlongsidePair(JobParams jobParams, ShipAlongsideDetector.AlongsideRule rule) {
+        if (worldSeaMaskService != null) worldSeaMaskService.requireSnapshot();
         if (StringUtils.isBlank(jobParams.getTargetMmsi())) {
             XxlJobLogger.log("ALONGSIDE_V3 pair mode requires targetMmsi, mmsi=" + jobParams.getMmsi()
                     + " batchNo=" + jobParams.getBatchNo());
@@ -566,18 +725,26 @@ public class ShipBehaviorAnalysisService {
                     + " startTime=" + jobParams.getStartTime()
                     + " endTime=" + jobParams.getEndTime()
                     + " batchNo=" + jobParams.getBatchNo());
-            List<TrajectoryPoint> ownPoints = trajectoryLoaderService.load(
-                    jobParams.getMmsi(), jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
-            List<TrajectoryPoint> targetPoints = trajectoryLoaderService.load(
-                    jobParams.getTargetMmsi(), jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
             Set<String> pairMmsis = new HashSet<String>();
             pairMmsis.add(jobParams.getMmsi());
             pairMmsis.add(jobParams.getTargetMmsi());
             Map<String, String> shipTypes = loadShipTypes(pairMmsis);
+            OwnShipEligibility ownEligibility = shipTypeClassifier
+                    .classifyOwnShip(shipTypes.get(jobParams.getMmsi()));
+            if (ownEligibility != OwnShipEligibility.ELIGIBLE_MERCHANT) {
+                XxlJobLogger.log("ALONGSIDE_V3 own_ship_ineligible mmsi=" + jobParams.getMmsi()
+                        + " eligibility=" + ownEligibility + " batchNo=" + jobParams.getBatchNo());
+                return new AnalysisResult(1, 0, 0);
+            }
+            List<TrajectoryPoint> ownPoints = trajectoryLoaderService.load(
+                    jobParams.getMmsi(), jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
+            List<TrajectoryPoint> targetPoints = trajectoryLoaderService.load(
+                    jobParams.getTargetMmsi(), jobParams.getStartTime(), jobParams.getEndTime(), trajectorySimplifyZoom);
             ShipAlongsideDetector.AlongsideContext context = buildAlongsideContext(
-                    jobParams.getMmsi(), jobParams.getTargetMmsi(), shipTypes, ownPoints, 2);
+                    jobParams.getMmsi(), jobParams.getTargetMmsi(), shipTypes, ownPoints, targetPoints, 2);
             List<ShipBehaviorTrace> traces = alongsideDetector.detectWithTrace(
                     jobParams.getMmsi(), ownPoints, jobParams.getTargetMmsi(), targetPoints, rule, context);
+            if (worldSeaEventGate != null) traces = worldSeaEventGate.filterAndAnnotate(traces);
             ShipAlongsideDetector.DetectionStats stats = alongsideDetector.getLastStats();
             List<ShipBehaviorEvent> detected = extractEvents(traces);
             tagBatch(detected, jobParams);
@@ -636,18 +803,85 @@ public class ShipBehaviorAnalysisService {
                                                              boolean safeLoad,
                                                              boolean enableInsert,
                                                              boolean replaceExisting) {
+        return analysisAlongsideOneWindow(jobParams, rule, safeLoad,
+                enableInsert, replaceExisting, false);
+    }
+
+    private AlongsideWindowResult analysisAlongsideOneWindow(JobParams jobParams,
+                                                             ShipAlongsideDetector.AlongsideRule rule,
+                                                             boolean safeLoad,
+                                                             boolean enableInsert,
+                                                             boolean replaceExisting,
+                                                             boolean conciseLog) {
+        return analysisAlongsideOneWindow(jobParams, rule, safeLoad, enableInsert,
+                replaceExisting, conciseLog, ACCEPT_ALL_ALONGSIDE);
+    }
+
+    private AlongsideWindowResult analysisAlongsideOneWindow(JobParams jobParams,
+                                                             ShipAlongsideDetector.AlongsideRule rule,
+                                                             boolean safeLoad,
+                                                             boolean enableInsert,
+                                                             boolean replaceExisting,
+                                                             boolean conciseLog,
+                                                             AlongsideComputePolicy policy) {
+        if (worldSeaMaskService != null) worldSeaMaskService.requireSnapshot();
+        Set<String> ownMmsi = Collections.singleton(jobParams.getMmsi());
+        Map<String, String> ownShipTypes = loadShipTypes(ownMmsi);
+        OwnShipEligibility ownEligibility = shipTypeClassifier
+                .classifyOwnShip(ownShipTypes.get(jobParams.getMmsi()));
+        if (ownEligibility != OwnShipEligibility.ELIGIBLE_MERCHANT && !policy.ownsEligibilityDecision()) {
+            XxlJobLogger.log("ALONGSIDE_V3 own_ship_ineligible mmsi=" + jobParams.getMmsi()
+                    + " eligibility=" + ownEligibility + " batchNo=" + jobParams.getBatchNo());
+            return new AlongsideWindowResult(0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, Collections.<ShipBehaviorTrace>emptyList());
+        }
         List<TrajectoryPoint> ownPoints = safeLoad
                 ? trajectoryLoaderService.loadSafely(jobParams.getMmsi(), jobParams.getStartTime(),
                 jobParams.getEndTime(), trajectorySimplifyZoom, alongsideBatchTrajectoryLoadSliceHours,
                 alongsideBatchMaxPointsPerWindow)
                 : trajectoryLoaderService.load(jobParams.getMmsi(), jobParams.getStartTime(),
                 jobParams.getEndTime(), trajectorySimplifyZoom);
-        List<ShipAlongsideDetector.LowSpeedWindow> windows = alongsideDetector.extractLowSpeedWindows(
+        List<ShipAlongsideDetector.LowSpeedWindow> rawWindows = alongsideDetector.extractLowSpeedWindows(
                 jobParams.getMmsi(), ownPoints, alongsideConfirmMinSpeed, alongsideCandidateMaxSpeed,
                 alongsideCandidateMinDurationMinutes, alongsideCandidateSplitGapMinutes);
+        int rawLowSpeedWindowCount = rawWindows.size();
+        List<ShipAlongsideDetector.LowSpeedWindow> windows = new ArrayList<ShipAlongsideDetector.LowSpeedWindow>();
+        List<List<TrajectoryPoint>> seaSegments = worldSeaTrackSegmenter == null
+                ? Collections.singletonList(ownPoints) : worldSeaTrackSegmenter.splitInside(ownPoints);
+        for (List<TrajectoryPoint> seaSegment : seaSegments) {
+            windows.addAll(alongsideDetector.extractLowSpeedWindows(
+                    jobParams.getMmsi(), seaSegment, alongsideConfirmMinSpeed, alongsideCandidateMaxSpeed,
+                    alongsideCandidateMinDurationMinutes, alongsideCandidateSplitGapMinutes));
+        }
+        int worldSeaRejectedWindowCount = Math.max(0, rawLowSpeedWindowCount - windows.size());
+        int alongsideLowSpeedWindowCount = windows.size();
+        if (policy != ACCEPT_ALL_ALONGSIDE) {
+            List<ShipAlongsideDetector.LowSpeedWindow> accepted =
+                    new ArrayList<ShipAlongsideDetector.LowSpeedWindow>();
+            for (ShipAlongsideDetector.LowSpeedWindow window : windows) {
+                List<TrajectoryPoint> windowPoints = collectOwnPointsByWindow(
+                        Collections.singletonList(window), ownPoints).get(
+                        AlongsideReplayQueryPlanner.windowKey(window));
+                if (policy.acceptWindow(window, windowPoints)) accepted.add(window);
+            }
+            windows = accepted;
+        }
+        Map<String, List<TrajectoryPoint>> rawOwnPointsByWindow = collectOwnPointsByWindow(rawWindows, ownPoints);
         Map<String, List<TrajectoryPoint>> ownPointsByWindow = collectOwnPointsByWindow(windows, ownPoints);
-        AlongsideReplaySearchResult replaySearchResult = alongsideReplayCandidateProvider.findCandidates(
-                jobParams.getMmsi(), windows, ownPointsByWindow, jobParams.getBatchNo());
+        AlongsideReplayQueryPlan baselineReplayPlan = alongsideReplayCandidateProvider.planQueries(
+                rawWindows, rawOwnPointsByWindow, jobParams.getBatchNo());
+        AlongsideReplayQueryPlan filteredReplayPlan = alongsideReplayCandidateProvider.planQueries(
+                windows, ownPointsByWindow, jobParams.getBatchNo());
+        int savedReplayQueryCount = Math.max(0, baselineReplayPlan.size() - filteredReplayPlan.size());
+        AlongsideReplaySearchResult replaySearchResult = windows.isEmpty() && policy != ACCEPT_ALL_ALONGSIDE
+                ? new AlongsideReplaySearchResult()
+                : conciseLog
+                    ? alongsideReplayCandidateProvider.findCandidates(
+                    jobParams.getMmsi(), windows, ownPointsByWindow,
+                    jobParams.getBatchNo(), false)
+                    : alongsideReplayCandidateProvider.findCandidates(
+                    jobParams.getMmsi(), windows, ownPointsByWindow,
+                    jobParams.getBatchNo());
         if (safeLoad
                 && alongsideBatchMaxReplayQueriesPerWindow > 0
                 && replaySearchResult.getReplayQueryCount() > alongsideBatchMaxReplayQueriesPerWindow) {
@@ -658,6 +892,21 @@ public class ShipBehaviorAnalysisService {
                     + ", maxReplayQueries=" + alongsideBatchMaxReplayQueriesPerWindow);
         }
         List<AlongsideCandidateTarget> candidates = replaySearchResult.getCandidates();
+        CandidateFunnelStats candidateFunnel = replaySearchResult.getCandidateFunnel();
+        int policyRejectedCandidates = 0;
+        if (policy != ACCEPT_ALL_ALONGSIDE) {
+            List<AlongsideCandidateTarget> accepted = new ArrayList<AlongsideCandidateTarget>();
+            for (AlongsideCandidateTarget candidate : candidates) {
+                if (policy.acceptCandidate(candidate.getTargetMmsi())) {
+                    accepted.add(candidate);
+                    candidateFunnel.recordIdentityPolicyAccepted();
+                } else {
+                    policyRejectedCandidates++;
+                    candidateFunnel.recordIdentityPolicyRejected();
+                }
+            }
+            candidates = accepted;
+        }
         int candidateTargetCount = countUniqueTargets(candidates);
         Set<String> candidateMmsis = new HashSet<String>();
         candidateMmsis.add(jobParams.getMmsi());
@@ -665,23 +914,30 @@ public class ShipBehaviorAnalysisService {
             candidateMmsis.add(candidate.getTargetMmsi());
         }
         Map<String, String> shipTypes = loadShipTypes(candidateMmsis);
-        XxlJobLogger.log("ALONGSIDE_V3 low_speed_summary mmsi=" + jobParams.getMmsi()
-                + " points=" + ownPoints.size()
-                + " cleanPoints=" + alongsideDetector.cleanAndSort(ownPoints).size()
-                + " lowSpeedWindows=" + windows.size()
-                + " batchNo=" + jobParams.getBatchNo());
-        XxlJobLogger.log("ALONGSIDE_V3 candidate_summary mmsi=" + jobParams.getMmsi()
-                + " replayQueries=" + replaySearchResult.getReplayQueryCount()
-                + " replayFailures=" + replaySearchResult.getReplayFailures()
-                + " truncatedQueries=" + replaySearchResult.getTruncatedQueries()
-                + " returnedVessels=" + replaySearchResult.getReturnedVessels()
-                + " rawPoints=" + replaySearchResult.getRawPoints()
-                + " validPoints=" + replaySearchResult.getValidPoints()
-                + " parseErrors=" + replaySearchResult.getParseErrors()
-                + " prefilteredTargets=" + replaySearchResult.getPrefilteredTargets()
-                + " candidateTargets=" + candidateTargetCount
-                + " candidatePairs=" + candidates.size()
-                + " batchNo=" + jobParams.getBatchNo());
+        if (!conciseLog) {
+            XxlJobLogger.log("ALONGSIDE_V3 low_speed_summary mmsi=" + jobParams.getMmsi()
+                    + " points=" + ownPoints.size()
+                    + " cleanPoints=" + alongsideDetector.cleanAndSort(ownPoints).size()
+                    + " lowSpeedWindows=" + windows.size()
+                    + " rawLowSpeedWindows=" + rawLowSpeedWindowCount
+                    + " worldSeaRejectedWindows=" + worldSeaRejectedWindowCount
+                    + " baselinePlannedReplayQueries=" + baselineReplayPlan.size()
+                    + " filteredPlannedReplayQueries=" + filteredReplayPlan.size()
+                    + " savedReplayQueries=" + savedReplayQueryCount
+                    + " batchNo=" + jobParams.getBatchNo());
+            XxlJobLogger.log("ALONGSIDE_V3 candidate_summary mmsi=" + jobParams.getMmsi()
+                    + " replayQueries=" + replaySearchResult.getReplayQueryCount()
+                    + " replayFailures=" + replaySearchResult.getReplayFailures()
+                    + " truncatedQueries=" + replaySearchResult.getTruncatedQueries()
+                    + " returnedVessels=" + replaySearchResult.getReturnedVessels()
+                    + " rawPoints=" + replaySearchResult.getRawPoints()
+                    + " validPoints=" + replaySearchResult.getValidPoints()
+                    + " parseErrors=" + replaySearchResult.getParseErrors()
+                    + " prefilteredTargets=" + replaySearchResult.getPrefilteredTargets()
+                    + " candidateTargets=" + candidateTargetCount
+                    + " candidatePairs=" + candidates.size()
+                    + " batchNo=" + jobParams.getBatchNo());
+        }
 
         List<ShipBehaviorTrace> allTraces = new ArrayList<ShipBehaviorTrace>();
         int failed = 0;
@@ -696,9 +952,13 @@ public class ShipBehaviorAnalysisService {
                         : candidate.getReplayQueryResult().getRawVesselCount();
                 ShipAlongsideDetector.AlongsideContext context = buildAlongsideContext(
                         jobParams.getMmsi(), candidate.getTargetMmsi(), shipTypes,
-                        candidateOwnPoints, nearbyVesselCount);
+                        candidateOwnPoints, candidate.getTargetPoints(), nearbyVesselCount, policy.ownsEligibilityDecision());
                 List<ShipBehaviorTrace> traces = alongsideDetector.detectWithTrace(jobParams.getMmsi(),
                         candidateOwnPoints, candidate.getTargetMmsi(), candidate.getTargetPoints(), rule, context);
+                for (ShipBehaviorTrace trace : traces) {
+                    TraceRecipeService.attachAlongside(trace, candidate,
+                            trajectorySimplifyZoom, TraceRecipeService.configHash(rule));
+                }
                 enrichReplayScoreDetails(traces, replaySearchResult);
                 allTraces.addAll(traces);
             } catch (Exception ex) {
@@ -706,9 +966,12 @@ public class ShipBehaviorAnalysisService {
                 log.warn("auto alongside candidate failed, candidate={}", candidate, ex);
             }
         }
+        if (worldSeaEventGate != null) allTraces = worldSeaEventGate.filterAndAnnotate(allTraces);
         List<ShipBehaviorEvent> detected = extractEvents(allTraces);
         tagBatch(detected, jobParams);
-        boolean completeHistoryWindow = failed == 0 && replaySearchResult.getReplayFailures() == 0;
+        boolean completeHistoryWindow = failed == 0
+                && replaySearchResult.getReplayFailures() == 0
+                && replaySearchResult.getTruncatedQueries() == 0;
         boolean shouldInsert = enableInsert && (!replaceExisting || completeHistoryWindow);
         if (shouldInsert) {
             if (replaceExisting) {
@@ -722,38 +985,56 @@ public class ShipBehaviorAnalysisService {
             shipBehaviorEventRepository.saveEvents(detected);
             shipBehaviorEventDetailRepository.saveDetails(toDetails(allTraces, jobParams));
         }
-        logEventSummaries(allTraces);
+        if (!conciseLog) {
+            logEventSummaries(allTraces);
+        }
         AlongsideAnnualScore annualScore = calculateAlongsideAnnualScore(jobParams, detected);
-        XxlJobLogger.log("ALONGSIDE_V3 annual_score mmsi=" + jobParams.getMmsi()
-                + " eventCount=" + annualScore.getEventCount()
-                + " validEventCount=" + annualScore.getValidEventCount()
-                + " highRiskEventCount=" + annualScore.getHighRiskEventCount()
-                + " severeEventCount=" + annualScore.getSevereEventCount()
-                + " ARI=" + annualScore.getAnnualRiskIndex()
-                + " subScore10=" + annualScore.getSubScore10()
-                + " weightedScore=" + annualScore.getWeightedScore()
-                + " manualReview=" + annualScore.isManualReviewRequired()
-                + " batchNo=" + jobParams.getBatchNo());
-        XxlJobLogger.log("ALONGSIDE_V3 summary mode=AUTO mmsi=" + jobParams.getMmsi()
-                + " points=" + ownPoints.size()
-                + " lowSpeedWindows=" + windows.size()
-                + " candidateTargets=" + candidateTargetCount
-                + " rawEvents=" + detected.size()
-                + " confirmedEvents=" + countConfirmedAlongsideEvents(detected)
-                + " mergedEvents=" + detected.size()
-                + " savedEvents=" + (shouldInsert ? detected.size() : 0)
-                + " enableInsert=" + enableInsert
-                + " completeHistoryWindow=" + completeHistoryWindow
-                + " failed=" + failed
-                + " replayQueries=" + replaySearchResult.getReplayQueryCount()
-                + " replayElapsedMs=" + replaySearchResult.getElapsedMs()
-                + " safeLoad=" + safeLoad
-                + " batchNo=" + jobParams.getBatchNo());
-        return new AlongsideWindowResult(ownPoints.size(), windows.size(), candidateTargetCount,
+        if (!conciseLog) {
+            XxlJobLogger.log("ALONGSIDE_V3 annual_score mmsi=" + jobParams.getMmsi()
+                    + " eventCount=" + annualScore.getEventCount()
+                    + " validEventCount=" + annualScore.getValidEventCount()
+                    + " highRiskEventCount=" + annualScore.getHighRiskEventCount()
+                    + " severeEventCount=" + annualScore.getSevereEventCount()
+                    + " ARI=" + annualScore.getAnnualRiskIndex()
+                    + " subScore10=" + annualScore.getSubScore10()
+                    + " weightedScore=" + annualScore.getWeightedScore()
+                    + " manualReview=" + annualScore.isManualReviewRequired()
+                    + " batchNo=" + jobParams.getBatchNo());
+            XxlJobLogger.log("ALONGSIDE_V3 summary mode=AUTO mmsi=" + jobParams.getMmsi()
+                    + " points=" + ownPoints.size()
+                    + " lowSpeedWindows=" + windows.size()
+                    + " candidateTargets=" + candidateTargetCount
+                    + " rawEvents=" + detected.size()
+                    + " confirmedEvents=" + countConfirmedAlongsideEvents(detected)
+                    + " mergedEvents=" + detected.size()
+                    + " savedEvents=" + (shouldInsert ? detected.size() : 0)
+                    + " enableInsert=" + enableInsert
+                    + " completeHistoryWindow=" + completeHistoryWindow
+                    + " failed=" + failed
+                    + " replayQueries=" + replaySearchResult.getReplayQueryCount()
+                    + " replayElapsedMs=" + replaySearchResult.getElapsedMs()
+                    + " safeLoad=" + safeLoad
+                    + " batchNo=" + jobParams.getBatchNo());
+        }
+        AlongsideWindowResult result = new AlongsideWindowResult(ownPoints.size(), windows.size(), candidateTargetCount,
                 candidates.size(), replaySearchResult.getReplayQueryCount(),
-                replaySearchResult.getReplayFailures(), detected.size(),
+                replaySearchResult.getReplayFailures(),
+                replaySearchResult.getTruncatedQueries(), detected.size(),
                 countConfirmedAlongsideEvents(detected),
-                annualScore.getHighRiskEventCount(), failed);
+                annualScore.getHighRiskEventCount(), failed, allTraces,
+                rawLowSpeedWindowCount, worldSeaRejectedWindowCount,
+                baselineReplayPlan.size(), filteredReplayPlan.size(), savedReplayQueryCount,
+                replaySearchResult.getAttemptedReplayQueryCount(),
+                replaySearchResult.getSuccessfulReplayQueryCount(),
+                replaySearchResult.getFailedReplayQueryCount(),
+                replaySearchResult.getTruncatedReplayQueryCount());
+        result.alongsideLowSpeedWindows = alongsideLowSpeedWindowCount;
+        result.policyRejectedCandidates = policyRejectedCandidates;
+        result.pairReplayRawPoints = replaySearchResult.getRawPoints();
+        result.candidateFunnel.add(candidateFunnel);
+        result.replayFailureReason = replaySearchResult.getReplayFailureReason();
+        result.replayFailureRetryable = replaySearchResult.isReplayFailureRetryable();
+        return result;
     }
 
     public AnalysisResult analysisAlongsideBatch(String params) {
@@ -999,6 +1280,7 @@ public class ShipBehaviorAnalysisService {
     private ShipAlongsideDetector.AlongsideRule buildAlongsideRule() {
         ShipAlongsideDetector.AlongsideRule rule = ShipAlongsideDetector.AlongsideRule.defaultRule();
         rule.setRuleVersion(alongsideRuleVersion);
+        rule.setCodeCommitSha(codeCommitSha);
         rule.setConfirmMaxDistanceNm(resolveAlongsideConfirmDistance());
         rule.setConfirmMinSpeed(alongsideConfirmMinSpeed);
         rule.setConfirmMaxSpeed(alongsideConfirmMaxSpeed);
@@ -1036,30 +1318,67 @@ public class ShipBehaviorAnalysisService {
 
     private ShipAlongsideDetector.AlongsideContext buildAlongsideContext(
             String ownMmsi, String targetMmsi, Map<String, String> shipTypes,
-            List<TrajectoryPoint> ownPoints, int nearbyVesselCount) {
+            List<TrajectoryPoint> ownPoints, List<TrajectoryPoint> targetPoints, int nearbyVesselCount) {
+        return buildAlongsideContext(ownMmsi, targetMmsi, shipTypes, ownPoints, targetPoints, nearbyVesselCount, false);
+    }
+
+    private ShipAlongsideDetector.AlongsideContext buildAlongsideContext(
+            String ownMmsi, String targetMmsi, Map<String, String> shipTypes,
+            List<TrajectoryPoint> ownPoints, List<TrajectoryPoint> targetPoints, int nearbyVesselCount,
+            boolean policyOwnEligibility) {
         String ownType = shipTypes.get(ownMmsi);
         String targetType = shipTypes.get(targetMmsi);
-        Boolean merchantPair = shipTypeClassifier.merchantPair(ownType, targetType);
         AlongsideSceneService.Scene scene = AlongsideSceneService.Scene.unknown();
-        if (ownPoints != null && !ownPoints.isEmpty()) {
-            double lon = 0.0;
-            double lat = 0.0;
-            int count = 0;
-            for (TrajectoryPoint point : ownPoints) {
-                if (point == null) {
-                    continue;
+        double[] eventLocation = pairedEventLocation(ownPoints, targetPoints);
+        if (eventLocation != null) {
+            scene = alongsideSceneService.classify(eventLocation[0], eventLocation[1]);
+        }
+        TargetRoleClassification target = shipTypeClassifier.classifyTargetShipWithReason(targetType, null);
+        return ShipAlongsideDetector.AlongsideContext.asymmetricWithScene(
+                ownType, targetType, policyOwnEligibility ? OwnShipEligibility.ELIGIBLE_MERCHANT
+                        : shipTypeClassifier.classifyOwnShip(ownType), target,
+                scene.getSceneType(), scene.getNearestPortId(), scene.getNearestPortName(),
+                scene.getDistanceToNearestPortNm(), scene.isDataAvailable(), nearbyVesselCount);
+    }
+
+    private double[] pairedEventLocation(List<TrajectoryPoint> ownPoints, List<TrajectoryPoint> targetPoints) {
+        if (ownPoints == null || targetPoints == null || ownPoints.isEmpty() || targetPoints.isEmpty()) {
+            return null;
+        }
+        List<double[]> midpoints = new ArrayList<double[]>();
+        int targetIndex = 0;
+        for (TrajectoryPoint own : ownPoints) {
+            int bestIndex = -1;
+            long bestGap = Long.MAX_VALUE;
+            for (int i = targetIndex; i < targetPoints.size(); i++) {
+                TrajectoryPoint target = targetPoints.get(i);
+                long gap = Math.abs(java.time.Duration.between(own.getTime(), target.getTime()).getSeconds());
+                if (gap < bestGap) {
+                    bestGap = gap;
+                    bestIndex = i;
                 }
-                lon += point.getLon();
-                lat += point.getLat();
-                count++;
+                if (target.getTime().isAfter(own.getTime())
+                        && gap > alongsideConfirmMaxTimeGapMinutes * 60L) {
+                    break;
+                }
             }
-            if (count > 0) {
-                scene = alongsideSceneService.classify(lon / count, lat / count);
+            if (bestIndex >= 0 && bestGap <= alongsideConfirmMaxTimeGapMinutes * 60L) {
+                TrajectoryPoint target = targetPoints.get(bestIndex);
+                midpoints.add(new double[]{(own.getLon() + target.getLon()) / 2.0,
+                        (own.getLat() + target.getLat()) / 2.0});
+                targetIndex = bestIndex + 1;
             }
         }
-        return ShipAlongsideDetector.AlongsideContext.of(
-                ownType, targetType, merchantPair, scene.isNearPort(), scene.isNearAnchor(),
-                scene.isOpenSea(), scene.isDataAvailable(), nearbyVesselCount);
+        if (midpoints.isEmpty()) { return null; }
+        int count = midpoints.size();
+        int[] samples = count == 1 ? new int[]{0} : new int[]{0, count / 2, count - 1};
+        double lon = 0.0;
+        double lat = 0.0;
+        for (int index : samples) {
+            lon += midpoints.get(index)[0];
+            lat += midpoints.get(index)[1];
+        }
+        return new double[]{lon / samples.length, lat / samples.length};
     }
 
     private double resolveAlongsideConfirmDistance() {
@@ -1705,24 +2024,121 @@ public class ShipBehaviorAnalysisService {
         private final int candidatePairs;
         private final int replayQueries;
         private final int replayFailures;
+        private final int truncatedQueries;
         private final int events;
         private final int confirmedEvents;
         private final int highRiskEvents;
         private final int failed;
+        private final List<ShipBehaviorTrace> traces;
+        private final int rawLowSpeedWindows;
+        private final int worldSeaRejectedWindows;
+        private final int savedReplayQueries;
+        private final int baselinePlannedReplayQueries;
+        private final int filteredPlannedReplayQueries;
+        private final int attemptedReplayQueries;
+        private final int successfulReplayQueries;
+        private final int failedReplayQueries;
+        private final int truncatedReplayQueryCount;
+        private int alongsideLowSpeedWindows;
+        private int policyRejectedCandidates;
+        private int pairReplayRawPoints;
+        private String replayFailureReason;
+        private boolean replayFailureRetryable;
+        private final CandidateFunnelStats candidateFunnel = new CandidateFunnelStats();
 
         public AlongsideWindowResult(int points, int lowSpeedWindows, int candidateTargets,
                                      int candidatePairs, int replayQueries, int replayFailures,
                                      int events, int confirmedEvents, int highRiskEvents, int failed) {
+            this(points, lowSpeedWindows, candidateTargets, candidatePairs, replayQueries,
+                    replayFailures, 0, events, confirmedEvents, highRiskEvents, failed,
+                    Collections.<ShipBehaviorTrace>emptyList(), lowSpeedWindows, 0, 0);
+        }
+
+        public AlongsideWindowResult(int points, int lowSpeedWindows, int candidateTargets,
+                                     int candidatePairs, int replayQueries, int replayFailures,
+                                     int truncatedQueries, int events, int confirmedEvents,
+                                     int highRiskEvents, int failed,
+                                     List<ShipBehaviorTrace> traces) {
             this.points = points;
             this.lowSpeedWindows = lowSpeedWindows;
             this.candidateTargets = candidateTargets;
             this.candidatePairs = candidatePairs;
             this.replayQueries = replayQueries;
             this.replayFailures = replayFailures;
+            this.truncatedQueries = truncatedQueries;
             this.events = events;
             this.confirmedEvents = confirmedEvents;
             this.highRiskEvents = highRiskEvents;
             this.failed = failed;
+            this.traces = traces == null ? Collections.<ShipBehaviorTrace>emptyList()
+                    : Collections.unmodifiableList(new ArrayList<ShipBehaviorTrace>(traces));
+            this.rawLowSpeedWindows = lowSpeedWindows;
+            this.worldSeaRejectedWindows = 0;
+            this.savedReplayQueries = 0;
+            this.baselinePlannedReplayQueries = replayQueries;
+            this.filteredPlannedReplayQueries = replayQueries;
+            this.attemptedReplayQueries = replayQueries;
+            this.successfulReplayQueries = Math.max(0, replayQueries - replayFailures);
+            this.failedReplayQueries = replayFailures;
+            this.truncatedReplayQueryCount = truncatedQueries;
+        }
+
+        public AlongsideWindowResult(int points, int lowSpeedWindows, int candidateTargets,
+                                     int candidatePairs, int replayQueries, int replayFailures,
+                                     int truncatedQueries, int events, int confirmedEvents,
+                                     int highRiskEvents, int failed, List<ShipBehaviorTrace> traces,
+                                     int rawLowSpeedWindows, int worldSeaRejectedWindows,
+                                     int savedReplayQueries) {
+            this(points, lowSpeedWindows, candidateTargets, candidatePairs, replayQueries,
+                    replayFailures, truncatedQueries, events, confirmedEvents, highRiskEvents,
+                    failed, traces, rawLowSpeedWindows, worldSeaRejectedWindows,
+                    replayQueries + Math.max(0, savedReplayQueries), replayQueries,
+                    savedReplayQueries, replayQueries, Math.max(0, replayQueries - replayFailures),
+                    replayFailures, truncatedQueries);
+        }
+
+        public AlongsideWindowResult(int points, int lowSpeedWindows, int candidateTargets,
+                                     int candidatePairs, int replayQueries, int replayFailures,
+                                     int truncatedQueries, int events, int confirmedEvents,
+                                     int highRiskEvents, int failed, List<ShipBehaviorTrace> traces,
+                                     int rawLowSpeedWindows, int worldSeaRejectedWindows,
+                                     int baselinePlannedReplayQueries, int filteredPlannedReplayQueries,
+                                     int savedReplayQueries, int attemptedReplayQueries,
+                                     int successfulReplayQueries, int failedReplayQueries,
+                                     int truncatedReplayQueryCount) {
+            if (baselinePlannedReplayQueries < 0 || filteredPlannedReplayQueries < 0
+                    || savedReplayQueries < 0 || attemptedReplayQueries < 0
+                    || successfulReplayQueries < 0 || failedReplayQueries < 0
+                    || truncatedReplayQueryCount < 0
+                    || savedReplayQueries != Math.max(0,
+                    baselinePlannedReplayQueries - filteredPlannedReplayQueries)
+                    || successfulReplayQueries + failedReplayQueries
+                    + truncatedReplayQueryCount > attemptedReplayQueries) {
+                throw new IllegalArgumentException("invalid alongside replay query metrics: attempted="
+                        + attemptedReplayQueries + ", successful=" + successfulReplayQueries
+                        + ", failed=" + failedReplayQueries + ", truncated="
+                        + truncatedReplayQueryCount + ", baselinePlanned="
+                        + baselinePlannedReplayQueries + ", filteredPlanned="
+                        + filteredPlannedReplayQueries + ", saved=" + savedReplayQueries);
+            }
+            this.points = points; this.lowSpeedWindows = lowSpeedWindows;
+            this.candidateTargets = candidateTargets; this.candidatePairs = candidatePairs;
+            this.replayQueries = replayQueries; this.replayFailures = replayFailures;
+            this.truncatedQueries = truncatedQueries; this.events = events;
+            this.confirmedEvents = confirmedEvents; this.highRiskEvents = highRiskEvents;
+            this.failed = failed;
+            this.traces = traces == null ? Collections.<ShipBehaviorTrace>emptyList()
+                    : Collections.unmodifiableList(new ArrayList<ShipBehaviorTrace>(traces));
+            this.rawLowSpeedWindows = rawLowSpeedWindows;
+            this.worldSeaRejectedWindows = worldSeaRejectedWindows;
+            this.savedReplayQueries = savedReplayQueries;
+            this.baselinePlannedReplayQueries = baselinePlannedReplayQueries;
+            this.filteredPlannedReplayQueries = filteredPlannedReplayQueries;
+            this.attemptedReplayQueries = attemptedReplayQueries;
+            this.successfulReplayQueries = successfulReplayQueries;
+            this.failedReplayQueries = failedReplayQueries;
+            this.truncatedReplayQueryCount = truncatedReplayQueryCount;
+            this.alongsideLowSpeedWindows = lowSpeedWindows;
         }
 
         public int getPoints() {
@@ -1742,11 +2158,16 @@ public class ShipBehaviorAnalysisService {
         }
 
         public int getReplayQueries() {
+            // Backward-compatible alias: this is the attempted execution count, not planned or saved queries.
             return replayQueries;
         }
 
         public int getReplayFailures() {
             return replayFailures;
+        }
+
+        public int getTruncatedQueries() {
+            return truncatedQueries;
         }
 
         public int getEvents() {
@@ -1764,6 +2185,25 @@ public class ShipBehaviorAnalysisService {
         public int getFailed() {
             return failed;
         }
+
+        public List<ShipBehaviorTrace> getTraces() {
+            return traces;
+        }
+        public int getRawLowSpeedWindows() { return rawLowSpeedWindows; }
+        public int getWorldSeaRejectedWindows() { return worldSeaRejectedWindows; }
+        public int getSavedReplayQueries() { return savedReplayQueries; }
+        public int getBaselinePlannedReplayQueries() { return baselinePlannedReplayQueries; }
+        public int getFilteredPlannedReplayQueries() { return filteredPlannedReplayQueries; }
+        public int getAttemptedReplayQueries() { return attemptedReplayQueries; }
+        public int getSuccessfulReplayQueries() { return successfulReplayQueries; }
+        public int getFailedReplayQueries() { return failedReplayQueries; }
+        public int getTruncatedReplayQueryCount() { return truncatedReplayQueryCount; }
+        public int getAlongsideLowSpeedWindows() { return alongsideLowSpeedWindows; }
+        public int getPolicyRejectedCandidates() { return policyRejectedCandidates; }
+        public int getPairReplayRawPoints() { return pairReplayRawPoints; }
+        public String getReplayFailureReason() { return replayFailureReason; }
+        public boolean isReplayFailureRetryable() { return replayFailureRetryable; }
+        public CandidateFunnelStats getCandidateFunnel() { return candidateFunnel; }
     }
 
     private static class LoiteringTaskResult {

@@ -79,8 +79,8 @@ public class ZonePassageAnalysisService {
     @Value("${zone.passage.backfill.from-date:2025-01-01}")
     private String backfillFromDate;
 
-    /** 补算结束日期（不含当天），默认 2026-07-01 表示覆盖至 2026-06 最后一周 */
-    @Value("${zone.passage.backfill.to-date:2026-07-01}")
+    /** 补算结束日期（不含当天），默认 2026-08-10 表示覆盖至 2026-08-09；之后由日任务续算 */
+    @Value("${zone.passage.backfill.to-date:2026-08-10}")
     private String backfillToDate;
 
     @Autowired
@@ -101,7 +101,7 @@ public class ZonePassageAnalysisService {
     /**
      * 历史补算入口：单次 Job 从断点周起循环处理至范围结束，按周查轨迹，支持周级 + 船级断点续跑。
      * <p>
-     * 默认范围 2025-01-01～2026-06（按自然周切分，每段 7 天）。任务中断后下次从断点周继续。
+     * 默认范围 2025-01-01～2026-08-09（按自然周切分，每段 7 天）。任务中断后下次从断点周继续。
      * <p>
      * 参数示例：
      * <ul>
@@ -178,6 +178,94 @@ public class ZonePassageAnalysisService {
 
         String message = "补算范围 " + formatDate(rangeStart) + "~" + formatDate(rangeEnd)
                 + " 全部周已完成，共循环 " + pendingWeeks.size() + " 周";
+        XxlJobLogger.log(message);
+        return BackfillResult.of(lastBatchKey, totalProcessed, totalFailed, totalEvents, message);
+    }
+
+    /**
+     * 日任务入口：从历史补算结束后一天起，按自然日补算至昨天。
+     * <p>
+     * 已完成日期自动跳过（status 表船级断点），漏跑的天会在下次启动时补上。
+     * <ul>
+     *   <li>今天 8/11 启动 → 算 8/10</li>
+     *   <li>今天 8/12 启动 → 检查 8/10、8/11，未完成才算</li>
+     * </ul>
+     * 参数示例：空；或 {@code date=2026-08-10} 只算指定自然日。
+     */
+    public BackfillResult analysisZonePassageDailyCatchup(String params) {
+        JobParams baseParams = parseParams(params);
+
+        List<String> allMmsiList = resolveMmsiList(baseParams);
+        if (allMmsiList.isEmpty()) {
+            XxlJobLogger.log("没有可处理的船舶，任务结束");
+            return BackfillResult.failed("没有可处理的船舶");
+        }
+
+        LocalDate rangeStart = resolveDailyCatchupStart(baseParams);
+        LocalDate rangeEndExclusive = LocalDate.now();
+        if (!rangeStart.isBefore(rangeEndExclusive)) {
+            String msg = "日任务尚无可算日期（起始 " + rangeStart + "，今天 " + rangeEndExclusive + "）";
+            XxlJobLogger.log(msg);
+            return BackfillResult.allComplete(msg);
+        }
+
+        List<DaySlice> pendingDays = resolvePendingDays(baseParams, allMmsiList, rangeStart, rangeEndExclusive);
+        if (pendingDays.isEmpty()) {
+            String msg = "日任务范围 " + rangeStart + "~" + rangeEndExclusive.minusDays(1)
+                    + " 内所有自然日均已完成";
+            log.info(msg);
+            XxlJobLogger.log(msg);
+            return BackfillResult.allComplete(msg);
+        }
+
+        DaySlice firstDay = pendingDays.get(0);
+        DaySlice lastDay = pendingDays.get(pendingDays.size() - 1);
+        XxlJobLogger.log("日任务范围 " + rangeStart + "~" + rangeEndExclusive.minusDays(1)
+                + " | 本次待算天数=" + pendingDays.size()
+                + " | 首日=" + firstDay.getBatchKey()
+                + " | 末日=" + lastDay.getBatchKey()
+                + " | 全船=" + allMmsiList.size()
+                + " | 并行度=" + effectiveParallelism());
+
+        ZoneContext zoneContext = loadZoneContext();
+        int totalProcessed = 0;
+        int totalFailed = 0;
+        int totalEvents = 0;
+        String lastBatchKey = null;
+
+        for (DaySlice day : pendingDays) {
+            lastBatchKey = day.getBatchKey();
+            JobParams dayParams = copyTimeFields(baseParams);
+            applyDayRange(dayParams, day);
+
+            int doneCount = zonePassageStatusRepository.countByStatus(
+                    dayParams.getBatchMonth(), dayParams.getStartTime(), dayParams.getEndTime(), "DONE");
+            int failedCount = zonePassageStatusRepository.countByStatus(
+                    dayParams.getBatchMonth(), dayParams.getStartTime(), dayParams.getEndTime(), "FAILED");
+            List<String> pendingMmsiList = filterPendingShips(allMmsiList, dayParams);
+
+            XxlJobLogger.log(">>> 开始日 " + day.getBatchKey()
+                    + " (" + dayParams.getStartTime() + " ~ " + dayParams.getEndTime() + ")"
+                    + " | 已完成=" + doneCount
+                    + " | 失败待重试=" + failedCount
+                    + " | 待处理=" + pendingMmsiList.size());
+
+            AnalysisResult dayResult = executeAnalysis(dayParams, zoneContext, allMmsiList);
+            totalProcessed += dayResult.getProcessed();
+            totalFailed += dayResult.getFailed();
+            totalEvents += dayResult.getTotalEvents();
+
+            XxlJobLogger.log("<<< 日 " + day.getBatchKey() + " 结束：" + dayResult.getSummary());
+
+            if (!dayResult.isSuccess()) {
+                String message = "日 " + day.getBatchKey() + " 存在失败船舶，已停止后续日，请修复后重跑";
+                XxlJobLogger.log(message);
+                return BackfillResult.of(lastBatchKey, totalProcessed, totalFailed, totalEvents, message);
+            }
+        }
+
+        String message = "日任务范围 " + rangeStart + "~" + rangeEndExclusive.minusDays(1)
+                + " 全部待算日已完成，共循环 " + pendingDays.size() + " 天";
         XxlJobLogger.log(message);
         return BackfillResult.of(lastBatchKey, totalProcessed, totalFailed, totalEvents, message);
     }
@@ -280,6 +368,57 @@ public class ZonePassageAnalysisService {
         jobParams.setBatchMonth(week.getBatchKey());
     }
 
+    /** 日任务起始日：指定 date/fromDate 优先；否则为历史补算结束日（backfill.to-date，即 8/9 次日）。 */
+    private LocalDate resolveDailyCatchupStart(JobParams baseParams) {
+        if (StringUtils.isNotBlank(baseParams.getDate())) {
+            return parseDate(baseParams.getDate());
+        }
+        if (StringUtils.isNotBlank(baseParams.getFromDate())) {
+            return parseDate(baseParams.getFromDate());
+        }
+        return parseDate(backfillToDate);
+    }
+
+    private List<DaySlice> resolvePendingDays(JobParams baseParams, List<String> allMmsiList,
+                                              LocalDate rangeStart, LocalDate rangeEndExclusive) {
+        List<DaySlice> candidates;
+        if (StringUtils.isNotBlank(baseParams.getDate())) {
+            LocalDate day = parseDate(baseParams.getDate());
+            if (!day.isBefore(rangeEndExclusive)) {
+                return Collections.emptyList();
+            }
+            candidates = Collections.singletonList(new DaySlice(day));
+        } else {
+            candidates = buildDaySlices(rangeStart, rangeEndExclusive);
+        }
+
+        List<DaySlice> pendingDays = new ArrayList<DaySlice>();
+        for (DaySlice day : candidates) {
+            JobParams dayParams = copyTimeFields(baseParams);
+            applyDayRange(dayParams, day);
+            if (!filterPendingShips(allMmsiList, dayParams).isEmpty()) {
+                pendingDays.add(day);
+            }
+        }
+        return pendingDays;
+    }
+
+    private List<DaySlice> buildDaySlices(LocalDate rangeStart, LocalDate rangeEndExclusive) {
+        List<DaySlice> days = new ArrayList<DaySlice>();
+        LocalDate cursor = rangeStart;
+        while (cursor.isBefore(rangeEndExclusive)) {
+            days.add(new DaySlice(cursor));
+            cursor = cursor.plusDays(1);
+        }
+        return days;
+    }
+
+    private void applyDayRange(JobParams jobParams, DaySlice day) {
+        jobParams.setStartTime(day.getStart().format(TIME_FORMATTER));
+        jobParams.setEndTime(day.getEnd().format(TIME_FORMATTER));
+        jobParams.setBatchMonth(day.getBatchKey());
+    }
+
     private LocalDate parseDate(String value) {
         return LocalDate.parse(value.trim(), DATE_FORMATTER);
     }
@@ -295,6 +434,7 @@ public class ZonePassageAnalysisService {
         copy.setToMonth(source.getToMonth());
         copy.setMonth(source.getMonth());
         copy.setWeek(source.getWeek());
+        copy.setDate(source.getDate());
         copy.setFromDate(source.getFromDate());
         copy.setToDate(source.getToDate());
         return copy;
@@ -313,10 +453,15 @@ public class ZonePassageAnalysisService {
                 start = end.minusMonths(1);
                 batchKey = end.format(MONTH_FORMATTER);
                 break;
-            case DAY:
-                start = end.minusDays(1);
-                batchKey = end.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            case DAY: {
+                // 自然日：昨天 00:00 ~ 今天 00:00，与历史补算按日衔接（补算至 8/9 后由本任务续算）
+                LocalDate today = LocalDate.now();
+                LocalDate day = today.minusDays(1);
+                start = day.atStartOfDay();
+                end = today.atStartOfDay();
+                batchKey = day.format(DATE_FORMATTER);
                 break;
+            }
             case WEEK:
                 start = end.minusWeeks(1);
                 batchKey = start.format(DateTimeFormatter.ofPattern("yyyy-MM-dd")) + "-W";
@@ -387,9 +532,14 @@ public class ZonePassageAnalysisService {
         AtomicInteger totalEvents = new AtomicInteger(0);
         int logInterval = Math.max(1, progressInterval);
         StatusBatchBuffer statusBatchBuffer = new StatusBatchBuffer(zonePassageStatusRepository, statusBatchSize);
+        boolean interrupted = false;
 
         if (parallelism <= 1) {
             for (String mmsi : pendingMmsiList) {
+                if (Thread.currentThread().isInterrupted()) {
+                    interrupted = true;
+                    break;
+                }
                 processShip(mmsi, jobParams, zoneContext, stormRegionIndex, statusBatchBuffer,
                         processed, failed, totalEvents, pendingMmsiList.size(), logInterval);
             }
@@ -410,16 +560,31 @@ public class ZonePassageAnalysisService {
                 try {
                     if (!executor.awaitTermination(7, TimeUnit.DAYS)) {
                         executor.shutdownNow();
+                        interrupted = true;
                         XxlJobLogger.log("任务等待超时，已强制停止线程池");
                     }
                 } catch (InterruptedException ex) {
                     executor.shutdownNow();
+                    interrupted = true;
                     Thread.currentThread().interrupt();
+                    XxlJobLogger.log("任务被中断，本批次未跑完，不进入下一日/周");
                 }
             }
         }
 
         statusBatchBuffer.flush();
+
+        int doneOrFailed = processed.get() + failed.get();
+        if (interrupted || doneOrFailed < pendingMmsiList.size()) {
+            String msg = "本批次未完成：待处理=" + pendingMmsiList.size()
+                    + "，已处理=" + processed.get()
+                    + "，失败=" + failed.get()
+                    + (interrupted ? "（中断/超时）" : "");
+            XxlJobLogger.log(msg);
+            log.warn("区域通行分析任务未完成, batch={}, {}", jobParams.getBatchMonth(), msg);
+            // failed>0 使 isSuccess()=false，日/周循环会停在当前批次
+            return new AnalysisResult(processed.get(), Math.max(1, failed.get()), totalEvents.get());
+        }
 
         AnalysisResult result = new AnalysisResult(processed.get(), failed.get(), totalEvents.get());
         log.info("区域通行分析任务结束, {}", result.getSummary());
@@ -745,6 +910,9 @@ public class ZonePassageAnalysisService {
                 if (json.containsKey("week")) {
                     jobParams.setWeek(json.getString("week"));
                 }
+                if (json.containsKey("date")) {
+                    jobParams.setDate(json.getString("date"));
+                }
                 if (json.containsKey("fromDate")) {
                     jobParams.setFromDate(json.getString("fromDate"));
                 }
@@ -804,6 +972,8 @@ public class ZonePassageAnalysisService {
                 jobParams.setMonth(value);
             } else if ("week".equalsIgnoreCase(key)) {
                 jobParams.setWeek(value);
+            } else if ("date".equalsIgnoreCase(key)) {
+                jobParams.setDate(value);
             } else if ("fromDate".equalsIgnoreCase(key)) {
                 jobParams.setFromDate(value);
             } else if ("toDate".equalsIgnoreCase(key)) {
@@ -925,6 +1095,31 @@ public class ZonePassageAnalysisService {
         }
     }
 
+    /** 自然日切片：day 00:00 ~ day+1 00:00，batchKey=yyyy-MM-dd */
+    private static final class DaySlice {
+        private final LocalDateTime start;
+        private final LocalDateTime end;
+        private final String batchKey;
+
+        private DaySlice(LocalDate day) {
+            this.start = day.atStartOfDay();
+            this.end = day.plusDays(1).atStartOfDay();
+            this.batchKey = day.format(DATE_FORMATTER);
+        }
+
+        private LocalDateTime getStart() {
+            return start;
+        }
+
+        private LocalDateTime getEnd() {
+            return end;
+        }
+
+        private String getBatchKey() {
+            return batchKey;
+        }
+    }
+
     private static final class ZoneContext {
         private final ZoneSpatialMatcher straitMatcher;
         private final ZoneSpatialMatcher seaAreaMatcher;
@@ -972,6 +1167,7 @@ public class ZonePassageAnalysisService {
         private String batchMonth;
         private String month;
         private String week;
+        private String date;
         private String fromMonth;
         private String toMonth;
         private String fromDate;
@@ -1021,6 +1217,14 @@ public class ZonePassageAnalysisService {
             this.week = week;
         }
 
+        public String getDate() {
+            return date;
+        }
+
+        public void setDate(String date) {
+            this.date = date;
+        }
+
         public String getFromMonth() {
             return fromMonth;
         }
@@ -1057,6 +1261,7 @@ public class ZonePassageAnalysisService {
         public String toString() {
             return "JobParams{mmsiList=" + (mmsiList.isEmpty() ? "ALL" : mmsiList)
                     + ", week='" + week + '\''
+                    + ", date='" + date + '\''
                     + ", fromDate='" + fromDate + '\''
                     + ", toDate='" + toDate + '\''
                     + ", batchMonth='" + batchMonth + '\''

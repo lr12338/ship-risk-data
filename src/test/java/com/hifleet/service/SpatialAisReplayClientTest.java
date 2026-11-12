@@ -2,6 +2,7 @@ package com.hifleet.service;
 
 import com.hifleet.domain.ReplayQueryRequest;
 import com.hifleet.domain.ReplayQueryResult;
+import com.hifleet.domain.AlongsideReplaySearchResult;
 import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -87,5 +88,46 @@ public class SpatialAisReplayClientTest {
         assertEquals("0", result.getResponseStatus());
         assertEquals("starttime or endtime is empty", result.getResponseMessage());
         assertTrue(result.getErrorMessage().contains("STATUS_0"));
+    }
+
+    @Test
+    public void parseBodyCountsInvalidAndOutsideRequestedTimePoints() throws Exception {
+        SpatialAisReplayClient client = new SpatialAisReplayClient();
+        ReflectionTestUtils.setField(client, "largeResultThreshold", 30000);
+        ReflectionTestUtils.setField(client, "replayAisPointParser", new ReplayAisPointParser());
+        ReplayQueryRequest request = new ReplayQueryRequest();
+        request.setStartTime("2026-06-28 18:00:00");
+        request.setEndTime("2026-06-28 18:30:00");
+        request.setDevSize(50000);
+        ReplayQueryResult result = new ReplayQueryResult();
+        result.setRequest(request);
+        String body = "{\"status\":\"1\",\"data\":{\"413193000\":["
+                + "\"413193000;2026-06-28 17:59:59;122.2104;29.88851;35.6;0.1\","
+                + "\"413193000;2026-06-28 18:10:00;122.2105;29.88855;36.0;0.1\","
+                + "\"413193000;bad-time;122.2105;29.88855;36.0;0.1\"]}}";
+
+        Method parseBody = SpatialAisReplayClient.class.getDeclaredMethod(
+                "parseBody", String.class, ReplayQueryRequest.class, ReplayQueryResult.class);
+        parseBody.setAccessible(true);
+        parseBody.invoke(client, body, request, result);
+
+        assertEquals(3, result.getRawPointCount());
+        assertEquals(2, result.getValidPointCount());
+        assertEquals(1, result.getInvalidPointCount());
+        assertEquals(1, result.getOutsideRequestedTimePointCount());
+    }
+
+    @Test
+    public void replaySearchRetainsBoundedFailureReasonAndRetryability() {
+        ReplayQueryResult failed = new ReplayQueryResult();
+        failed.setErrorMessage("SocketTimeoutException: Read timed out");
+        failed.setRetryableFailure(true);
+        AlongsideReplaySearchResult search = new AlongsideReplaySearchResult();
+
+        search.recordTerminalReplayResult(failed);
+
+        assertEquals("SocketTimeoutException: Read timed out", search.getReplayFailureReason());
+        assertTrue(search.isReplayFailureRetryable());
+        assertEquals(1, search.getFailedReplayQueryCount());
     }
 }

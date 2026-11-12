@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_event_detail` (
   `course` DOUBLE DEFAULT NULL COMMENT '航向',
   `nav_status` VARCHAR(32) DEFAULT NULL COMMENT '航行状态',
   `batch_no` VARCHAR(64) DEFAULT NULL COMMENT '计算批次',
-  `rule_version` VARCHAR(32) DEFAULT NULL COMMENT '规则版本',
+  `rule_version` VARCHAR(64) DEFAULT NULL COMMENT '规则版本',
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_behavior_batch` (`behavior_type`, `batch_no`),

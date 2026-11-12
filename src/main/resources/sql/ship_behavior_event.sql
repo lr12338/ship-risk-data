@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_event` (
   `target_ship_type` VARCHAR(64) DEFAULT NULL COMMENT '目标船类型',
   `avg_speed` DOUBLE DEFAULT NULL COMMENT '片段平均航速',
   `point_count` INT DEFAULT NULL COMMENT '参与识别的轨迹点数量',
-  `rule_version` VARCHAR(32) DEFAULT NULL COMMENT '规则版本，便于后续规则调整后区分结果',
+  `rule_version` VARCHAR(64) DEFAULT NULL COMMENT '规则版本，便于后续规则调整后区分结果',
   `batch_no` VARCHAR(64) DEFAULT NULL COMMENT '计算批次',
   `event_sub_type` VARCHAR(32) DEFAULT NULL COMMENT '徘徊子类型',
   `severity_level` VARCHAR(8) DEFAULT NULL COMMENT 'L0-L4',
@@ -42,9 +42,15 @@ CREATE TABLE IF NOT EXISTS `dataanalysis`.`ship_behavior_event` (
   `center_lat` DOUBLE DEFAULT NULL COMMENT '事件中心纬度',
   `radius_nm` DOUBLE DEFAULT NULL COMMENT '事件活动半径，海里',
   `score_detail_json` TEXT DEFAULT NULL COMMENT '评分明细JSON',
+  `event_source` VARCHAR(16) DEFAULT NULL COMMENT 'TARGET_LIST/REGION',
+  `region_id` VARCHAR(128) DEFAULT NULL COMMENT '区域任务编码',
+  `region_fingerprint` VARCHAR(64) DEFAULT NULL COMMENT '区域几何指纹',
+  `event_key` VARCHAR(64) DEFAULT NULL COMMENT '批次内稳定事件键',
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_behavior_mmsi_time` (`behavior_type`, `mmsi`, `start_time`),
   KEY `idx_target_mmsi_time` (`target_mmsi`, `start_time`),
-  KEY `idx_batch_no` (`batch_no`)
+  KEY `idx_batch_no` (`batch_no`),
+  KEY `idx_batch_region_behavior_time` (`batch_no`,`region_id`,`behavior_type`,`start_time`),
+  UNIQUE KEY `uk_batch_event_key` (`batch_no`,`event_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='船舶行为事件候选结果（徘徊/搭靠）';

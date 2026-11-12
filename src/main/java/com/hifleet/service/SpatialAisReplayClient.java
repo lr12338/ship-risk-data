@@ -23,6 +23,8 @@ import org.springframework.stereotype.Component;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -35,6 +37,8 @@ import java.util.Map;
 public class SpatialAisReplayClient {
 
     private static final Logger log = LoggerFactory.getLogger(SpatialAisReplayClient.class);
+    private static final DateTimeFormatter TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Value("${ship.behavior.alongside.replay.url:https://gm.hifleet.com/spatialais/getRecentAis}")
     private String replayUrl;
@@ -95,6 +99,7 @@ public class SpatialAisReplayClient {
                             : EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
                     if (statusCode != HttpStatus.SC_OK) {
                         result.setErrorMessage("HTTP_STATUS_" + statusCode);
+                        result.setRetryableFailure(statusCode == 429 || statusCode >= 500);
                         return result;
                     }
                     parseBody(body, request, result);
@@ -106,7 +111,9 @@ public class SpatialAisReplayClient {
                 httpClient.close();
             }
         } catch (Exception ex) {
-            result.setErrorMessage(ex.getMessage());
+            result.setErrorMessage(ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            result.setTimeout(ex instanceof java.net.SocketTimeoutException);
+            result.setRetryableFailure(ex instanceof java.io.IOException);
             log.warn("getRecentAis query failed, request={}", requestSummary(request), ex);
             return result;
         } finally {
@@ -158,6 +165,7 @@ public class SpatialAisReplayClient {
         int rawPoints = 0;
         int validPoints = 0;
         int parseErrors = 0;
+        int outsideRequestedTimePoints = 0;
         for (String mmsi : data.keySet()) {
             JSONArray values = data.getJSONArray(mmsi);
             if (values == null) {
@@ -172,6 +180,7 @@ public class SpatialAisReplayClient {
                     continue;
                 }
                 validPoints++;
+                if (outsideRequestedTime(point, request)) outsideRequestedTimePoints++;
                 points.add(point);
             }
             if (!points.isEmpty()) {
@@ -182,10 +191,25 @@ public class SpatialAisReplayClient {
         result.setRawPointCount(rawPoints);
         result.setValidPointCount(validPoints);
         result.setParseErrorCount(parseErrors);
+        result.setOutsideRequestedTimePointCount(outsideRequestedTimePoints);
         result.setLargeResult(rawPoints >= largeResultThreshold);
         result.setTruncated(request.getDevSize() > 0 && rawPoints >= request.getDevSize());
         result.setTracksByMmsi(tracks);
         result.setSuccess(true);
+    }
+
+    private boolean outsideRequestedTime(TrajectoryPoint point, ReplayQueryRequest request) {
+        if (point == null || point.getTime() == null || request == null
+                || StringUtils.isBlank(request.getStartTime()) || StringUtils.isBlank(request.getEndTime())) {
+            return false;
+        }
+        try {
+            LocalDateTime start = LocalDateTime.parse(request.getStartTime(), TIME_FORMATTER);
+            LocalDateTime end = LocalDateTime.parse(request.getEndTime(), TIME_FORMATTER);
+            return point.getTime().isBefore(start) || point.getTime().isAfter(end);
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     private ReplayQueryResult failed(ReplayQueryRequest request, String message) {

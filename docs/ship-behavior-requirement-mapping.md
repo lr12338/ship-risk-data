@@ -384,12 +384,12 @@ V2 配置：
    - Port: `3306`
    - Database: `dataanalysis`
    - Username: `db55o2pytj4vx12b`
-   - Password: 服务器运行时配置中的密码
+   - Password: 通过私有渠道提供，不在仓库保存
 2. SSH Tunnel 信息：
    - SSH Host: `39.96.38.242`
    - SSH Port: `1222`
    - SSH User: `ecs-user`
-   - SSH Password: 服务器登录密码
+   - SSH Password: 通过私有渠道提供，不在仓库保存
 
 如果本机直连超时，通常说明：
 

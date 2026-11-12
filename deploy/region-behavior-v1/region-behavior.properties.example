@@ -1,0 +1,34 @@
+# V1 is disabled until an operator explicitly enables the isolated dry-run job.
+ship.behavior.region.enabled=false
+ship.behavior.region.dry-run-only=true
+ship.behavior.region.write-enabled=false
+ship.behavior.region.output-root=var/region-behavior-runs
+
+# Preflight boundaries.
+ship.behavior.region.max-polygon-vertices=2000
+ship.behavior.region.max-region-area-sq-km=2500
+ship.behavior.region.max-run-hours=24
+ship.behavior.region.max-candidate-vessels=500
+ship.behavior.region.max-query-slices=5000
+
+# Discovery uses the existing replay endpoint's 50,000-point request boundary.
+ship.behavior.region.discovery.time-slice-minutes=30
+ship.behavior.region.discovery.min-time-slice-minutes=5
+ship.behavior.region.discovery.max-points-per-slice=50000
+ship.behavior.region.discovery.spatial-cell-max-degrees=0.25
+ship.behavior.region.discovery.max-spatial-refinement-depth=4
+ship.behavior.region.discovery.max-parse-error-ratio=0.02
+
+# Full-track analysis boundaries reuse the existing production defaults.
+ship.behavior.region.analysis.context-before-hours=6
+ship.behavior.region.analysis.context-after-hours=6
+ship.behavior.region.analysis.buffer-nm=3
+ship.behavior.region.analysis.trajectory-slice-hours=6
+ship.behavior.region.analysis.max-points-per-vessel=200000
+ship.behavior.region.analysis.simplify-zoom=15
+ship.behavior.region.metadata.in-batch-size=200
+
+ship.behavior.region.match.loitering-min-inside-ratio=0.60
+ship.behavior.region.match.alongside-min-inside-ratio=0.60
+ship.behavior.region.match.alongside-pair-overlap-ratio=0.80
+ship.behavior.region.match.pair-sync-tolerance-minutes=10
