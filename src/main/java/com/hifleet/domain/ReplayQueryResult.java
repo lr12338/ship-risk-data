@@ -12,15 +12,18 @@ import java.util.Map;
 public class ReplayQueryResult {
 
     private boolean success;
+    private boolean timeout;
     private boolean truncated;
     private boolean largeResult;
     private int rawVesselCount;
     private int rawPointCount;
     private int validPointCount;
     private int parseErrorCount;
+    private int outsideRequestedTimePointCount;
     private int httpStatus;
     private long elapsedMs;
     private String errorMessage;
+    private boolean retryableFailure;
     private String responseStatus;
     private String responseMessage;
     private ReplayQueryRequest request;
@@ -32,6 +35,14 @@ public class ReplayQueryResult {
 
     public void setSuccess(boolean success) {
         this.success = success;
+    }
+
+    public boolean isTimeout() {
+        return timeout;
+    }
+
+    public void setTimeout(boolean timeout) {
+        this.timeout = timeout;
     }
 
     public boolean isTruncated() {
@@ -82,6 +93,18 @@ public class ReplayQueryResult {
         this.parseErrorCount = parseErrorCount;
     }
 
+    public int getInvalidPointCount() {
+        return parseErrorCount;
+    }
+
+    public int getOutsideRequestedTimePointCount() {
+        return outsideRequestedTimePointCount;
+    }
+
+    public void setOutsideRequestedTimePointCount(int outsideRequestedTimePointCount) {
+        this.outsideRequestedTimePointCount = outsideRequestedTimePointCount;
+    }
+
     public int getHttpStatus() {
         return httpStatus;
     }
@@ -105,6 +128,9 @@ public class ReplayQueryResult {
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
     }
+
+    public boolean isRetryableFailure() { return retryableFailure; }
+    public void setRetryableFailure(boolean retryableFailure) { this.retryableFailure = retryableFailure; }
 
     public String getResponseStatus() {
         return responseStatus;
@@ -146,13 +172,16 @@ public class ReplayQueryResult {
         this.rawPointCount += other.rawPointCount;
         this.validPointCount += other.validPointCount;
         this.parseErrorCount += other.parseErrorCount;
+        this.outsideRequestedTimePointCount += other.outsideRequestedTimePointCount;
         this.elapsedMs += other.elapsedMs;
         this.truncated = this.truncated || other.truncated;
         this.largeResult = this.largeResult || other.largeResult;
+        this.timeout = this.timeout || other.timeout;
         this.success = this.success || other.success;
         if (other.errorMessage != null) {
             this.errorMessage = other.errorMessage;
         }
+        this.retryableFailure = this.retryableFailure || other.retryableFailure;
         if (other.responseStatus != null) {
             this.responseStatus = other.responseStatus;
         }

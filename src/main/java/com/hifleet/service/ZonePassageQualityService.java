@@ -78,7 +78,7 @@ public class ZonePassageQualityService {
     @Value("${zone.passage.backfill.from-date:2025-01-01}")
     private String backfillFromDate;
 
-    @Value("${zone.passage.backfill.to-date:2026-07-01}")
+    @Value("${zone.passage.backfill.to-date:2026-08-10}")
     private String backfillToDate;
 
     @Value("${zone.passage.quality.samples-per-stratum:2}")

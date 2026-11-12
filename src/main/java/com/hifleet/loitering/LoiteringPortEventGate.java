@@ -1,0 +1,93 @@
+package com.hifleet.loitering;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.hifleet.domain.ShipBehaviorEvent;
+import com.hifleet.domain.ShipBehaviorTrace;
+import com.hifleet.trajectory.TrajectoryPoint;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+@Service
+public class LoiteringPortEventGate {
+    private final LoiteringPortSceneService sceneService;
+    private final LoiteringPortSceneProperties properties;
+    private final ThreadLocal<GateStats> stats = new ThreadLocal<GateStats>();
+    @Autowired public LoiteringPortEventGate(LoiteringPortSceneService sceneService,
+                                              LoiteringPortSceneProperties properties) {
+        this.sceneService = sceneService; this.properties = properties;
+    }
+    public List<ShipBehaviorTrace> filterAndAnnotate(List<ShipBehaviorTrace> traces) {
+        LoiteringPortSceneSnapshot snapshot = sceneService.requireSnapshot();
+        if (traces == null || traces.isEmpty()) { stats.set(new GateStats()); return Collections.emptyList(); }
+        List<ShipBehaviorTrace> passed = new ArrayList<ShipBehaviorTrace>(); GateStats value = new GateStats();
+        for (ShipBehaviorTrace trace : traces) { value.rawCandidateCount++; if (evaluate(trace, snapshot)) { passed.add(trace); value.scenePassCount++; } else value.sceneRejectedCount++; }
+        stats.set(value); return passed;
+    }
+    public void requirePassed(List<ShipBehaviorTrace> traces) {
+        LoiteringPortSceneSnapshot snapshot = sceneService.requireSnapshot();
+        if (traces == null) return;
+        for (ShipBehaviorTrace trace : traces) if (trace != null && trace.getEvent() != null
+                && ShipBehaviorEvent.TYPE_LOITERING.equals(trace.getEvent().getBehaviorType())
+                && trace.getEvent().getRuleVersion() != null
+                && trace.getEvent().getRuleVersion().startsWith("LOITERING_V2_INSURANCE_SCENE_")
+                && !isPassed(trace.getEvent(), snapshot))
+            throw new IllegalStateException("LOITERING_PORT_SCENE formal write rejected: missing valid PASS evidence");
+    }
+    public GateStats getLastStats() { GateStats value=stats.get(); return value == null ? new GateStats() : value; }
+    private boolean evaluate(ShipBehaviorTrace trace, LoiteringPortSceneSnapshot snapshot) {
+        ShipBehaviorEvent event = trace == null ? null : trace.getEvent();
+        if (event == null || !ShipBehaviorEvent.TYPE_LOITERING.equals(event.getBehaviorType())) return false;
+        List<TrajectoryPoint> points = trace.getOwnPoints(); int total=points == null ? 0 : points.size(), approach=0, operational=0, anchor=0, below=0;
+        double min=Double.POSITIVE_INFINITY, sum=0.0; List<Double> speeds=new ArrayList<Double>();
+        for (TrajectoryPoint point : points == null ? Collections.<TrajectoryPoint>emptyList() : points) {
+            boolean low=point == null || !point.isSpeedValid() || point.getSpeed() < properties.getMinSpeed();
+            if (low) { below++; continue; }
+            min=Math.min(min, point.getSpeed()); sum+=point.getSpeed(); speeds.add(point.getSpeed());
+            LoiteringPortSceneSnapshot.Match match=snapshot.match(point.getLon(), point.getLat(), properties.getMaxDistanceNm());
+            if (match.isOperational()) operational++; if (match.isAnchor()) anchor++; if (match.isWithinPortApproach()) approach++;
+        }
+        LoiteringPortSceneSnapshot.Match center=event.getCenterLon()==null || event.getCenterLat()==null ? null
+                : snapshot.match(event.getCenterLon(), event.getCenterLat(), properties.getMaxDistanceNm());
+        double coverage=total == 0 ? 0.0 : (double) approach / total;
+        Collections.sort(speeds); double median=speeds.isEmpty() ? Double.NaN : speeds.get((speeds.size()-1)/2);
+        boolean accepted=total>0 && operational==0 && anchor==0 && below==0
+                && center != null && center.isBehaviorEligible();
+        annotate(event, snapshot, center, total, approach, operational, anchor, below, min, sum, speeds.size(), median, coverage, accepted);
+        return accepted;
+    }
+    private boolean isPassed(ShipBehaviorEvent event, LoiteringPortSceneSnapshot snapshot) {
+        try { JSONObject root=JSON.parseObject(event.getScoreDetailJson()); return root != null && "PASS".equals(root.getString("loiteringSceneDecision"))
+                && snapshot.getFingerprint().equals(root.getString("loiteringSceneFingerprint")); }
+        catch (Exception ex) { return false; }
+    }
+    private void annotate(ShipBehaviorEvent event, LoiteringPortSceneSnapshot snapshot, LoiteringPortSceneSnapshot.Match center,
+                          int total, int approach, int operational, int anchor, int below, double min, double sum, int speedCount,
+                          double median, double coverage, boolean accepted) {
+        JSONObject detail; try { detail=StringUtils.isBlank(event.getScoreDetailJson()) ? new JSONObject(true) : JSON.parseObject(event.getScoreDetailJson()); }
+        catch (Exception ex) { detail=new JSONObject(true); }
+        detail.put("loiteringSceneDecision", accepted ? "PASS" : "REJECTED"); detail.put("loiteringSceneVersion", event.getRuleVersion());
+        detail.put("loiteringSceneFingerprint", snapshot.getFingerprint()); detail.put("portApproachMaxDistanceNm", properties.getMaxDistanceNm());
+        detail.put("portApproachEvidenceCount", approach); detail.put("totalEvidenceCount", total); detail.put("portApproachEvidenceCoverage", coverage);
+        detail.put("portOperationalEvidenceCount", operational); detail.put("anchorEvidenceCount", anchor); detail.put("belowMinSpeedEvidenceCount", below);
+        detail.put("minSog", speedCount == 0 ? null : min); detail.put("avgSog", speedCount == 0 ? null : sum / speedCount); detail.put("medianSog", speedCount == 0 ? null : median);
+        detail.put("eventCenterInsideEligiblePortApproach", center != null && center.isEligible());
+        if (center != null) { detail.put("sceneType", center.getSceneType()); detail.put("insidePortOperational", center.isOperational()); detail.put("insideAnchorage", center.isAnchor()); detail.put("nearestPortId", center.getNearestPortId()); detail.put("nearestPortName", center.getNearestPortName()); detail.put("distanceToNearestPortNm", center.getDistanceToPortBoundaryNm()); detail.put("distanceToPortBoundaryNm", center.getDistanceToPortBoundaryNm()); detail.put("distanceToPortCentroidNm", center.getDistanceToPortCentroidNm()); detail.put("distanceBucket", distanceBucket(center.getDistanceToPortBoundaryNm())); detail.put("behaviorPattern", behaviorPattern(event)); detail.put("insuranceRiskInterpretation", interpretation(event, center.getSceneType())); }
+        List<String> reasons=new ArrayList<String>();
+        if (accepted) reasons.add("LOITERING_" + (center == null ? "SCENE_UNKNOWN" : center.getSceneType()) + "_PASS"); else {
+            if (below > 0) reasons.add("LOITERING_BELOW_MIN_SPEED_REJECTED"); if (operational > 0) reasons.add("LOITERING_INSIDE_PORT_OPERATIONAL_REJECTED");
+            if (anchor > 0) reasons.add("LOITERING_INSIDE_ANCHORAGE_REJECTED");
+        }
+        detail.put("reasonCodes", reasons); event.setScoreDetailJson(detail.toJSONString());
+    }
+    private String distanceBucket(double distance) { if (distance <= 3) return "0~3nm"; if (distance <= 5) return "3~5nm"; if (distance <= 10) return "5~10nm"; if (distance <= 30) return "10~30nm"; if (distance <= 100) return "30~100nm"; return ">100nm"; }
+    private String behaviorPattern(ShipBehaviorEvent event) { String subtype = event.getEventSubType(); if ("SLOW_LOITERING".equals(subtype)) return "SLOW_HOLDING"; if ("MANEUVER_LOITERING".equals(subtype)) return "MANEUVER_LOITERING"; if ("COMPOSITE_LOITERING".equals(subtype)) return "COMPOSITE_LOITERING"; return "WEAK_CANDIDATE"; }
+    private String interpretation(ShipBehaviorEvent event, String sceneType) { if ("PORT_APPROACH".equals(sceneType)) return "PORT_APPROACH_WAITING_OR_EVASIVE_MANEUVER_REVIEW"; if (event.getAisGapCount() != null && event.getAisGapCount() > 0) return "OFFSHORE_LOITERING_WITH_AIS_ANOMALY"; return "OFFSHORE_LOITERING_REVIEW"; }
+    public static final class GateStats { private int rawCandidateCount, scenePassCount, sceneRejectedCount;
+        public int getRawCandidateCount() { return rawCandidateCount; } public int getScenePassCount() { return scenePassCount; } public int getSceneRejectedCount() { return sceneRejectedCount; } }
+}

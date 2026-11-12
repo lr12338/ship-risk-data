@@ -1,6 +1,7 @@
 target/
 dist/
 *.tar.gz
+.DS_Store
 .idea/
 *.iml
 .classpath
@@ -8,3 +9,18 @@ dist/
 .settings/
 logs/
 *.log
+var/maritime-scene-data
+tmp/
+world_sea.sql
+__pycache__/
+.pytest_cache/
+.venv/
+
+# Local evidence, delivery data and private configuration
+/var/
+/outputs/
+/0902/
+/application.properties
+/application-*.properties
+/.env
+/.env.local

@@ -78,7 +78,8 @@ public class AlongsideV3HistoryTestService {
 
         while (total.shipsTotal < params.getShipLimit()) {
             int pageSize = Math.min(params.getBatchSize(), params.getShipLimit() - total.shipsTotal);
-            List<ShipForm> ships = ais41GeneralQueryRepository.selectRecentShipsPage(lastMmsi, pageSize);
+            List<ShipForm> ships = ais41GeneralQueryRepository.selectRecentShipsPage(
+                    lastMmsi, pageSize, params.getStartTime());
             if (ships == null || ships.isEmpty()) {
                 break;
             }

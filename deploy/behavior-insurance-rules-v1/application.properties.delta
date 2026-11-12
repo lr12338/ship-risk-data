@@ -1,0 +1,17 @@
+ship.behavior.scene.port-approach-distance-nm=10.0
+
+ship.behavior.loitering.rule-version=LOITERING_V2_INSURANCE_SCENE_V1
+ship.behavior.loitering.min-speed=1.0
+ship.behavior.loitering.split-below-min-speed=true
+ship.behavior.loitering.port-approach.required=false
+ship.behavior.loitering.offshore.enabled=true
+ship.behavior.loitering.port-operational.exclude=true
+ship.behavior.loitering.anchor.exclude=true
+ship.behavior.loitering.weak.enabled=true
+ship.behavior.loitering.weak.store-enabled=false
+ship.behavior.loitering.scene.fail-closed=true
+ship.behavior.loitering.scene-data.available=true
+
+ship.behavior.alongside.rule-version=ALONGSIDE_V3_INSURANCE_SCENE_V2
+ship.behavior.alongside.scene-data.available=true
+ship.behavior.alongside.replay.bbox-buffer-nm=1.0

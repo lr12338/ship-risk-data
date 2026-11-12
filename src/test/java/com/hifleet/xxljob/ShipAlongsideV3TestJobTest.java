@@ -66,6 +66,7 @@ public class ShipAlongsideV3TestJobTest {
 
         assertEquals(ReturnT.SUCCESS_CODE, result.getCode());
         assertEquals(Collections.singletonList("413000002"), analysisService.processedMmsis);
+        assertEquals("2025-01-01 00:00:00", shipRepository.updatedAfter);
         assertFalse(analysisService.enableInsertValues.get(0));
         assertTrue(result.getMsg().contains("shipsSkipped=1"));
     }
@@ -132,6 +133,7 @@ public class ShipAlongsideV3TestJobTest {
     private static class FakeShipRepository extends AIS41GeneralQueryRepository {
         private final List<String> mmsis;
         private int pageCalls;
+        private String updatedAfter;
 
         FakeShipRepository(String... mmsis) {
             this.mmsis = new ArrayList<String>();
@@ -139,8 +141,9 @@ public class ShipAlongsideV3TestJobTest {
         }
 
         @Override
-        public List<ShipForm> selectRecentShipsPage(String lastMmsi, int limit) {
+        public List<ShipForm> selectRecentShipsPage(String lastMmsi, int limit, String updatedAfter) {
             pageCalls++;
+            this.updatedAfter = updatedAfter;
             List<ShipForm> result = new ArrayList<ShipForm>();
             long cursor = Long.parseLong(lastMmsi);
             for (String mmsi : mmsis) {
